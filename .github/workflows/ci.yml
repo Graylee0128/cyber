@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Unit and contract tests
+        run: python -m pytest -q
+
+      # 時鐘檢查在 CI 只有 runner 自己一個節點，但這一步存在是為了證明
+      # CLI 的退出碼真的會傳播 —— 檢查壞掉時 CI 必須紅。
+      - name: Clock sync check
+        run: python -m purple.clock.cli
+
+  # 這個 job 的唯一目的：證明上面的檢查會紅。
+  # 一個從不會紅的 CI，比沒有 CI 更糟（同 02a 對測試載具的要求）。
+  clock-check-can-fail:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: A node that cannot be read must fail the check
+        run: |
+          cat > /tmp/red.yaml <<'EOF'
+          threshold_ms: 100
+          reference: checker-host
+          nodes:
+            - name: checker-host
+              probe: local
+            - name: ghost
+              probe: docker
+              container: does-not-exist
+          EOF
+          if python -m purple.clock.cli --config /tmp/red.yaml; then
+            echo "::error::時鐘檢查對讀不到的節點回報成功 —— 檢查已經失效"
+            exit 1
+          fi
+          echo "檢查如預期失敗"
+
+      - name: A broken config must fail the check
+        run: |
+          if python -m purple.clock.cli --config /tmp/does-not-exist.yaml; then
+            echo "::error::缺少設定檔卻回報成功 —— 檢查已經失效"
+            exit 1
+          fi
+          echo "檢查如預期失敗"

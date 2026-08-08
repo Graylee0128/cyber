@@ -12,6 +12,20 @@ Gamified Red-Blue-Purple 攻防訓練平台。不是 observability lab，也不�
 - Step 0 對外契約已定版 → [.scratch/p1-output-contract/spec.md](./.scratch/p1-output-contract/spec.md)
 - 執行導覽 → [.scratch/p1-output-contract/map.md](./.scratch/p1-output-contract/map.md)
 - 13 張票 → [.scratch/p1-output-contract/issues/](./.scratch/p1-output-contract/issues/)
+- 票 01（時間同步基準線）**已完成**，下一張是 02a
+
+## 開發
+
+Python 3.12＋，pytest。
+
+```bash
+pip install -e ".[dev]"     # src/ layout，暫無 venv 策略（由票 02a 決定）
+python -m pytest            # 全部測試
+python -m purple.clock.cli  # 時鐘同步檢查，退出碼 0/1/2
+```
+
+節點清單在 [config/clock-nodes.yaml](./config/clock-nodes.yaml)。**每加一個遙測來源就要加一個節點** ——
+沒列進來的節點不會被檢查，而不被檢查的時鐘遲早會漂。
 
 ## 文件入口
 

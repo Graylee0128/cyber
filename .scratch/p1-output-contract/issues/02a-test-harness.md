@@ -18,7 +18,8 @@
 
 語言已定為 **Python**（見 map.md Decisions）。以下四項在做這張票時一次決定，結論回寫 map.md，**不另寫 spec** —— 是實作選型不是契約：
 
-- [ ] 測試框架與執行指令
+- [x] 測試框架與執行指令 —— **票 01 已定**：pytest ＋ `src/` layout，`python -m pytest`。本票只需沿用
 - [ ] 本機環境起法（`docker-compose.yml` 落在哪、起哪些服務）
+- [ ] **venv 策略** —— 票 01 用 `pip install -e .` 裝進 user site-packages，沒有 venv。這是暫時的，本票要定
 - [ ] Core Event 的「自有儲存」是什麼（檔案／SQLite／Postgres）—— 03 依賴此決定
 - [ ] Receiver 的 HTTP 框架與 port

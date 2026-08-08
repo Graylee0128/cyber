@@ -1,0 +1,30 @@
+[project]
+name = "purple-platform"
+version = "0.1.0"
+description = "Purple Platform P1 — Telemetry & Detection Pipeline"
+requires-python = ">=3.12"
+dependencies = [
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+clock-check = "purple.clock.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "environment: 對真實環境斷言，不是 red-green-refactor（見 map.md 測試性質分級）",
+]
