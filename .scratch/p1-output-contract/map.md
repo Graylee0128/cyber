@@ -57,6 +57,17 @@
 **三條決定性測試在程式碼／邏輯層全綠。** P1 的架構決策（D1、source registry、
 agent pull 單向）都已被可執行的斷言證明，不只是文件宣稱。
 
+## 部署測試（CD，2026-08-08 補上）
+
+`integration.yml` + `docker-compose.yml` 全棧：真 SQLi → app log → Alloy → Loki →
+Grafana（唯一 alert engine，eval 10s）→ webhook → receiver → Core Event，
+CI 綠（`1 passed`）。這是 02b/03 的**真實端到端版本**，補上原本只有單元/契約 CI 的缺口。
+
+- 單元/契約 job：`pytest -m "not integration"`（PG service container）
+- 部署 job：`docker compose up --wait` → `pytest -m integration` → down
+- 同一全棧日後可加真 metric E2E（10）與真 Loki retention E2E（11）
+- Falco（08）、四區網段（12/#13）仍需真 infra，compose 無法涵蓋
+
 ## 測試性質分級
 
 不裝作每張票都能 red-green-refactor：

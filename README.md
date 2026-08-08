@@ -30,6 +30,21 @@ python -m purple.clock.cli   # 時鐘同步檢查，退出碼 0/1/2
 不想自動起就設 `PURPLE_AUTO_COMPOSE=0`，或用 `PURPLE_PG_DSN` 指向既有 PG。
 **沒有 PG 也沒有 Docker，測試一條都跑不了** —— 這是不分層的代價。
 
+### 兩種測試
+
+| 種類 | 指令 | 需要什麼 | CI |
+|---|---|---|---|
+| 單元／契約 | `pytest -m "not integration"` | 只要 PostgreSQL | `ci.yml`（PG service container）|
+| 部署 E2E | `docker compose up -d --build --wait` 後 `pytest -m integration` | docker compose 全棧 | `integration.yml` |
+
+部署測試起 **vulnerable-app + Alloy + Loki + Grafana + Prometheus + receiver + postgres**，
+打真 SQLi，驗證走完整條管線：
+**SQLi → app log → Alloy → Loki → Grafana（唯一 alert engine，eval 10s）→ webhook
+→ receiver → Core Event**。這是 02b/03 契約測試的真實版本（不再手餵 webhook）。
+
+四區 VLAN／macvlan／6 台 kali 的網段拓樸 compose 無法忠實模擬，仍屬
+workstream 6 / [#13](https://github.com/Graylee0128/cyber/issues/13)。
+
 節點清單在 [config/clock-nodes.yaml](./config/clock-nodes.yaml)。**每加一個遙測來源就要加一個節點** ——
 沒列進來的節點不會被檢查，而不被檢查的時鐘遲早會漂。
 
