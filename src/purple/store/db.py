@@ -51,6 +51,14 @@ CREATE TABLE IF NOT EXISTS alert_records (
     backend      text        NOT NULL,
     recorded_at  timestamptz NOT NULL DEFAULT now()
 );
+
+-- 一個 Grafana 告警的 firing 與 resolved 帶同一個 fingerprint。把 fingerprint
+-- 對映到單一 event_id，resolved 才能和 firing 共用同一個 event_id（spec §2.2、票 05）。
+CREATE TABLE IF NOT EXISTS alert_fingerprints (
+    fingerprint text        PRIMARY KEY,
+    event_id    text        NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now()
+);
 """
 
 
@@ -68,4 +76,4 @@ def ensure_schema(conn: psycopg.Connection) -> None:
 
 def truncate_all(conn: psycopg.Connection) -> None:
     """測試之間清空。TRUNCATE 而非 DROP —— 保留 schema，快得多。"""
-    conn.execute("TRUNCATE core_events, alert_records")
+    conn.execute("TRUNCATE core_events, alert_records, alert_fingerprints")

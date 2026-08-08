@@ -32,12 +32,14 @@ def ingest_alert(
     records: Any,
     adapter: CoreEventAdapter | None = None,
     blocker: Blocker | None = None,
+    fingerprints: Any = None,
 ) -> list[str]:
     """把一個 Grafana webhook 轉成 Core Event，回傳鑄造出的 event_id 清單。
 
     每筆 alert：
       1. 決定 lifecycle；pending 之類不產生事件（spec §2.2）
-      2. 鑄造 event_id
+      2. 取得 event_id：有 fingerprint index 時，firing 與 resolved 依 fingerprint
+         共用同一個 event_id（票 05）；否則每筆獨立鑄造
       3. **先**寫 Alert Record
       4. **再**發 Core Event 到 P1 儲存
       5. 外送給下游（可插拔 adapter）
@@ -52,7 +54,7 @@ def ingest_alert(
         if lifecycle is None:
             continue  # pending 等內部狀態不是遊戲語意
 
-        event_id = mint_event_id()
+        event_id = _event_id_for(alert, fingerprints)
 
         # 先在記憶體裡建 Core Event（會驗白名單）。白名單外的 technique 在此被擋，
         # 記錄後跳過 —— 不得靜默通過，也不會留下孤兒 Alert Record。
@@ -73,3 +75,11 @@ def ingest_alert(
         emitted.append(event_id)
 
     return emitted
+
+
+def _event_id_for(alert: dict[str, Any], fingerprints: Any) -> str:
+    """有 fingerprint index 且 alert 帶 fingerprint 時，firing／resolved 共用同一 id。"""
+    fp = alert.get("fingerprint")
+    if fingerprints is not None and fp:
+        return fingerprints.assign(fp)
+    return mint_event_id()
