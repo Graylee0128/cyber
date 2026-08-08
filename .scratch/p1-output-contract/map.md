@@ -114,6 +114,13 @@ agent pull 單向）都已被可執行的斷言證明，不只是文件宣稱。
 - **venv＝`.venv` ＋ `pip install -e ".[dev]"`**（票 01 暫裝進 user site-packages 的債還掉）
 - **receiver 的 HTTP 框架與 port** —— **暫緩**，02a 用不到，留給 #4 定
 
+## 環境收尾（Workstream 6）
+
+P1 軟體到位後，剩下的都需要真實執行環境（真網段隔離、真 Falco、真 OTLP collector）。
+**#13 已改寫成 Workstream 6 kickoff 兼環境驗收匯流點**，把 #9（Falco）、#11（OTLP）、
+#12（Loki retention）、#12 本身（拓樸）的「待真 infra 驗收項」彙整成一份 checklist。
+WS6 現況：零實作，只有 SA §12 設計 + `scripts/verify_topology.py` 驗收工具。
+
 ## Fog
 
 尚未有答案，會影響後續但不阻塞 P1：
