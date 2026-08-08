@@ -1,0 +1,24 @@
+# Technique 白名單（spec §5、ADR ⑤）。
+#
+# 單一檔案，scenario 定義時固定。Grafana rule label 與紅隊動作註冊清單
+# **共用同一份** —— 兩邊對不起來，coverage 表就永遠算不平。
+#
+# 層級必須統一：不可一邊 T1190、另一邊 T1190.001。父技術與其子技術不可同時出現，
+# 否則 coverage 會重複計數（載入時會擋下）。
+#
+# `note` 承載判讀限制，Console 顯示 technique 時一併呈現。
+
+techniques:
+  - id: T1190
+    name: Exploit Public-Facing Application
+    tactic: initial-access
+  - id: T1078
+    name: Valid Accounts
+    tactic: initial-access
+  - id: T1110
+    name: Brute Force
+    tactic: credential-access
+    note: 需與成功登入證據連結後，才可敘述成入侵路徑
+  - id: T1059
+    name: Command and Scripting Interpreter
+    tactic: execution

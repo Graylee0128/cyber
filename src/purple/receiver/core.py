@@ -13,6 +13,7 @@ import uuid
 from typing import Any
 
 from purple.harness.schema import assert_core_event, expected_visibility
+from purple.receiver.whitelist import Whitelist, check_technique
 
 #: Grafana webhook 的 alert status → Core Event lifecycle。
 #: `pending` 不在表內 → 不產生 Core Event（spec §2.2）。
@@ -35,14 +36,25 @@ def lifecycle_of(alert: dict[str, Any]) -> str | None:
     return LIFECYCLE_BY_STATUS.get(alert.get("status", ""))
 
 
-def build_core_event(alert: dict[str, Any], event_id: str, lifecycle: str) -> dict[str, Any]:
+def build_core_event(
+    alert: dict[str, Any],
+    event_id: str,
+    lifecycle: str,
+    whitelist: Whitelist | None = None,
+) -> dict[str, Any]:
     """組出符合契約的 Core Event。
 
     visibility 由 `event_type` 對照表決定，**忽略** rule 自帶的 visibility label ——
     否則寫規則的人就能決定紅隊看得到什麼（spec §2.4）。
+
+    technique 必須在白名單內，否則拋 `TechniqueRejected`（ADR ⑤）——
+    白名單外的值不得靜默通過，由呼叫端記錄。
     """
     labels = alert["labels"]
     event_type = labels["event_type"]
+
+    # 白名單治理：不合法的 technique 在離開 core 前就被擋，且是可觀察的例外。
+    check_technique(labels["technique"], whitelist)
 
     event = {
         "event_id": event_id,

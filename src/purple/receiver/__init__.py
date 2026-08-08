@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from purple.receiver.adapters import CoreEventAdapter, NoopAdapter
@@ -16,9 +17,12 @@ from purple.receiver.core import (
     lifecycle_of,
     mint_event_id,
 )
+from purple.receiver.whitelist import TechniqueRejected
 from purple.response.direct_block import Blocker, DirectIpsetBlocker
 
 __all__ = ["ingest_alert"]
+
+log = logging.getLogger("purple.receiver")
 
 
 def ingest_alert(
@@ -50,10 +54,16 @@ def ingest_alert(
 
         event_id = mint_event_id()
 
-        # 順序不可顛倒：Alert Record 先落地，Core Event 才有可對接的遙測細節。
-        records.write(build_alert_record(alert, event_id))
+        # 先在記憶體裡建 Core Event（會驗白名單）。白名單外的 technique 在此被擋，
+        # 記錄後跳過 —— 不得靜默通過，也不會留下孤兒 Alert Record。
+        try:
+            core = build_core_event(alert, event_id, lifecycle)
+        except TechniqueRejected as exc:
+            log.warning("拒收 alert：%s（rule=%s）", exc, alert.get("labels", {}).get("alertname"))
+            continue
 
-        core = build_core_event(alert, event_id, lifecycle)
+        # 落地順序不可顛倒：Alert Record 先寫，Core Event 才有可對接的遙測細節（spec §2.5）。
+        records.write(build_alert_record(alert, event_id))
         events.append(core)
         adapter.deliver(core)
 
