@@ -1,10 +1,12 @@
 apiVersion: 1
 
 # 全部路由到 receiver。group_wait 0s：部署測試要快，不等聚合。
+# repeat_interval 15s（不是預設的長間隔）：持續 firing 的告警要一直重送 webhook，
+# lifecycle 測試才能在告警已 firing 的狀態下也收到 firing 事件（否則只有初次轉態才通知）。
 policies:
   - orgId: 1
     receiver: purple-receiver
     group_by: ["alertname"]
     group_wait: 0s
     group_interval: 10s
-    repeat_interval: 1h
+    repeat_interval: 15s

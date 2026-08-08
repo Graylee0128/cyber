@@ -35,10 +35,16 @@ def events(pg_connection):
 
 
 def _normal_login(username: str = "alice") -> None:
+    """打一次正常登入。app 對登入失敗回 401 —— urlopen 會把 4xx 當例外拋，
+    這裡吞掉：請求送達就算數（與 inject_sqli 對 4xx 的處理一致）。"""
+    import urllib.error
     import urllib.request
 
-    with urllib.request.urlopen(f"{APP_URL}/login?username={username}", timeout=5) as r:
-        r.read()
+    try:
+        with urllib.request.urlopen(f"{APP_URL}/login?username={username}", timeout=5) as r:
+            r.read()
+    except urllib.error.HTTPError:
+        pass  # 401 = 送達了但登入失敗，正是預期
 
 
 def test_normal_login_does_not_trigger_sqli_detection(events):
