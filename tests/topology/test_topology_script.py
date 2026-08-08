@@ -13,15 +13,24 @@ from purple.topology_check import (  # 由腳本邏輯抽出的可測部分
 )
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "verify_topology.py"
+MODULE = Path(__file__).resolve().parents[2] / "src" / "purple" / "topology_check.py"
 
 
 def test_script_exists():
     assert SCRIPT.exists()
 
 
-def test_script_covers_the_four_contracts_and_kali():
+def test_logic_covers_the_three_contract_checks():
+    """契約1/2/3 的判定住在可匯入的 topology_check 模組。"""
+    text = MODULE.read_text(encoding="utf-8")
+    for marker in ("契約1", "契約2", "契約3"):
+        assert marker in text, f"topology_check 沒涵蓋 {marker}"
+
+
+def test_script_mentions_collectors_and_kali():
+    """collector 位置與六台 kali 可分辨性在 CLI 說明中被涵蓋。"""
     text = SCRIPT.read_text(encoding="utf-8")
-    for marker in ("契約1", "契約2", "契約3", "collector", "kali"):
+    for marker in ("collector", "kali"):
         assert marker in text, f"腳本沒涵蓋 {marker}"
 
 
