@@ -1,0 +1,16 @@
+# Grafana 統一告警的 provisioning。
+#
+# eval interval = 10s（票 03、spec §1）。這是 MTTD 的地板：告警最快也要
+# 等一個 eval 週期才會 firing。設 10s 是「夠快看得出偵測缺口」與「不把
+# Grafana 打爆」之間的取捨。改這個值＝改 MTTD 地板，改前先讀 ADR 0001 §5.3。
+#
+# 環境（Grafana 容器）屬 workstream 6，尚未建置。這份檔案先定版，屆時掛上即用。
+
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: purple-detection
+    folder: PurpleScope
+    interval: 10s
+    rules: []  # 實際規則隨 scenario 加入（#8 起）

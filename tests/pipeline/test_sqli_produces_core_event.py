@@ -10,7 +10,7 @@ map.md 已把 02b／03 列為契約測試（只能對管路行為斷言）。真
 
 from __future__ import annotations
 
-import pytest
+import pytest  # noqa: F401  (fixture 使用)
 
 from purple.harness import assert_core_event, wait_for_event
 from purple.receiver import ingest_alert
@@ -52,9 +52,6 @@ def stores(pg_connection):
     return CoreEventStore(pg_connection), AlertRecordStore(pg_connection)
 
 
-# 票 02b 刻意紅著交票，但 master 的 CI 不該因此變紅。strict xfail 讓「現在會失敗」
-# 成為被斷言的事實；票 03 實作 receiver 後移除此標記，屆時它會轉為 XPASS 提醒移除。
-@pytest.mark.xfail(reason="02b: receiver 尚未實作，票 03 讓它變綠", strict=True)
 def test_sqli_produces_core_event(stores):
     events, records = stores
     mark = events.now()
