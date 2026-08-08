@@ -1,0 +1,20 @@
+// Alloy：讀靶機寫到共享磁碟的 app.log，推進 Loki。
+// collector 在 target 側（部署測試裡即此容器），符合跨世代契約。
+
+local.file_match "app" {
+  path_targets = [{
+    __path__ = "/var/log/app/app.log",
+    app      = "vulnerable-app",
+  }]
+}
+
+loki.source.file "app" {
+  targets    = local.file_match.app.targets
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

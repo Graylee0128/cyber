@@ -1,10 +1,14 @@
-# 本機開發環境。CI 用 GitHub Actions 的 service container，設定必須與此一致。
+# 本機 / CI 的部署測試全棧（log 管線）。
 #
-# 服務名 = source registry 的來源 id（spec §3.3）——「沒裝」與「掉線」要分得開，
-# 靠的就是名字對得起來。
+# 真實鏈路：vulnerable-app 寫 log → Alloy 讀 → Loki → Grafana（唯一 alert engine，
+# eval 10s）→ webhook → P1 receiver → PostgreSQL 的 Core Event / Alert Record。
+# 外加 Prometheus 走 metric 路徑。
 #
-# 目前只有 postgres。Loki / Grafana / Alloy / Falco / 靶機等到 #4 真的要用時再加，
-# 不預先擺一堆起不來的服務。
+# 服務名 = source registry 的來源 id（spec §3.3）。單一指令 `docker compose up`
+# 本機與 CI 一致（票 02a 的驗收條件）。
+#
+# 注意：這裡沒有四區 VLAN / macvlan / 6 台 kali 的網段拓樸 —— 那需要真網段
+# （workstream 6 / issue #13），compose bridge network 無法忠實模擬。
 
 services:
   postgres:
@@ -20,5 +24,95 @@ services:
       interval: 2s
       timeout: 3s
       retries: 15
-    # 開發環境刻意不掛 volume：測試資料丟掉沒差，重來反而乾淨。
-    # 要保留資料時自行加 volume，並記得 .gitignore 已擋掉 data/ 與 volumes/。
+
+  vulnerable-app:
+    build:
+      context: .
+      dockerfile: deploy/vulnerable-app/Dockerfile
+    environment:
+      APP_LOG_PATH: /var/log/app/app.log
+    ports:
+      - "8080:8080"
+    volumes:
+      - applogs:/var/log/app
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8080/healthz')\""]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+
+  loki:
+    image: grafana/loki:3.1.1
+    command: ["-config.file=/etc/loki/loki-config.yaml"]
+    volumes:
+      - ./deploy/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+    ports:
+      - "3100:3100"
+    # 沒有 healthcheck：loki 映像是精簡 base，無 shell/wget，CMD-SHELL 會永遠失敗。
+    # 就緒性交給下游重試與 E2E 測試的寬裕等待窗吸收。
+
+  alloy:
+    image: grafana/alloy:v1.4.2
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --server.http.listen-addr=0.0.0.0:12345
+    volumes:
+      - ./deploy/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - applogs:/var/log/app:ro
+    depends_on:
+      loki:
+        condition: service_started
+      vulnerable-app:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      vulnerable-app:
+        condition: service_healthy
+
+  receiver:
+    build:
+      context: .
+      dockerfile: deploy/receiver/Dockerfile
+    environment:
+      PURPLE_PG_DSN: postgresql://purple:purple@postgres:5432/purple
+      PURPLE_RECEIVER_PORT: "8000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/healthz')\""]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_UNIFIED_ALERTING_ENABLED: "true"
+      GF_ALERTING_ENABLED: "false"
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      loki:
+        condition: service_started
+      receiver:
+        condition: service_healthy
+      prometheus:
+        condition: service_started
+
+volumes:
+  applogs:

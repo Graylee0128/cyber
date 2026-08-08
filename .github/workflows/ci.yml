@@ -45,7 +45,8 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Unit and contract tests
-        run: python -m pytest -q
+        # integration 全棧測試在 integration.yml 跑（需要 docker compose）
+        run: python -m pytest -q -m "not integration"
 
       # 時鐘檢查在 CI 只有 runner 自己一個節點，但這一步存在是為了證明
       # CLI 的退出碼真的會傳播 —— 檢查壞掉時 CI 必須紅。

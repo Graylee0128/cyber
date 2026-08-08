@@ -28,4 +28,5 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
     "environment: 對真實環境斷言，不是 red-green-refactor（見 map.md 測試性質分級）",
+    "integration: 需要 docker compose 全棧（Loki/Grafana/Alloy/…），只在 integration workflow 跑",
 ]
