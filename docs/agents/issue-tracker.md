@@ -1,32 +1,56 @@
-# Issue tracker: Local Markdown
+# Issue tracker: GitHub Issues
 
-Issues and specs (you may know a spec as a PRD) for the `cyber/` scope live as markdown files in `cyber/.scratch/`.
+Issues for the `cyber/` scope live in **GitHub Issues** on `Graylee0128/cyber`, driven with the `gh` CLI.
+
+遷移自本地 markdown（2026-08-08）。`.scratch/<feature>/issues/` 已刪除；舊內容在 git 歷史裡。
 
 This is a directory-scoped tracker. It is separate from the workspace-level tracker at the repo root (`docs/agents/issue-tracker.md`) — work on the 資安攻防平台 / Cyber Range product belongs here.
 
+## 仍留在檔案裡的東西
+
+Issue 搬走了，**spec 與 map 沒有**：
+
+| 東西 | 位置 | 為什麼不搬 |
+|---|---|---|
+| Spec | `.scratch/<feature>/spec.md` | 契約要能被 diff、被 PR review、跟程式碼一起版控 |
+| Map | `.scratch/<feature>/map.md` | 依賴圖與 Decisions-so-far 是一份敘事，拆成 issue 會散掉 |
+| ADR | `docs/adr/` | 同上 |
+
+Map 以 issue 編號（`#N`）指向 GitHub，不再指向本地檔案。
+
 ## Conventions
 
-- One feature per directory: `cyber/.scratch/<feature-slug>/`
-- The spec is `cyber/.scratch/<feature-slug>/spec.md`
-- Implementation issues are one file per ticket at `cyber/.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01` — never a single combined tickets file
-- Triage state is recorded as a `Status:` line near the top of each issue file (see `triage-labels.md` for the role strings)
-- Comments and conversation history append to the bottom of the file under a `## Comments` heading
+- 一張票一個 issue，標題沿用 `NN — 標題` 形式
+- Triage state 用 label（見 `triage-labels.md`）
+- 依賴以內文的 `**Blocked by:** #N` 記錄 —— 本 repo 不使用 sub-issues
+- Issue 內文的檔案連結要用**絕對 URL**（`https://github.com/Graylee0128/cyber/blob/master/...`），相對路徑在 issue 頁面會壞掉
 
 ## When a skill says "publish to the issue tracker"
 
-Create a new file under `cyber/.scratch/<feature-slug>/` (creating the directory if needed).
+```bash
+gh issue create --title "<NN> — <標題>" --body-file <file> --label ready-for-agent
+```
+
+依賴順序建立（blocker 先），這樣後建的才引用得到真實編號。
 
 ## When a skill says "fetch the relevant ticket"
 
-Read the file at the referenced path. The user will normally pass the path or the issue number directly.
+```bash
+gh issue view <number> --json title,body,labels,comments
+```
 
-## Wayfinding operations
+## Frontier
 
-Used by `/wayfinder`. The **map** is a file with one **child** file per ticket.
+```bash
+gh issue list --label ready-for-agent --state open
+```
 
-- **Map**: `cyber/.scratch/<effort>/map.md` — the Notes / Decisions-so-far / Fog body.
-- **Child ticket**: `cyber/.scratch/<effort>/issues/NN-<slug>.md`, numbered from `01`, with the question in the body. A `Type:` line records the ticket type (`research`/`prototype`/`grilling`/`task`); a `Status:` line records `claimed`/`resolved`.
-- **Blocking**: a `Blocked by: NN, NN` line near the top. A ticket is unblocked when every file it lists is `resolved`.
-- **Frontier**: scan `cyber/.scratch/<effort>/issues/` for files that are open, unblocked, and unclaimed; first by number wins.
-- **Claim**: set `Status: claimed` and save before any work.
-- **Resolve**: append the answer under an `## Answer` heading, set `Status: resolved`, then append a context pointer (gist + link) to the map's Decisions-so-far in `map.md`.
+再逐一看內文的 `Blocked by`，取所有 blocker 都已 closed 的最小編號。
+
+## 完成一張票
+
+```bash
+gh issue close <number> --reason completed --comment "由 commit <sha> 完成，<驗證證據>"
+```
+
+留言要帶**證據**（測試數、CI 狀態、commit sha），不是「done」。未驗證的部分明寫，並指出由哪張票接手。

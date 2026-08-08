@@ -6,7 +6,7 @@
 
 ### Issue tracker
 
-Issue 與 spec 以 markdown 檔存於 `cyber/.scratch/<feature>/`（本地 markdown，不進 GitHub Issues）。見 `docs/agents/issue-tracker.md`。
+Issue 在 **GitHub Issues**（`Graylee0128/cyber`，`gh` CLI 操作）。**spec 與 map 仍留在 `.scratch/<feature>/`** —— 契約要跟程式碼一起版控。見 `docs/agents/issue-tracker.md`。
 
 ### Triage labels
 

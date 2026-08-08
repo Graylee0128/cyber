@@ -11,8 +11,8 @@ Gamified Red-Blue-Purple 攻防訓練平台。不是 observability lab，也不�
 
 - Step 0 對外契約已定版 → [.scratch/p1-output-contract/spec.md](./.scratch/p1-output-contract/spec.md)
 - 執行導覽 → [.scratch/p1-output-contract/map.md](./.scratch/p1-output-contract/map.md)
-- 13 張票 → [.scratch/p1-output-contract/issues/](./.scratch/p1-output-contract/issues/)
-- 票 01（時間同步基準線）**已完成**，下一張是 02a
+- 13 張票 → [GitHub Issues](https://github.com/Graylee0128/cyber/issues)
+- 票 01（時間同步基準線）**已完成**（[#1](https://github.com/Graylee0128/cyber/issues/1)），下一張是 02a（[#2](https://github.com/Graylee0128/cyber/issues/2)）
 
 ## 開發
 
@@ -64,4 +64,5 @@ python -m purple.clock.cli  # 時鐘同步檢查，退出碼 0/1/2
 
 ## 狀態
 
-Local-only repo，**刻意沒有 remote**。
+Remote：[Graylee0128/cyber](https://github.com/Graylee0128/cyber)，**private**。
+不在 `push-all-repos.sh` 的 `REPOS` 清單裡 —— 要納入請明講。

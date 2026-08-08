@@ -4,6 +4,10 @@
 - **決策與 trade-off**：[ADR 0001](../../docs/adr/0001-p1-output-contract.md)
 - **上位計畫**：[purple_platform_plan.md](../../purple_platform_plan.md)
 - **開發方式**：TDD
+- **票**：[GitHub Issues](https://github.com/Graylee0128/cyber/issues)（2026-08-08 自本地 markdown 遷入）
+
+> 本檔與 [spec.md](./spec.md) **刻意留在檔案裡** —— 契約與依賴敘事要能被 diff、
+> 跟程式碼一起版控。只有票搬去 GitHub。
 
 ## 依賴圖
 
@@ -26,19 +30,19 @@
 
 | # | 標題 | Blocked by | 核心紅燈 |
 |---|---|---|---|
-| [01](./issues/01-time-sync-baseline.md) | 時間同步基準線 | — | `clock_skew_under_100ms` |
-| [02a](./issues/02a-test-harness.md) | 測試載具 | 01 | 載具自身會紅 |
-| [02b](./issues/02b-first-red-test.md) | 第一條紅燈 | 02a | `sqli_produces_core_event`（刻意紅著交票） |
-| [03](./issues/03-sqli-to-core-event.md) | SQLi → Core Event | 02b | 上條轉綠 |
-| [04](./issues/04-receiver-pure-core.md) | Receiver pure core | 03 | `technique_outside_whitelist_rejected` 等四條 |
-| [05](./issues/05-alert-lifecycle.md) | Alert lifecycle | 03 | `resolved_shares_event_id_with_firing` |
-| [06](./issues/06-evidence-resolver.md) | Evidence resolver | 03 | `returns_context_window_not_single_line` |
-| [07](./issues/07-source-registry.md) | Source Registry 狀態機 | 03 | `expired_heartbeat_is_stale_not_absent` |
-| [08](./issues/08-falco-as-sensor.md) | Falco 作為 sensor | 03, 04 | `disabled_rule_shows_detection_gap` |
-| [09](./issues/09-response-agent-pull.md) | Response 閉環 agent pull | 03 | `agent_pulls_no_inbound_to_target` |
-| [10](./issues/10-prometheus-otlp-path.md) | Prometheus／OTLP 路徑 | 03, 04 | `metric_alert_produces_core_event` |
-| [11](./issues/11-raw-log-retention-window.md) | raw log 保留時段 | 03 | `raw_absent_outside_window` |
-| [12](./issues/12-topology-contract-verification.md) | 拓樸契約實測 | 03 | 四條契約腳本化 |
+| ~~[01 · #1](https://github.com/Graylee0128/cyber/issues/1)~~ **done** | 時間同步基準線 | — | 41 tests，CI 綠 |
+| [02a · #2](https://github.com/Graylee0128/cyber/issues/2) | 測試載具 | 01 | 載具自身會紅 |
+| [02b · #3](https://github.com/Graylee0128/cyber/issues/3) | 第一條紅燈 | 02a | `sqli_produces_core_event`（刻意紅著交票） |
+| [03 · #4](https://github.com/Graylee0128/cyber/issues/4) | SQLi → Core Event | 02b | 上條轉綠 |
+| [04 · #5](https://github.com/Graylee0128/cyber/issues/5) | Receiver pure core | 03 | `technique_outside_whitelist_rejected` 等四條 |
+| [05 · #6](https://github.com/Graylee0128/cyber/issues/6) | Alert lifecycle | 03 | `resolved_shares_event_id_with_firing` |
+| [06 · #7](https://github.com/Graylee0128/cyber/issues/7) | Evidence resolver | 03 | `returns_context_window_not_single_line` |
+| [07 · #8](https://github.com/Graylee0128/cyber/issues/8) | Source Registry 狀態機 | 03 | `expired_heartbeat_is_stale_not_absent` |
+| [08 · #9](https://github.com/Graylee0128/cyber/issues/9) | Falco 作為 sensor | 03, 04 | `disabled_rule_shows_detection_gap` |
+| [09 · #10](https://github.com/Graylee0128/cyber/issues/10) | Response 閉環 agent pull | 03 | `agent_pulls_no_inbound_to_target` |
+| [10 · #11](https://github.com/Graylee0128/cyber/issues/11) | Prometheus／OTLP 路徑 | 03, 04 | `metric_alert_produces_core_event` |
+| [11 · #12](https://github.com/Graylee0128/cyber/issues/12) | raw log 保留時段 | 03 | `raw_absent_outside_window` |
+| [12 · #13](https://github.com/Graylee0128/cyber/issues/13) | 拓樸契約實測 | 03 | 四條契約腳本化 |
 
 ## 三條決定性的測試
 
