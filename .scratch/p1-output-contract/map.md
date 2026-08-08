@@ -59,14 +59,18 @@ agent pull 單向）都已被可執行的斷言證明，不只是文件宣稱。
 
 ## 部署測試（CD，2026-08-08 補上）
 
-`integration.yml` + `docker-compose.yml` 全棧：真 SQLi → app log → Alloy → Loki →
-Grafana（唯一 alert engine，eval 10s）→ webhook → receiver → Core Event，
-CI 綠（`1 passed`）。這是 02b/03 的**真實端到端版本**，補上原本只有單元/契約 CI 的缺口。
+`integration.yml` + `docker-compose.yml` 全棧，CI 綠（**4 passed**）。補上原本只有
+單元/契約 CI 的缺口，是 02b/03 的**真實端到端版本**。四條 E2E：
+
+1. SQLi → Core Event（log 路徑全通）
+2. 正常登入**不**觸發 SQLi 偵測（規則非恆真）
+3. brute force → Core Event（metric 路徑：Prometheus `:9090` → PromQL 告警 → T1110）
+4. 攻擊停止 → resolved 與 firing 共用 event_id（lifecycle）
 
 - 單元/契約 job：`pytest -m "not integration"`（PG service container）
 - 部署 job：`docker compose up --wait` → `pytest -m integration` → down
-- 同一全棧日後可加真 metric E2E（10）與真 Loki retention E2E（11）
-- Falco（08）、四區網段（12/#13）仍需真 infra，compose 無法涵蓋
+- **仍未涵蓋**：OTLP `:4317` push（現用 Prometheus scrape，非 OTLP）、Falco（08）、
+  四區網段（12/#13）—— 需真 infra，compose 無法忠實模擬
 
 ## 測試性質分級
 

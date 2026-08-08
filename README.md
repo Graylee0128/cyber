@@ -38,9 +38,14 @@ python -m purple.clock.cli   # 時鐘同步檢查，退出碼 0/1/2
 | 部署 E2E | `docker compose up -d --build --wait` 後 `pytest -m integration` | docker compose 全棧 | `integration.yml` |
 
 部署測試起 **vulnerable-app + Alloy + Loki + Grafana + Prometheus + receiver + postgres**，
-打真 SQLi，驗證走完整條管線：
-**SQLi → app log → Alloy → Loki → Grafana（唯一 alert engine，eval 10s）→ webhook
-→ receiver → Core Event**。這是 02b/03 契約測試的真實版本（不再手餵 webhook）。
+打真流量，驗證走完整條管線（不再手餵 webhook）。四條 E2E：
+
+| E2E | 證明 |
+|---|---|
+| SQLi → Core Event | log 路徑全通：SQLi → app log → Alloy → Loki → Grafana（唯一 engine，eval 10s）→ webhook → receiver → Core Event |
+| 正常登入不觸發 SQLi 偵測 | 規則非恆真（少了這條，恆真的壞規則也會綠）|
+| brute force → Core Event | metric 路徑：失敗登入 → Prometheus `:9090` → Grafana PromQL 告警 → bruteforce-01 / T1110 |
+| 攻擊停止 → resolved | lifecycle：Grafana resolved 與 firing 共用 event_id |
 
 四區 VLAN／macvlan／6 台 kali 的網段拓樸 compose 無法忠實模擬，仍屬
 workstream 6 / [#13](https://github.com/Graylee0128/cyber/issues/13)。
