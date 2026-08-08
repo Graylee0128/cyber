@@ -38,21 +38,24 @@
 | ~~[05 · #6](https://github.com/Graylee0128/cyber/issues/6)~~ **done** | Alert lifecycle | 03 | 共用 event_id、containment≠MTTR |
 | ~~[06 · #7](https://github.com/Graylee0128/cyber/issues/7)~~ **done** | Evidence resolver | 03 | subagent；fake backend 證明可換 |
 | ~~[07 · #8](https://github.com/Graylee0128/cyber/issues/8)~~ **done** | Source Registry 狀態機 | 03 | subagent；stale≠absent |
-| [08 · #9](https://github.com/Graylee0128/cyber/issues/9) | Falco 作為 sensor | 03, 04 | `disabled_rule_shows_detection_gap` |
-| [09 · #10](https://github.com/Graylee0128/cyber/issues/10) | Response 閉環 agent pull | 03 | `agent_pulls_no_inbound_to_target` |
-| [10 · #11](https://github.com/Graylee0128/cyber/issues/11) | Prometheus／OTLP 路徑 | 03, 04 | `metric_alert_produces_core_event` |
-| [11 · #12](https://github.com/Graylee0128/cyber/issues/12) | raw log 保留時段 | 03 | `raw_absent_outside_window` |
-| [12 · #13](https://github.com/Graylee0128/cyber/issues/13) | 拓樸契約實測 | 03 | 四條契約腳本化 |
+| [08 · #9](https://github.com/Graylee0128/cyber/issues/9) **邏輯done/環境open** | Falco 作為 sensor | 03, 04 | 決定性測試綠；真 Falco 待環境 |
+| ~~[09 · #10](https://github.com/Graylee0128/cyber/issues/10)~~ **done** | Response 閉環 agent pull | 03 | expand→contract；agent pull 保單向 |
+| [10 · #11](https://github.com/Graylee0128/cyber/issues/11) **邏輯done/環境open** | Prometheus／OTLP 路徑 | 03, 04 | metric→core event 綠；OTLP 待環境 |
+| [11 · #12](https://github.com/Graylee0128/cyber/issues/12) **邏輯done/環境open** | raw log 保留時段 | 03 | window+快照綠；Loki 待環境 |
+| [12 · #13](https://github.com/Graylee0128/cyber/issues/13) **腳本done/環境open** | 拓樸契約實測 | 03 | 腳本+邏輯綠；四區網段待環境（匯流點）|
 
 ## 三條決定性的測試
 
 其他測試證明功能可用，這三條證明**架構決策是對的**：
 
-| 測試 | 在哪 | 它紅了代表什麼 |
-|---|---|---|
-| `disabled_rule_shows_detection_gap_not_visibility_gap` | 08 | 我們實質退回 D3，Falco 覆蓋範圍內的偵測缺口全部不可觀測 |
-| `expired_heartbeat_is_stale_not_absent` | 07 | 設備故障被洗成「不在範圍內」，藍隊被系統性冤枉 |
-| `agent_pulls_no_inbound_to_target` | 09 | `TARGET → MGMT` 單向被破壞，管理平面暴露到靶機網段 |
+| 測試 | 在哪 | 它紅了代表什麼 | 狀態 |
+|---|---|---|---|
+| `disabled_rule_shows_detection_gap_not_visibility_gap` | 08 | 我們實質退回 D3，Falco 覆蓋範圍內的偵測缺口全部不可觀測 | ✅ 綠 |
+| `expired_heartbeat_is_stale_not_absent` | 07 | 設備故障被洗成「不在範圍內」，藍隊被系統性冤枉 | ✅ 綠 |
+| `agent_pulls_no_inbound_to_target` | 09 | `TARGET → MGMT` 單向被破壞，管理平面暴露到靶機網段 | ✅ 綠（程式碼層；網段實測 #13）|
+
+**三條決定性測試在程式碼／邏輯層全綠。** P1 的架構決策（D1、source registry、
+agent pull 單向）都已被可執行的斷言證明，不只是文件宣稱。
 
 ## 測試性質分級
 
