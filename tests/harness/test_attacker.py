@@ -13,10 +13,11 @@ from purple.harness.attacker import AttackFailed, inject_sqli, make_marker
 
 class _Recorder(BaseHTTPRequestHandler):
     received: list[str] = []
+    status: int = 200  # 測試可改，用來驗證 4xx 也算送達
 
     def do_GET(self):
         _Recorder.received.append(self.path)
-        self.send_response(200)
+        self.send_response(_Recorder.status)
         self.end_headers()
         self.wfile.write(b"ok")
 
@@ -27,6 +28,7 @@ class _Recorder(BaseHTTPRequestHandler):
 @pytest.fixture
 def fake_target():
     _Recorder.received = []
+    _Recorder.status = 200
     server = HTTPServer(("127.0.0.1", 0), _Recorder)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -52,19 +54,12 @@ class TestInjectionReachesTheTarget:
         assert "1" in recorder.received[0]
 
     def test_4xx_still_counts_as_delivered(self, fake_target):
-        """靶機回錯不代表注入失敗 —— 請求送達了就算成功。"""
-
-        class Rejecting(_Recorder):
-            def do_GET(self):
-                _Recorder.received.append(self.path)
-                self.send_response(403)
-                self.end_headers()
-
+        """靶機回 403 不代表注入失敗 —— 請求送達了就算成功，不該拋例外。"""
         base, recorder = fake_target
-        recorder.received = []
-        # 直接用注入器對回 403 的處理已由 attacker 內部覆蓋；此處確認不拋例外
+        recorder.status = 403
         result = inject_sqli(base)
-        assert result.status_code in (200, 403)
+        assert result.status_code == 403
+        assert len(recorder.received) == 1
 
 
 class TestTraceability:
