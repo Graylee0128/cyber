@@ -1,0 +1,186 @@
+<svg width="940" height="800" viewBox="0 0 940 800" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>資安攻防平台四層系統架構（對齊 v0.2.1 拓樸）</title>
+<desc>由上而下分為 Product UI、Cyber Range Core、Purple Platform、Scenario 與 Range Infrastructure 四層。每層右上角標示所屬網段：Product UI 與 Cyber Range Core 在 Z-APP，Purple Platform 在 Z-MGMT（collection 與 response agent 在 Z-TARGET），Scenario 與 Range Infrastructure 在 Z-TARGET。Purple Platform 內以 P1（Telemetry &amp; Detection Pipeline）與 P2（Evaluation &amp; Console）標示兩個工作包。</desc>
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+</defs>
+<style>
+  text { font-family: "Noto Sans CJK TC", "PingFang TC", "Microsoft JhengHei", "Helvetica Neue", Arial, sans-serif; }
+  .layer { fill: none; stroke: #B4B2A9; stroke-width: 1; stroke-dasharray: 4 4; }
+  .ln { font-size: 14px; font-weight: 600; fill: #2C2C2A; }
+  .th { font-size: 14px; font-weight: 600; }
+  .ts { font-size: 11px; font-weight: 400; }
+  .tag { font-size: 10px; font-weight: 600; }
+  .chip { font-size: 11px; font-weight: 600; }
+  .foot { font-size: 12px; font-weight: 400; fill: #52514E; }
+  .arw { fill: none; stroke: #888781; stroke-width: 1.5; }
+  .n-purple rect { fill: #EEEDFE; stroke: #534AB7; stroke-width: 0.6; }
+  .n-purple .th { fill: #3C3489; } .n-purple .ts { fill: #534AB7; }
+  .n-teal rect { fill: #E1F5EE; stroke: #0F6E56; stroke-width: 0.6; }
+  .n-teal .th { fill: #085041; } .n-teal .ts { fill: #0F6E56; }
+  .n-blue rect { fill: #E6F1FB; stroke: #185FA5; stroke-width: 0.6; }
+  .n-blue .th { fill: #0C447C; } .n-blue .ts { fill: #185FA5; }
+  .n-rust rect { fill: #FAECE7; stroke: #993C1D; stroke-width: 0.6; }
+  .n-rust .th { fill: #712B13; } .n-rust .ts { fill: #993C1D; }
+  .n-amber rect { fill: #FAEEDA; stroke: #854F0B; stroke-width: 0.9; }
+  .n-amber .th { fill: #412402; } .n-amber .ts { fill: #854F0B; }
+  .ptag rect { fill: #2C2C2A; }
+  .ptag text { fill: #FFFFFF; }
+</style>
+
+<rect x="0" y="0" width="940" height="800" fill="#FFFFFF"/>
+
+<!-- ══ Layer 1 · Product UI ══ -->
+<rect class="layer" x="30" y="50" width="880" height="118" rx="12"/>
+<text class="ln" x="50" y="76">Product UI</text>
+<g><rect x="800" y="58" width="90" height="22" rx="11" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.6"/>
+   <text class="chip" x="845" y="69" text-anchor="middle" dominant-baseline="central" fill="#3C3489">Z-APP</text></g>
+
+<g class="n-purple">
+  <rect x="50" y="88" width="156" height="60" rx="8"/>
+  <text class="th" x="128" y="110" text-anchor="middle" dominant-baseline="central">Player Portal</text>
+  <text class="ts" x="128" y="130" text-anchor="middle" dominant-baseline="central">mission · flag · score</text>
+</g>
+<g class="n-purple">
+  <rect x="221" y="88" width="156" height="60" rx="8"/>
+  <text class="th" x="299" y="110" text-anchor="middle" dominant-baseline="central">Blue SOC Console</text>
+  <text class="ts" x="299" y="130" text-anchor="middle" dominant-baseline="central">alert · incident queue</text>
+</g>
+<g class="n-purple">
+  <rect x="392" y="88" width="156" height="60" rx="8"/>
+  <text class="th" x="470" y="110" text-anchor="middle" dominant-baseline="central">Purple Console</text>
+  <text class="ts" x="470" y="130" text-anchor="middle" dominant-baseline="central">唯讀呈現，不算分</text>
+</g>
+<g class="ptag"><rect x="514" y="94" width="26" height="15" rx="4"/><text class="tag" x="527" y="102" text-anchor="middle" dominant-baseline="central">P2</text></g>
+<g class="n-purple">
+  <rect x="563" y="88" width="156" height="60" rx="8"/>
+  <text class="th" x="641" y="110" text-anchor="middle" dominant-baseline="central">Live Battleboard</text>
+  <text class="ts" x="641" y="130" text-anchor="middle" dominant-baseline="central">sanitized event only</text>
+</g>
+<g class="n-purple">
+  <rect x="734" y="88" width="156" height="60" rx="8"/>
+  <text class="th" x="812" y="110" text-anchor="middle" dominant-baseline="central">Instructor Console</text>
+  <text class="ts" x="812" y="130" text-anchor="middle" dominant-baseline="central">start · reset · override</text>
+</g>
+
+<line class="arw" x1="320" y1="172" x2="320" y2="200" marker-end="url(#arrow)"/>
+<line class="arw" x1="620" y1="200" x2="620" y2="172" marker-end="url(#arrow)"/>
+
+<!-- ══ Layer 2 · Cyber Range Core ══ -->
+<rect class="layer" x="30" y="204" width="880" height="192" rx="12"/>
+<text class="ln" x="50" y="230">Cyber Range Core</text>
+<g><rect x="800" y="212" width="90" height="22" rx="11" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.6"/>
+   <text class="chip" x="845" y="223" text-anchor="middle" dominant-baseline="central" fill="#3C3489">Z-APP</text></g>
+
+<g class="n-teal">
+  <rect x="50" y="242" width="269" height="60" rx="8"/>
+  <text class="th" x="184" y="264" text-anchor="middle" dominant-baseline="central">Event Service</text>
+  <text class="ts" x="184" y="284" text-anchor="middle" dominant-baseline="central">normalize · fan-out</text>
+</g>
+<g class="n-teal">
+  <rect x="335" y="242" width="269" height="60" rx="8"/>
+  <text class="th" x="469" y="264" text-anchor="middle" dominant-baseline="central">Exercise Manager</text>
+  <text class="ts" x="469" y="284" text-anchor="middle" dominant-baseline="central">lifecycle · round state</text>
+</g>
+<g class="n-teal">
+  <rect x="620" y="242" width="269" height="60" rx="8"/>
+  <text class="th" x="754" y="264" text-anchor="middle" dominant-baseline="central">Score Engine</text>
+  <text class="ts" x="754" y="284" text-anchor="middle" dominant-baseline="central">objective-based rules</text>
+</g>
+<g class="n-teal">
+  <rect x="50" y="316" width="269" height="60" rx="8"/>
+  <text class="th" x="184" y="338" text-anchor="middle" dominant-baseline="central">Scenario Registry</text>
+  <text class="ts" x="184" y="358" text-anchor="middle" dominant-baseline="central">package metadata</text>
+</g>
+<g class="n-teal">
+  <rect x="335" y="316" width="269" height="60" rx="8"/>
+  <text class="th" x="469" y="338" text-anchor="middle" dominant-baseline="central">Response Orchestrator</text>
+  <text class="ts" x="469" y="358" text-anchor="middle" dominant-baseline="central">webhook dispatch · 指令佇列</text>
+</g>
+<g class="n-teal">
+  <rect x="620" y="316" width="269" height="60" rx="8"/>
+  <text class="th" x="754" y="338" text-anchor="middle" dominant-baseline="central">Report Generator</text>
+  <text class="ts" x="754" y="358" text-anchor="middle" dominant-baseline="central">post-exercise debrief</text>
+</g>
+
+<line class="arw" x1="320" y1="400" x2="320" y2="428" marker-end="url(#arrow)"/>
+<line class="arw" x1="620" y1="428" x2="620" y2="400" marker-end="url(#arrow)"/>
+
+<!-- ══ Layer 3 · Purple Platform ══ -->
+<rect class="layer" x="30" y="432" width="880" height="118" rx="12"/>
+<text class="ln" x="50" y="458">Purple Platform</text>
+<g><rect x="782" y="440" width="108" height="22" rx="11" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.6"/>
+   <text class="chip" x="836" y="451" text-anchor="middle" dominant-baseline="central" fill="#085041">Z-MGMT</text></g>
+
+<g class="n-blue">
+  <rect x="50" y="470" width="156" height="60" rx="8"/>
+  <text class="th" x="128" y="492" text-anchor="middle" dominant-baseline="central">Collection</text>
+  <text class="ts" x="128" y="512" text-anchor="middle" dominant-baseline="central">Alloy · Falco ＠Z-TARGET</text>
+</g>
+<g class="ptag"><rect x="172" y="476" width="26" height="15" rx="4"/><text class="tag" x="185" y="484" text-anchor="middle" dominant-baseline="central">P1</text></g>
+<g class="n-blue">
+  <rect x="221" y="470" width="156" height="60" rx="8"/>
+  <text class="th" x="299" y="492" text-anchor="middle" dominant-baseline="central">Ingest &amp; Storage</text>
+  <text class="ts" x="299" y="512" text-anchor="middle" dominant-baseline="central">Prometheus · Loki</text>
+</g>
+<g class="ptag"><rect x="343" y="476" width="26" height="15" rx="4"/><text class="tag" x="356" y="484" text-anchor="middle" dominant-baseline="central">P1</text></g>
+<g class="n-blue">
+  <rect x="392" y="470" width="156" height="60" rx="8"/>
+  <text class="th" x="470" y="492" text-anchor="middle" dominant-baseline="central">Detection</text>
+  <text class="ts" x="470" y="512" text-anchor="middle" dominant-baseline="central">Grafana Alert · Falco</text>
+</g>
+<g class="ptag"><rect x="514" y="476" width="26" height="15" rx="4"/><text class="tag" x="527" y="484" text-anchor="middle" dominant-baseline="central">P1</text></g>
+<g class="n-blue">
+  <rect x="563" y="470" width="156" height="60" rx="8"/>
+  <text class="th" x="641" y="492" text-anchor="middle" dominant-baseline="central">Response</text>
+  <text class="ts" x="641" y="512" text-anchor="middle" dominant-baseline="central">agent pull · ipset</text>
+</g>
+<g class="ptag"><rect x="685" y="476" width="26" height="15" rx="4"/><text class="tag" x="698" y="484" text-anchor="middle" dominant-baseline="central">P1</text></g>
+<g class="n-blue">
+  <rect x="734" y="470" width="156" height="60" rx="8"/>
+  <text class="th" x="812" y="492" text-anchor="middle" dominant-baseline="central">Evaluation Engine</text>
+  <text class="ts" x="812" y="512" text-anchor="middle" dominant-baseline="central">coverage · MTTD · gap</text>
+</g>
+<g class="ptag"><rect x="856" y="476" width="26" height="15" rx="4"/><text class="tag" x="869" y="484" text-anchor="middle" dominant-baseline="central">P2</text></g>
+
+<line class="arw" x1="320" y1="554" x2="320" y2="582" marker-end="url(#arrow)"/>
+<line class="arw" x1="620" y1="582" x2="620" y2="554" marker-end="url(#arrow)"/>
+
+<!-- ══ Layer 4 · Scenario / Range Infrastructure ══ -->
+<rect class="layer" x="30" y="586" width="880" height="118" rx="12"/>
+<text class="ln" x="50" y="612">Scenario / Range Infrastructure</text>
+<g><rect x="778" y="594" width="112" height="22" rx="11" fill="#FAECE7" stroke="#993C1D" stroke-width="0.6"/>
+   <text class="chip" x="834" y="605" text-anchor="middle" dominant-baseline="central" fill="#712B13">Z-TARGET</text></g>
+
+<g class="n-rust">
+  <rect x="50" y="624" width="156" height="60" rx="8"/>
+  <text class="th" x="128" y="646" text-anchor="middle" dominant-baseline="central">Target apps</text>
+  <text class="ts" x="128" y="666" text-anchor="middle" dominant-baseline="central">vulnerable-app</text>
+</g>
+<g class="n-rust">
+  <rect x="221" y="624" width="156" height="60" rx="8"/>
+  <text class="th" x="299" y="646" text-anchor="middle" dominant-baseline="central">Hosts</text>
+  <text class="ts" x="299" y="666" text-anchor="middle" dominant-baseline="central">Linux · Windows</text>
+</g>
+<g class="n-rust">
+  <rect x="392" y="624" width="156" height="60" rx="8"/>
+  <text class="th" x="470" y="646" text-anchor="middle" dominant-baseline="central">Runtime</text>
+  <text class="ts" x="470" y="666" text-anchor="middle" dominant-baseline="central">Container · VM</text>
+</g>
+<g class="n-rust">
+  <rect x="563" y="624" width="156" height="60" rx="8"/>
+  <text class="th" x="641" y="646" text-anchor="middle" dominant-baseline="central">Lifecycle</text>
+  <text class="ts" x="641" y="666" text-anchor="middle" dominant-baseline="central">reset · isolate</text>
+</g>
+<g class="n-amber">
+  <rect x="734" y="624" width="156" height="60" rx="8"/>
+  <text class="th" x="812" y="646" text-anchor="middle" dominant-baseline="central">Physical Appliance</text>
+  <text class="ts" x="812" y="666" text-anchor="middle" dominant-baseline="central">軟硬結合掛載點</text>
+</g>
+
+<text class="foot" x="470" y="732" text-anchor="middle" dominant-baseline="central">左側向下＝控制流（API、指令、response）　右側向上＝資料流（telemetry、event、score）　層右上角＝所屬網段，見 v0.2.1 拓樸</text>
+<text class="foot" x="470" y="756" text-anchor="middle" dominant-baseline="central">P1 ＝ Telemetry &amp; Detection Pipeline（產出標準化事件流）　P2 ＝ Evaluation &amp; Console（引擎在 Z-MGMT、Console 在 Z-APP，只吃 P1 的 schema）</text>
+<text class="foot" x="470" y="778" text-anchor="middle" dominant-baseline="central">Physical Appliance 遵守同一條 telemetry 契約（syslog → Alloy → :3100 :9090 :4317 單向），接實體設備時 Purple Platform 不需改動</text>
+</svg>

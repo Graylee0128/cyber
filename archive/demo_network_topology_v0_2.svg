@@ -1,0 +1,153 @@
+<svg width="1100" height="730" viewBox="0 0 1100 730" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>demo-network 拓樸 v0.2 — 三區隔離設計</title>
+<desc>Firewall 做 inter-VLAN 政策，L2 switch 下分 Z-MGMT 觀測平面、Z-TARGET 攻擊面、Z-RED 紅隊執行環境三個 VLAN。</desc>
+<style>
+  text { font-family: "Noto Sans CJK TC", "PingFang TC", "Microsoft JhengHei", "Helvetica Neue", Arial, sans-serif; }
+  .th { font-size: 14px; font-weight: 600; }
+  .ts { font-size: 12px; font-weight: 400; }
+  .tz { font-size: 15px; font-weight: 600; fill: #2C2C2A; }
+  .tzs { font-size: 12px; font-weight: 400; fill: #5F5E5A; }
+  .tl { font-size: 12px; font-weight: 400; fill: #5F5E5A; }
+  .zone { fill: none; stroke: #B4B2A9; stroke-width: 1; stroke-dasharray: 5 5; }
+  .sub { fill: none; stroke: #D3D1C7; stroke-width: 1; stroke-dasharray: 3 3; }
+  .link { stroke: #888780; stroke-width: 1.3; fill: none; }
+  .n-teal rect { fill: #E1F5EE; stroke: #0F6E56; stroke-width: 0.8; }
+  .n-teal .th { fill: #04342C; } .n-teal .ts { fill: #0F6E56; }
+  .n-blue rect { fill: #E6F1FB; stroke: #185FA5; stroke-width: 0.8; }
+  .n-blue .th { fill: #042C53; } .n-blue .ts { fill: #185FA5; }
+  .n-red rect { fill: #FCEBEB; stroke: #A32D2D; stroke-width: 0.8; }
+  .n-red .th { fill: #501313; } .n-red .ts { fill: #A32D2D; }
+  .n-amber rect { fill: #FAEEDA; stroke: #854F0B; stroke-width: 0.8; }
+  .n-amber .th { fill: #412402; } .n-amber .ts { fill: #854F0B; }
+  .n-gray rect { fill: #F1EFE8; stroke: #5F5E5A; stroke-width: 0.8; }
+  .n-gray .th { fill: #2C2C2A; } .n-gray .ts { fill: #5F5E5A; }
+</style>
+
+<rect x="0" y="0" width="1100" height="730" fill="#FFFFFF"/>
+
+<g class="n-amber">
+  <rect x="400" y="30" width="300" height="64" rx="8"/>
+  <text class="th" x="550" y="54" text-anchor="middle" dominant-baseline="central">Firewall / L3 gateway</text>
+  <text class="ts" x="550" y="74" text-anchor="middle" dominant-baseline="central">inter-VLAN policy · .1 on each VLAN</text>
+</g>
+
+<line class="link" x1="550" y1="94" x2="550" y2="140"/>
+<text class="tl" x="562" y="120" dominant-baseline="central">802.1Q trunk</text>
+
+<g class="n-gray">
+  <rect x="400" y="140" width="300" height="64" rx="8"/>
+  <text class="th" x="550" y="164" text-anchor="middle" dominant-baseline="central">L2 switch</text>
+  <text class="ts" x="550" y="184" text-anchor="middle" dominant-baseline="central">VLAN 10 / 20 / 30</text>
+</g>
+
+<line class="link" x1="550" y1="204" x2="550" y2="236"/>
+<line class="link" x1="196" y1="236" x2="904" y2="236"/>
+<line class="link" x1="196" y1="236" x2="196" y2="270"/>
+<line class="link" x1="550" y1="236" x2="550" y2="270"/>
+<line class="link" x1="904" y1="236" x2="904" y2="270"/>
+<text class="tl" x="204" y="256" dominant-baseline="central">VLAN 10</text>
+<text class="tl" x="558" y="256" dominant-baseline="central">VLAN 20</text>
+<text class="tl" x="912" y="256" dominant-baseline="central">VLAN 30</text>
+
+<rect class="zone" x="30" y="270" width="332" height="394" rx="12"/>
+<text class="tz" x="50" y="296">Z-MGMT — observe plane</text>
+<text class="tzs" x="50" y="316">VLAN 10 · 10.167.10.0/24</text>
+
+<g class="n-teal">
+  <rect x="50" y="330" width="292" height="44" rx="6"/>
+  <text class="th" x="64" y="352" dominant-baseline="central">Battleboard · Portal</text>
+  <text class="ts" x="328" y="352" text-anchor="end" dominant-baseline="central">.11</text>
+</g>
+<g class="n-teal">
+  <rect x="50" y="384" width="292" height="44" rx="6"/>
+  <text class="th" x="64" y="406" dominant-baseline="central">Grafana · SOC view</text>
+  <text class="ts" x="328" y="406" text-anchor="end" dominant-baseline="central">.12</text>
+</g>
+<g class="n-teal">
+  <rect x="50" y="438" width="292" height="44" rx="6"/>
+  <text class="th" x="64" y="460" dominant-baseline="central">Prometheus + Loki</text>
+  <text class="ts" x="328" y="460" text-anchor="end" dominant-baseline="central">.13</text>
+</g>
+<g class="n-teal">
+  <rect x="50" y="492" width="292" height="44" rx="6"/>
+  <text class="th" x="64" y="514" dominant-baseline="central">Range Core</text>
+  <text class="ts" x="328" y="514" text-anchor="end" dominant-baseline="central">.14</text>
+</g>
+<g class="n-gray">
+  <rect x="50" y="546" width="292" height="44" rx="6"/>
+  <text class="th" x="64" y="568" dominant-baseline="central">host-a · mgmt NIC</text>
+  <text class="ts" x="328" y="568" text-anchor="end" dominant-baseline="central">.21</text>
+</g>
+<g class="n-gray">
+  <rect x="50" y="600" width="292" height="44" rx="6"/>
+  <text class="th" x="64" y="622" dominant-baseline="central">host-b · mgmt NIC</text>
+  <text class="ts" x="328" y="622" text-anchor="end" dominant-baseline="central">.22</text>
+</g>
+
+<rect class="zone" x="384" y="270" width="332" height="394" rx="12"/>
+<text class="tz" x="404" y="296">Z-TARGET — attack surface</text>
+<text class="tzs" x="404" y="316">VLAN 20 · 10.167.20.0/24</text>
+
+<g class="n-blue">
+  <rect x="404" y="330" width="292" height="68" rx="6"/>
+  <text class="th" x="550" y="355" text-anchor="middle" dominant-baseline="central">web-target · .11</text>
+  <text class="ts" x="550" y="375" text-anchor="middle" dominant-baseline="central">vulnerable-app :80 · db :3306</text>
+</g>
+<g class="n-blue">
+  <rect x="404" y="412" width="292" height="68" rx="6"/>
+  <text class="th" x="550" y="437" text-anchor="middle" dominant-baseline="central">Alloy agent</text>
+  <text class="ts" x="550" y="457" text-anchor="middle" dominant-baseline="central">collection · structured log</text>
+</g>
+<g class="n-blue">
+  <rect x="404" y="494" width="292" height="68" rx="6"/>
+  <text class="th" x="550" y="519" text-anchor="middle" dominant-baseline="central">Falco</text>
+  <text class="ts" x="550" y="539" text-anchor="middle" dominant-baseline="central">runtime detection</text>
+</g>
+<rect class="sub" x="404" y="606" width="292" height="44" rx="6"/>
+<text class="tl" x="550" y="628" text-anchor="middle" dominant-baseline="central">telemetry 單向上送 Z-MGMT</text>
+
+<rect class="zone" x="738" y="270" width="332" height="394" rx="12"/>
+<text class="tz" x="758" y="296">Z-RED — attackers</text>
+<text class="tzs" x="758" y="316">VLAN 30 · 10.167.223.0/24</text>
+
+<rect class="sub" x="758" y="330" width="292" height="110" rx="8"/>
+<text class="tl" x="770" y="352" dominant-baseline="central">host-a · eth1 macvlan parent</text>
+<g class="n-red">
+  <rect x="770" y="364" width="82" height="52" rx="6"/>
+  <text class="th" x="811" y="383" text-anchor="middle" dominant-baseline="central">kali-01</text>
+  <text class="ts" x="811" y="401" text-anchor="middle" dominant-baseline="central">.101</text>
+</g>
+<g class="n-red">
+  <rect x="862" y="364" width="82" height="52" rx="6"/>
+  <text class="th" x="903" y="383" text-anchor="middle" dominant-baseline="central">kali-02</text>
+  <text class="ts" x="903" y="401" text-anchor="middle" dominant-baseline="central">.102</text>
+</g>
+<g class="n-red">
+  <rect x="954" y="364" width="82" height="52" rx="6"/>
+  <text class="th" x="995" y="383" text-anchor="middle" dominant-baseline="central">kali-03</text>
+  <text class="ts" x="995" y="401" text-anchor="middle" dominant-baseline="central">.103</text>
+</g>
+
+<rect class="sub" x="758" y="470" width="292" height="110" rx="8"/>
+<text class="tl" x="770" y="492" dominant-baseline="central">host-b · eth1 macvlan parent</text>
+<g class="n-red">
+  <rect x="770" y="504" width="82" height="52" rx="6"/>
+  <text class="th" x="811" y="523" text-anchor="middle" dominant-baseline="central">kali-04</text>
+  <text class="ts" x="811" y="541" text-anchor="middle" dominant-baseline="central">.111</text>
+</g>
+<g class="n-red">
+  <rect x="862" y="504" width="82" height="52" rx="6"/>
+  <text class="th" x="903" y="523" text-anchor="middle" dominant-baseline="central">kali-05</text>
+  <text class="ts" x="903" y="541" text-anchor="middle" dominant-baseline="central">.112</text>
+</g>
+<g class="n-red">
+  <rect x="954" y="504" width="82" height="52" rx="6"/>
+  <text class="th" x="995" y="523" text-anchor="middle" dominant-baseline="central">kali-06</text>
+  <text class="ts" x="995" y="541" text-anchor="middle" dominant-baseline="central">.113</text>
+</g>
+
+<rect class="sub" x="758" y="606" width="292" height="44" rx="6"/>
+<text class="tl" x="904" y="628" text-anchor="middle" dominant-baseline="central">macvlan · 每台 container 獨立 IP</text>
+
+<text class="tl" x="550" y="700" text-anchor="middle" dominant-baseline="central">firewall 政策　RED → TARGET: allow :80 :3306　│　TARGET → MGMT: allow :3100 :9090 :4317（單向）　│　RED → MGMT: deny all</text>
+</svg>

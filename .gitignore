@@ -1,0 +1,35 @@
+# 依賴與建置產物
+node_modules/
+dist/
+build/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 環境與祕密 —— 絕不進版控
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# 執行期資料（Loki / Prometheus / Grafana volume）
+data/
+volumes/
+*.db
+
+# 測試與工具輸出
+.pytest_cache/
+.coverage
+htmlcov/
+test-results/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 日誌
+*.log

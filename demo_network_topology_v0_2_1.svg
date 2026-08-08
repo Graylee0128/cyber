@@ -1,0 +1,229 @@
+<svg width="1400" height="890" viewBox="0 0 1400 890" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>demo-network 拓樸 v0.2.1 — 四區隔離設計</title>
+<desc>在 v0.2 三區之上新增 Z-APP 產品平面：Range Core、Player Portal、Battleboard、Blue SOC Console、Purple Console 自 Z-MGMT 遷出，Z-MGMT 只留 Prometheus/Loki、Grafana 與 Evaluation Engine。修正 v0.2 中 Portal 位於 Z-MGMT 但政策為 RED→MGMT deny all 的衝突。</desc>
+<style>
+  text { font-family: "Noto Sans CJK TC", "PingFang TC", "Microsoft JhengHei", "Helvetica Neue", Arial, sans-serif; }
+  .th { font-size: 14px; font-weight: 600; }
+  .ts { font-size: 12px; font-weight: 400; }
+  .tz { font-size: 15px; font-weight: 600; fill: #2C2C2A; }
+  .tzs { font-size: 12px; font-weight: 400; fill: #5F5E5A; }
+  .tl { font-size: 12px; font-weight: 400; fill: #5F5E5A; }
+  .tp { font-size: 12px; font-weight: 400; fill: #2C2C2A; }
+  .tpk { font-size: 12px; font-weight: 600; fill: #2C2C2A; }
+  .deny { fill: #A32D2D; font-weight: 600; }
+  .zone { fill: none; stroke: #B4B2A9; stroke-width: 1; stroke-dasharray: 5 5; }
+  .sub { fill: none; stroke: #D3D1C7; stroke-width: 1; stroke-dasharray: 3 3; }
+  .panel { fill: #FBFAF6; stroke: #B4B2A9; stroke-width: 1; }
+  .link { stroke: #888780; stroke-width: 1.3; fill: none; }
+  .n-purple rect { fill: #EEEDFE; stroke: #534AB7; stroke-width: 0.8; }
+  .n-purple .th { fill: #26215C; } .n-purple .ts { fill: #534AB7; }
+  .n-teal rect { fill: #E1F5EE; stroke: #0F6E56; stroke-width: 0.8; }
+  .n-teal .th { fill: #04342C; } .n-teal .ts { fill: #0F6E56; }
+  .n-blue rect { fill: #E6F1FB; stroke: #185FA5; stroke-width: 0.8; }
+  .n-blue .th { fill: #042C53; } .n-blue .ts { fill: #185FA5; }
+  .n-red rect { fill: #FCEBEB; stroke: #A32D2D; stroke-width: 0.8; }
+  .n-red .th { fill: #501313; } .n-red .ts { fill: #A32D2D; }
+  .n-amber rect { fill: #FAEEDA; stroke: #854F0B; stroke-width: 0.8; }
+  .n-amber .th { fill: #412402; } .n-amber .ts { fill: #854F0B; }
+  .n-gray rect { fill: #F1EFE8; stroke: #5F5E5A; stroke-width: 0.8; }
+  .n-gray .th { fill: #2C2C2A; } .n-gray .ts { fill: #5F5E5A; }
+</style>
+
+<rect x="0" y="0" width="1400" height="890" fill="#FFFFFF"/>
+
+<g class="n-amber">
+  <rect x="550" y="30" width="300" height="64" rx="8"/>
+  <text class="th" x="700" y="54" text-anchor="middle" dominant-baseline="central">Firewall / L3 gateway</text>
+  <text class="ts" x="700" y="74" text-anchor="middle" dominant-baseline="central">inter-VLAN policy · .1 on each VLAN</text>
+</g>
+
+<line class="link" x1="700" y1="94" x2="700" y2="140"/>
+<text class="tl" x="712" y="120" dominant-baseline="central">802.1Q trunk</text>
+
+<g class="n-gray">
+  <rect x="550" y="140" width="300" height="64" rx="8"/>
+  <text class="th" x="700" y="164" text-anchor="middle" dominant-baseline="central">L2 switch</text>
+  <text class="ts" x="700" y="184" text-anchor="middle" dominant-baseline="central">VLAN 10 / 20 / 30 / 40</text>
+</g>
+
+<line class="link" x1="700" y1="204" x2="700" y2="236"/>
+<line class="link" x1="190" y1="236" x2="1210" y2="236"/>
+<line class="link" x1="190" y1="236" x2="190" y2="270"/>
+<line class="link" x1="530" y1="236" x2="530" y2="270"/>
+<line class="link" x1="870" y1="236" x2="870" y2="270"/>
+<line class="link" x1="1210" y1="236" x2="1210" y2="270"/>
+<text class="tl" x="198" y="256" dominant-baseline="central">VLAN 40</text>
+<text class="tl" x="538" y="256" dominant-baseline="central">VLAN 10</text>
+<text class="tl" x="878" y="256" dominant-baseline="central">VLAN 20</text>
+<text class="tl" x="1218" y="256" dominant-baseline="central">VLAN 30</text>
+
+<rect class="zone" x="30" y="270" width="320" height="394" rx="12"/>
+<text class="tz" x="50" y="296">Z-APP — product plane</text>
+<text class="tzs" x="50" y="316">VLAN 40 · 10.167.40.0/24 · 新增</text>
+
+<g class="n-purple">
+  <rect x="50" y="330" width="280" height="48" rx="6"/>
+  <text class="th" x="64" y="348" dominant-baseline="central">Range Core</text>
+  <text class="ts" x="64" y="366" dominant-baseline="central">event · exercise · score · registry</text>
+  <text class="ts" x="316" y="348" text-anchor="end" dominant-baseline="central">.11</text>
+</g>
+<g class="n-purple">
+  <rect x="50" y="396" width="280" height="48" rx="6"/>
+  <text class="th" x="64" y="414" dominant-baseline="central">Player Portal</text>
+  <text class="ts" x="64" y="432" dominant-baseline="central">mission · hint · flag · score</text>
+  <text class="ts" x="316" y="414" text-anchor="end" dominant-baseline="central">.12</text>
+</g>
+<g class="n-purple">
+  <rect x="50" y="462" width="280" height="48" rx="6"/>
+  <text class="th" x="64" y="480" dominant-baseline="central">Battleboard · Instructor</text>
+  <text class="ts" x="64" y="498" dominant-baseline="central">sanitized event only</text>
+  <text class="ts" x="316" y="480" text-anchor="end" dominant-baseline="central">.13</text>
+</g>
+<g class="n-purple">
+  <rect x="50" y="528" width="280" height="48" rx="6"/>
+  <text class="th" x="64" y="546" dominant-baseline="central">Blue SOC Console</text>
+  <text class="ts" x="64" y="564" dominant-baseline="central">alert · incident queue</text>
+  <text class="ts" x="316" y="546" text-anchor="end" dominant-baseline="central">.14</text>
+</g>
+<g class="n-purple">
+  <rect x="50" y="594" width="280" height="48" rx="6"/>
+  <text class="th" x="64" y="612" dominant-baseline="central">Purple Console</text>
+  <text class="ts" x="64" y="630" dominant-baseline="central">coverage · MTTD · gap</text>
+  <text class="ts" x="316" y="612" text-anchor="end" dominant-baseline="central">.15</text>
+</g>
+
+<rect class="zone" x="370" y="270" width="320" height="394" rx="12"/>
+<text class="tz" x="390" y="296">Z-MGMT — observe plane</text>
+<text class="tzs" x="390" y="316">VLAN 10 · 10.167.10.0/24</text>
+
+<g class="n-teal">
+  <rect x="390" y="330" width="280" height="48" rx="6"/>
+  <text class="th" x="404" y="348" dominant-baseline="central">Prometheus + Loki</text>
+  <text class="ts" x="404" y="366" dominant-baseline="central">:9090 · :3100 · OTLP :4317</text>
+  <text class="ts" x="656" y="348" text-anchor="end" dominant-baseline="central">.13</text>
+</g>
+<g class="n-teal">
+  <rect x="390" y="396" width="280" height="48" rx="6"/>
+  <text class="th" x="404" y="414" dominant-baseline="central">Grafana · SOC view</text>
+  <text class="ts" x="404" y="432" dominant-baseline="central">query · alerting · webhook out</text>
+  <text class="ts" x="656" y="414" text-anchor="end" dominant-baseline="central">.12</text>
+</g>
+<g class="n-teal">
+  <rect x="390" y="462" width="280" height="48" rx="6"/>
+  <text class="th" x="404" y="480" dominant-baseline="central">Evaluation Engine</text>
+  <text class="ts" x="404" y="498" dominant-baseline="central">coverage · MTTD · MTTR · gap</text>
+  <text class="ts" x="656" y="480" text-anchor="end" dominant-baseline="central">.14</text>
+</g>
+<g class="n-gray">
+  <rect x="390" y="528" width="280" height="48" rx="6"/>
+  <text class="th" x="404" y="552" dominant-baseline="central">host-a · mgmt NIC</text>
+  <text class="ts" x="656" y="552" text-anchor="end" dominant-baseline="central">.21</text>
+</g>
+<g class="n-gray">
+  <rect x="390" y="594" width="280" height="48" rx="6"/>
+  <text class="th" x="404" y="618" dominant-baseline="central">host-b · mgmt NIC</text>
+  <text class="ts" x="656" y="618" text-anchor="end" dominant-baseline="central">.22</text>
+</g>
+
+<rect class="zone" x="710" y="270" width="320" height="394" rx="12"/>
+<text class="tz" x="730" y="296">Z-TARGET — attack surface</text>
+<text class="tzs" x="730" y="316">VLAN 20 · 10.167.20.0/24</text>
+
+<g class="n-blue">
+  <rect x="730" y="330" width="280" height="48" rx="6"/>
+  <text class="th" x="744" y="348" dominant-baseline="central">web-target</text>
+  <text class="ts" x="744" y="366" dominant-baseline="central">vulnerable-app :80 · db :3306</text>
+  <text class="ts" x="996" y="348" text-anchor="end" dominant-baseline="central">.11</text>
+</g>
+<g class="n-blue">
+  <rect x="730" y="396" width="280" height="48" rx="6"/>
+  <text class="th" x="744" y="414" dominant-baseline="central">Alloy agent</text>
+  <text class="ts" x="744" y="432" dominant-baseline="central">collection · structured log</text>
+</g>
+<g class="n-blue">
+  <rect x="730" y="462" width="280" height="48" rx="6"/>
+  <text class="th" x="744" y="480" dominant-baseline="central">Falco</text>
+  <text class="ts" x="744" y="498" dominant-baseline="central">runtime detection · syscall</text>
+</g>
+<g class="n-blue">
+  <rect x="730" y="528" width="280" height="48" rx="6"/>
+  <text class="th" x="744" y="546" dominant-baseline="central">Response agent</text>
+  <text class="ts" x="744" y="564" dominant-baseline="central">pull mode → Z-APP · ipset</text>
+</g>
+<rect class="sub" x="730" y="594" width="280" height="48" rx="6"/>
+<text class="tl" x="870" y="618" text-anchor="middle" dominant-baseline="central">telemetry 單向上送 Z-MGMT</text>
+
+<rect class="zone" x="1050" y="270" width="320" height="394" rx="12"/>
+<text class="tz" x="1070" y="296">Z-RED — attackers</text>
+<text class="tzs" x="1070" y="316">VLAN 30 · 10.167.223.0/24</text>
+
+<rect class="sub" x="1070" y="330" width="280" height="104" rx="8"/>
+<text class="tl" x="1082" y="350" dominant-baseline="central">host-a · eth1 macvlan parent</text>
+<g class="n-red">
+  <rect x="1076" y="366" width="84" height="52" rx="6"/>
+  <text class="th" x="1118" y="385" text-anchor="middle" dominant-baseline="central">kali-01</text>
+  <text class="ts" x="1118" y="403" text-anchor="middle" dominant-baseline="central">.101</text>
+</g>
+<g class="n-red">
+  <rect x="1168" y="366" width="84" height="52" rx="6"/>
+  <text class="th" x="1210" y="385" text-anchor="middle" dominant-baseline="central">kali-02</text>
+  <text class="ts" x="1210" y="403" text-anchor="middle" dominant-baseline="central">.102</text>
+</g>
+<g class="n-red">
+  <rect x="1260" y="366" width="84" height="52" rx="6"/>
+  <text class="th" x="1302" y="385" text-anchor="middle" dominant-baseline="central">kali-03</text>
+  <text class="ts" x="1302" y="403" text-anchor="middle" dominant-baseline="central">.103</text>
+</g>
+
+<rect class="sub" x="1070" y="454" width="280" height="104" rx="8"/>
+<text class="tl" x="1082" y="474" dominant-baseline="central">host-b · eth1 macvlan parent</text>
+<g class="n-red">
+  <rect x="1076" y="490" width="84" height="52" rx="6"/>
+  <text class="th" x="1118" y="509" text-anchor="middle" dominant-baseline="central">kali-04</text>
+  <text class="ts" x="1118" y="527" text-anchor="middle" dominant-baseline="central">.111</text>
+</g>
+<g class="n-red">
+  <rect x="1168" y="490" width="84" height="52" rx="6"/>
+  <text class="th" x="1210" y="509" text-anchor="middle" dominant-baseline="central">kali-05</text>
+  <text class="ts" x="1210" y="527" text-anchor="middle" dominant-baseline="central">.112</text>
+</g>
+<g class="n-red">
+  <rect x="1260" y="490" width="84" height="52" rx="6"/>
+  <text class="th" x="1302" y="509" text-anchor="middle" dominant-baseline="central">kali-06</text>
+  <text class="ts" x="1302" y="527" text-anchor="middle" dominant-baseline="central">.113</text>
+</g>
+
+<rect class="sub" x="1070" y="594" width="280" height="48" rx="6"/>
+<text class="tl" x="1210" y="618" text-anchor="middle" dominant-baseline="central">macvlan · 每台 container 獨立 IP</text>
+
+<rect class="panel" x="30" y="690" width="1340" height="152" rx="10"/>
+<text class="tz" x="50" y="716">firewall inter-VLAN 政策（v0.2.1）</text>
+
+<text class="tpk" x="50" y="748">RED → TARGET</text>
+<text class="tp"  x="220" y="748">allow :80 :3306</text>
+<text class="tl"  x="400" y="748">唯一攻擊面</text>
+<text class="tpk" x="50" y="772">RED → APP</text>
+<text class="tp"  x="220" y="772">allow :443</text>
+<text class="tl"  x="400" y="772">Player Portal · Battleboard</text>
+<text class="tpk" x="50" y="796">RED → MGMT</text>
+<text class="tp deny" x="220" y="796">deny all</text>
+<text class="tl"  x="400" y="796">觀測平面不得成為攻擊面</text>
+<text class="tpk" x="50" y="820">TARGET → MGMT</text>
+<text class="tp"  x="220" y="820">allow :3100 :9090 :4317</text>
+<text class="tl"  x="400" y="820">telemetry 單向</text>
+
+<text class="tpk" x="720" y="748">TARGET → APP</text>
+<text class="tp"  x="880" y="748">allow :443</text>
+<text class="tl"  x="1050" y="748">response agent pull 指令</text>
+<text class="tpk" x="720" y="772">APP → MGMT</text>
+<text class="tp"  x="880" y="772">allow Evaluation API</text>
+<text class="tl"  x="1050" y="772">不開放 raw LogQL / PromQL</text>
+<text class="tpk" x="720" y="796">MGMT → APP</text>
+<text class="tp"  x="880" y="796">allow :443</text>
+<text class="tl"  x="1050" y="796">Grafana Alert webhook</text>
+<text class="tpk" x="720" y="820">APP／MGMT → TARGET</text>
+<text class="tp deny" x="880" y="820">deny</text>
+<text class="tl"  x="1050" y="820">保住 telemetry 單向</text>
+
+<text class="tl" x="700" y="868" text-anchor="middle" dominant-baseline="central">與 v0.2 的差異：新增 Z-APP（VLAN 40）；Battleboard／Portal／Range Core 自 Z-MGMT 遷出，修正「Portal 在 MGMT 但 RED→MGMT deny all」的衝突；Z-MGMT 只留觀測與評估。</text>
+</svg>

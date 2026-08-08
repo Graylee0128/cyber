@@ -1,0 +1,138 @@
+<svg width="1200" height="920" viewBox="0 0 1200 920" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>資安攻防平台 V3 拓樸 — k8s 控制平面與 range 分離</title>
+<desc>k8s cluster 位於 Z-MGMT，只承載控制平面與觀測堆疊；靶機與攻擊機由 provisioner 外部建立，不加入 cluster。</desc>
+<style>
+  text { font-family: "Noto Sans CJK TC", "PingFang TC", "Microsoft JhengHei", "Helvetica Neue", Arial, sans-serif; }
+  .th { font-size: 14px; font-weight: 600; }
+  .ts { font-size: 12px; font-weight: 400; }
+  .tz { font-size: 15px; font-weight: 600; fill: #2C2C2A; }
+  .tzs { font-size: 12px; font-weight: 400; fill: #5F5E5A; }
+  .tl { font-size: 12px; font-weight: 400; fill: #5F5E5A; }
+  .tn { font-size: 13px; font-weight: 500; fill: #444441; }
+  .zone { fill: none; stroke: #B4B2A9; stroke-width: 1; stroke-dasharray: 5 5; }
+  .sub { fill: none; stroke: #D3D1C7; stroke-width: 1; stroke-dasharray: 3 3; }
+  .link { stroke: #888780; stroke-width: 1.3; fill: none; }
+  .n-purple rect { fill: #EEEDFE; stroke: #534AB7; stroke-width: 0.8; }
+  .n-purple .th { fill: #26215C; } .n-purple .ts { fill: #534AB7; }
+  .n-teal rect { fill: #E1F5EE; stroke: #0F6E56; stroke-width: 0.8; }
+  .n-teal .th { fill: #04342C; } .n-teal .ts { fill: #0F6E56; }
+  .n-blue rect { fill: #E6F1FB; stroke: #185FA5; stroke-width: 0.8; }
+  .n-blue .th { fill: #042C53; } .n-blue .ts { fill: #185FA5; }
+  .n-red rect { fill: #FCEBEB; stroke: #A32D2D; stroke-width: 0.8; }
+  .n-red .th { fill: #501313; } .n-red .ts { fill: #A32D2D; }
+  .n-amber rect { fill: #FAEEDA; stroke: #854F0B; stroke-width: 0.8; }
+  .n-amber .th { fill: #412402; } .n-amber .ts { fill: #854F0B; }
+</style>
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="#888780" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+</defs>
+
+<rect x="0" y="0" width="1200" height="920" fill="#FFFFFF"/>
+
+<rect class="zone" x="30" y="30" width="1140" height="300" rx="12"/>
+<text class="tz" x="50" y="58">Z-MGMT — VLAN 10 · k8s cluster（control plane only）</text>
+<text class="tzs" x="50" y="78">10.167.10.0/24 · 不承載靶機與攻擊機</text>
+
+<rect class="sub" x="50" y="95" width="280" height="215" rx="8"/>
+<text class="tn" x="66" y="122" dominant-baseline="central">k8s-master · .31</text>
+<g class="n-purple">
+  <rect x="66" y="142" width="248" height="48" rx="6"/>
+  <text class="th" x="190" y="166" text-anchor="middle" dominant-baseline="central">kube-apiserver :6443</text>
+</g>
+<g class="n-purple">
+  <rect x="66" y="196" width="248" height="48" rx="6"/>
+  <text class="th" x="190" y="220" text-anchor="middle" dominant-baseline="central">etcd</text>
+</g>
+<g class="n-purple">
+  <rect x="66" y="250" width="248" height="48" rx="6"/>
+  <text class="th" x="190" y="274" text-anchor="middle" dominant-baseline="central">scheduler · controller-mgr</text>
+</g>
+
+<rect class="sub" x="350" y="95" width="390" height="215" rx="8"/>
+<text class="tn" x="366" y="122" dominant-baseline="central">k8s-worker-1 · .32</text>
+<g class="n-teal">
+  <rect x="366" y="142" width="358" height="48" rx="6"/>
+  <text class="th" x="545" y="159" text-anchor="middle" dominant-baseline="central">range-core</text>
+  <text class="ts" x="545" y="177" text-anchor="middle" dominant-baseline="central">event · score · exercise API</text>
+</g>
+<g class="n-teal">
+  <rect x="366" y="196" width="358" height="48" rx="6"/>
+  <text class="th" x="545" y="213" text-anchor="middle" dominant-baseline="central">provisioner-controller</text>
+  <text class="ts" x="545" y="231" text-anchor="middle" dominant-baseline="central">SSH · Docker API · libvirt</text>
+</g>
+<g class="n-teal">
+  <rect x="366" y="250" width="358" height="48" rx="6"/>
+  <text class="th" x="545" y="267" text-anchor="middle" dominant-baseline="central">battleboard · player-portal</text>
+  <text class="ts" x="545" y="285" text-anchor="middle" dominant-baseline="central">product UI</text>
+</g>
+
+<rect class="sub" x="760" y="95" width="390" height="215" rx="8"/>
+<text class="tn" x="776" y="122" dominant-baseline="central">k8s-worker-2 · .33</text>
+<g class="n-teal">
+  <rect x="776" y="142" width="358" height="48" rx="6"/>
+  <text class="th" x="955" y="159" text-anchor="middle" dominant-baseline="central">grafana</text>
+  <text class="ts" x="955" y="177" text-anchor="middle" dominant-baseline="central">SOC view · alerting</text>
+</g>
+<g class="n-teal">
+  <rect x="776" y="196" width="358" height="48" rx="6"/>
+  <text class="th" x="955" y="213" text-anchor="middle" dominant-baseline="central">prometheus</text>
+  <text class="ts" x="955" y="231" text-anchor="middle" dominant-baseline="central">metrics :9090</text>
+</g>
+<g class="n-teal">
+  <rect x="776" y="250" width="358" height="48" rx="6"/>
+  <text class="th" x="955" y="267" text-anchor="middle" dominant-baseline="central">loki</text>
+  <text class="ts" x="955" y="285" text-anchor="middle" dominant-baseline="central">logs :3100</text>
+</g>
+
+<line class="link" x1="560" y1="334" x2="560" y2="374" marker-end="url(#arrow)"/>
+<text class="tl" x="546" y="354" text-anchor="end" dominant-baseline="central">provision · reset</text>
+<line class="link" x1="640" y1="374" x2="640" y2="334" marker-end="url(#arrow)"/>
+<text class="tl" x="654" y="354" dominant-baseline="central">telemetry</text>
+
+<g class="n-amber">
+  <rect x="470" y="380" width="260" height="64" rx="8"/>
+  <text class="th" x="600" y="404" text-anchor="middle" dominant-baseline="central">Firewall / L3 gateway</text>
+  <text class="ts" x="600" y="424" text-anchor="middle" dominant-baseline="central">per-tenant VLAN policy</text>
+</g>
+
+<line class="link" x1="600" y1="444" x2="600" y2="480"/>
+<line class="link" x1="307" y1="480" x2="892" y2="480"/>
+<line class="link" x1="307" y1="480" x2="307" y2="510"/>
+<line class="link" x1="892" y1="480" x2="892" y2="510"/>
+
+<rect class="zone" x="30" y="510" width="555" height="250" rx="12"/>
+<text class="tz" x="50" y="538">Exercise A · tenant-01</text>
+<text class="tzs" x="50" y="558">由 provisioner 動態建立 · 不加入 cluster</text>
+<g class="n-blue">
+  <rect x="50" y="575" width="515" height="80" rx="6"/>
+  <text class="th" x="307" y="605" text-anchor="middle" dominant-baseline="central">Z-TARGET-A · VLAN 21 · 10.167.21.0/24</text>
+  <text class="ts" x="307" y="629" text-anchor="middle" dominant-baseline="central">web-target · alloy · falco</text>
+</g>
+<g class="n-red">
+  <rect x="50" y="665" width="515" height="80" rx="6"/>
+  <text class="th" x="307" y="695" text-anchor="middle" dominant-baseline="central">Z-RED-A · VLAN 31 · 10.167.31.0/24</text>
+  <text class="ts" x="307" y="719" text-anchor="middle" dominant-baseline="central">kali-01..03 · macvlan</text>
+</g>
+
+<rect class="zone" x="615" y="510" width="555" height="250" rx="12"/>
+<text class="tz" x="635" y="538">Exercise B · tenant-02</text>
+<text class="tzs" x="635" y="558">同時併行 · 網段與 cluster 皆不共用</text>
+<g class="n-blue">
+  <rect x="635" y="575" width="515" height="80" rx="6"/>
+  <text class="th" x="892" y="605" text-anchor="middle" dominant-baseline="central">Z-TARGET-B · VLAN 22 · 10.167.22.0/24</text>
+  <text class="ts" x="892" y="629" text-anchor="middle" dominant-baseline="central">web-target · alloy · falco</text>
+</g>
+<g class="n-red">
+  <rect x="635" y="665" width="515" height="80" rx="6"/>
+  <text class="th" x="892" y="695" text-anchor="middle" dominant-baseline="central">Z-RED-B · VLAN 32 · 10.167.32.0/24</text>
+  <text class="ts" x="892" y="719" text-anchor="middle" dominant-baseline="central">kali-04..06 · macvlan</text>
+</g>
+
+<rect class="sub" x="30" y="800" width="1140" height="62" rx="8"/>
+<text class="tl" x="600" y="822" text-anchor="middle" dominant-baseline="central">靶機與攻擊機不加入 cluster —— kubelet :10250 與 kube-apiserver :6443 永遠不出現在攻擊面</text>
+<text class="tl" x="600" y="844" text-anchor="middle" dominant-baseline="central">新增一場演練 = 新增一組 VLAN pair + 一組 provisioner 呼叫,cluster 本身不動</text>
+
+<text class="tl" x="600" y="892" text-anchor="middle" dominant-baseline="central">紫 = k8s control plane　　綠 = 控制與觀測工作負載　　藍 = 靶機　　紅 = 攻擊機　　橘 = policy enforcement</text>
+</svg>
