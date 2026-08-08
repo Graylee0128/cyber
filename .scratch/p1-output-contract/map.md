@@ -114,6 +114,19 @@ agent pull 單向）都已被可執行的斷言證明，不只是文件宣稱。
 - **venv＝`.venv` ＋ `pip install -e ".[dev]"`**（票 01 暫裝進 user site-packages 的債還掉）
 - **receiver 的 HTTP 框架與 port** —— **暫緩**，02a 用不到，留給 #4 定
 
+## 完成 Z-MGMT 的路徑（2026-08-09，/to-tickets）
+
+```text
+#14 Evidence API 服務 ─→ #15 compose 網段隔離 ─→ #16 bring-up + handoff smoke ─→ #13 真網段
+   (軟體，可驗)            (逼近四區，部分驗)         (Z-MGMT 軟體完成里程碑)      (真 VLAN，env-gated)
+```
+
+- **#14**：Evaluation Engine v0＝Evidence API `GET /evidence/{event_id}`（Z-MGMT 唯一缺席的軟體住戶）
+- **#15**：compose 四網段逼近隔離，`verify_topology.py` 對可強制部分驗證
+- **#16**：一鍵起整組健康住戶 ＋ P1→P2 handoff smoke＝**Z-MGMT 軟體完成**
+- **#13**：真 VLAN10/firewall/deploy＝Z-MGMT **完全完成**，需真 infra
+- 範圍界定：coverage/MTTD 計算與 Console 屬 P2 evaluation，**不在**「完成 Z-MGMT」內
+
 ## 環境收尾（Workstream 6）
 
 P1 軟體到位後，剩下的都需要真實執行環境（真網段隔離、真 Falco、真 OTLP collector）。
