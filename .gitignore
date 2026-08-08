@@ -34,3 +34,6 @@ Thumbs.db
 
 # 日誌
 *.log
+
+# Agent worktrees（subagent 隔離用，勿追蹤）
+/.claude/
