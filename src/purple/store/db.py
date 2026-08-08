@@ -1,0 +1,71 @@
+"""PostgreSQL 連線與 schema。
+
+為什麼是 PG 而不是 SQLite（2026-08-08 決定）：
+
+1. `timestamptz` —— 整個平台的核心是時序關聯。票 01 花了整段功夫防「無時區時間戳」，
+   SQLite 把時間存成字串或數字，等於把剛擋掉的問題請回來。
+2. receiver 與 Evaluation Engine 是兩個行程（spec §4）。SQLite 的單寫入者模型
+   在這裡直接是錯的架構。
+3. `jsonb` —— Alert Record 的 `labels`／`fired_values` 形狀不固定，
+   SQLite 存得下但查不動。
+"""
+
+from __future__ import annotations
+
+import os
+
+import psycopg
+
+#: 本機與 CI 都用這個。CI 由 service container 提供，本機由 docker compose。
+DEFAULT_DSN = "postgresql://purple:purple@localhost:5432/purple"
+
+#: 連線逾時。沒有它，連到一個「靜默丟包」的 port（防火牆 drop 而非 refuse）
+#: 會卡到 OS 的 TCP timeout（Windows 上 ~21s／位址），讓「PG 沒起來」的
+#: 失敗訊息拖上幾分鐘才出現。快速失敗才能快速修。
+CONNECT_TIMEOUT_S = 3
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS core_events (
+    event_id     text        NOT NULL,
+    lifecycle    text        NOT NULL,
+    event_type   text        NOT NULL,
+    exercise_id  text        NOT NULL,
+    scenario_id  text        NOT NULL,
+    observed_at  timestamptz NOT NULL,
+    recorded_at  timestamptz NOT NULL DEFAULT now(),
+    event        jsonb       NOT NULL,
+    -- firing 與 resolved 共用 event_id，用 lifecycle 區分（spec §2.2）
+    PRIMARY KEY (event_id, lifecycle)
+);
+
+CREATE INDEX IF NOT EXISTS core_events_recorded_at_idx ON core_events (recorded_at);
+CREATE INDEX IF NOT EXISTS core_events_exercise_idx    ON core_events (exercise_id, observed_at);
+
+CREATE TABLE IF NOT EXISTS alert_records (
+    event_id     text        PRIMARY KEY,
+    grafana_rule text        NOT NULL,
+    query        text        NOT NULL,
+    threshold    text,
+    fired_values jsonb       NOT NULL DEFAULT '[]'::jsonb,
+    labels       jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    backend      text        NOT NULL,
+    recorded_at  timestamptz NOT NULL DEFAULT now()
+);
+"""
+
+
+def dsn() -> str:
+    return os.environ.get("PURPLE_PG_DSN", DEFAULT_DSN)
+
+
+def connect(url: str | None = None, connect_timeout: int = CONNECT_TIMEOUT_S) -> psycopg.Connection:
+    return psycopg.connect(url or dsn(), autocommit=True, connect_timeout=connect_timeout)
+
+
+def ensure_schema(conn: psycopg.Connection) -> None:
+    conn.execute(SCHEMA)
+
+
+def truncate_all(conn: psycopg.Connection) -> None:
+    """測試之間清空。TRUNCATE 而非 DROP —— 保留 schema，快得多。"""
+    conn.execute("TRUNCATE core_events, alert_records")

@@ -5,6 +5,7 @@ description = "Purple Platform P1 — Telemetry & Detection Pipeline"
 requires-python = ">=3.12"
 dependencies = [
     "PyYAML>=6.0",
+    "psycopg[binary]>=3.1",
 ]
 
 [project.optional-dependencies]

@@ -88,6 +88,14 @@
 - **2026-08-08（票 01 順手定的）** —— pytest ＋ `src/` layout ＋ `pyproject.toml`；package 名 `purple`；pure core／I-O shell 以模組分離（`skew.py` 純、`probes.py` 碰 subprocess）。**02a 只需確認，不必重議**
 - **2026-08-08** —— 前置檢查一律 **fail 不 skip**。skip 是前置檢查退化成永遠綠的標準路徑
 
+### 票 02a 拍板的四項實作選型（2026-08-08）
+
+- **儲存＝PostgreSQL**（否決 SQLite）。理由：① `timestamptz` 原生，SQLite 存字串會把票 01 剛擋掉的無時區問題請回來；② receiver 與 Evaluation Engine 是兩個行程，SQLite 單寫入者模型是錯的架構；③ Alert Record 的 `labels`／`fired_values` 是自由 JSON，要 `jsonb` 才查得動。schema 見 `src/purple/store/db.py`
+- **測試一律需要 PG，不分層**（user 明確拍板）。用 autouse session fixture 強制。代價：**沒有 PG／Docker 就一條測試都跑不了**，換得沒有「本機綠、CI 紅」的落差。CI 由 service container 提供 PG
+- **本機環境＝repo 根 `docker-compose.yml`**，目前只含 postgres。conftest 會在 PG 連不上時自動 `docker compose up -d postgres`（`PURPLE_AUTO_COMPOSE=1` 預設），達成「本機與 CI 同一指令 `python -m pytest`」
+- **venv＝`.venv` ＋ `pip install -e ".[dev]"`**（票 01 暫裝進 user site-packages 的債還掉）
+- **receiver 的 HTTP 框架與 port** —— **暫緩**，02a 用不到，留給 #4 定
+
 ## Fog
 
 尚未有答案，會影響後續但不阻塞 P1：

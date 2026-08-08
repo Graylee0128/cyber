@@ -1,0 +1,24 @@
+# 本機開發環境。CI 用 GitHub Actions 的 service container，設定必須與此一致。
+#
+# 服務名 = source registry 的來源 id（spec §3.3）——「沒裝」與「掉線」要分得開，
+# 靠的就是名字對得起來。
+#
+# 目前只有 postgres。Loki / Grafana / Alloy / Falco / 靶機等到 #4 真的要用時再加，
+# 不預先擺一堆起不來的服務。
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: purple
+      POSTGRES_PASSWORD: purple
+      POSTGRES_DB: purple
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U purple -d purple"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    # 開發環境刻意不掛 volume：測試資料丟掉沒差，重來反而乾淨。
+    # 要保留資料時自行加 volume，並記得 .gitignore 已擋掉 data/ 與 volumes/。

@@ -12,17 +12,23 @@ Gamified Red-Blue-Purple 攻防訓練平台。不是 observability lab，也不�
 - Step 0 對外契約已定版 → [.scratch/p1-output-contract/spec.md](./.scratch/p1-output-contract/spec.md)
 - 執行導覽 → [.scratch/p1-output-contract/map.md](./.scratch/p1-output-contract/map.md)
 - 13 張票 → [GitHub Issues](https://github.com/Graylee0128/cyber/issues)
-- 票 01（時間同步基準線）**已完成**（[#1](https://github.com/Graylee0128/cyber/issues/1)），下一張是 02a（[#2](https://github.com/Graylee0128/cyber/issues/2)）
+- 票 01 **已完成**（[#1](https://github.com/Graylee0128/cyber/issues/1)）、票 02a 測試載具**已完成**（[#2](https://github.com/Graylee0128/cyber/issues/2)），下一張是 02b（[#3](https://github.com/Graylee0128/cyber/issues/3)）
 
 ## 開發
 
 Python 3.12＋，pytest。
 
 ```bash
-pip install -e ".[dev]"     # src/ layout，暫無 venv 策略（由票 02a 決定）
-python -m pytest            # 全部測試
-python -m purple.clock.cli  # 時鐘同步檢查，退出碼 0/1/2
+python -m venv .venv && .venv/Scripts/activate   # Windows；Linux/mac 用 source .venv/bin/activate
+pip install -e ".[dev]"
+python -m pytest             # 全部測試
+python -m purple.clock.cli   # 時鐘同步檢查，退出碼 0/1/2
 ```
+
+**測試一律需要 PostgreSQL**（2026-08-08 決定，不分層 —— 才不會有「本機綠、CI 紅」）。
+`python -m pytest` 會在 PG 連不上時自動 `docker compose up -d postgres`；
+不想自動起就設 `PURPLE_AUTO_COMPOSE=0`，或用 `PURPLE_PG_DSN` 指向既有 PG。
+**沒有 PG 也沒有 Docker，測試一條都跑不了** —— 這是不分層的代價。
 
 節點清單在 [config/clock-nodes.yaml](./config/clock-nodes.yaml)。**每加一個遙測來源就要加一個節點** ——
 沒列進來的節點不會被檢查，而不被檢查的時鐘遲早會漂。

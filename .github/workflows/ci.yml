@@ -9,6 +9,30 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    # 全部測試都需要 PostgreSQL（2026-08-08 決定，見 map.md）。
+    # 不分層：不分層才不會有「本機綠、CI 紅」的落差。service container 就是
+    # 那個「一律需要的 PG」在 CI 這一側的具體來源。
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: purple
+          POSTGRES_PASSWORD: purple
+          POSTGRES_DB: purple
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U purple -d purple"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+
+    env:
+      # PG 已由 service container 起好，別再試 docker compose。
+      PURPLE_AUTO_COMPOSE: "0"
+      PURPLE_PG_DSN: postgresql://purple:purple@localhost:5432/purple
+
     steps:
       - uses: actions/checkout@v5
 
