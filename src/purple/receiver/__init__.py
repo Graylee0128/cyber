@@ -18,7 +18,7 @@ from purple.receiver.core import (
     mint_event_id,
 )
 from purple.receiver.whitelist import TechniqueRejected
-from purple.response.direct_block import Blocker, DirectIpsetBlocker
+from purple.response.queue import CommandQueue, ResponseCommand
 
 __all__ = ["ingest_alert"]
 
@@ -31,7 +31,7 @@ def ingest_alert(
     events: Any,
     records: Any,
     adapter: CoreEventAdapter | None = None,
-    blocker: Blocker | None = None,
+    response_queue: CommandQueue | None = None,
     fingerprints: Any = None,
 ) -> list[str]:
     """把一個 Grafana webhook 轉成 Core Event，回傳鑄造出的 event_id 清單。
@@ -43,10 +43,11 @@ def ingest_alert(
       3. **先**寫 Alert Record
       4. **再**發 Core Event 到 P1 儲存
       5. 外送給下游（可插拔 adapter）
-      6. attack.detected 觸發 ipset 直寫封鎖（票 03 的 expand，票 09 contract）
+      6. attack.detected 把封鎖需求**放進佇列**（票 09 的 contract）。
+         不再直寫 ipset —— 直寫需要連入 target，會破壞 TARGET→MGMT 單向。
+         實際封鎖由 target 側 agent 主動拉取佇列後執行（response/agent.py）。
     """
     adapter = adapter or NoopAdapter()
-    blocker = blocker or DirectIpsetBlocker()
 
     emitted: list[str] = []
     for alert in webhook.get("alerts", []):
@@ -69,8 +70,13 @@ def ingest_alert(
         events.append(core)
         adapter.deliver(core)
 
-        if core["event_type"] == "attack.detected":
-            blocker.block(core)
+        if core["event_type"] == "attack.detected" and response_queue is not None:
+            response_queue.enqueue(
+                ResponseCommand(
+                    event_id=event_id,
+                    source_ip=core["target"].get("source_ip", core["target"].get("service", "unknown")),
+                )
+            )
 
         emitted.append(event_id)
 

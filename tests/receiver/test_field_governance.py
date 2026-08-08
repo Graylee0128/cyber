@@ -72,7 +72,7 @@ class TestRejectionIsRecordedNotSilent:
     def test_shell_logs_rejected_alert(self, pg_connection, caplog):
         from purple.receiver import ingest_alert
         from purple.receiver.adapters import RecordingAdapter
-        from purple.response.direct_block import RecordingBlocker
+        from purple.response.queue import InMemoryCommandQueue
         from purple.store.alerts import AlertRecordStore
         from purple.store.events import CoreEventStore
 
@@ -83,7 +83,7 @@ class TestRejectionIsRecordedNotSilent:
         with caplog.at_level(logging.WARNING, logger="purple.receiver"):
             ids = ingest_alert(
                 webhook, events=events, records=records,
-                adapter=RecordingAdapter(), blocker=RecordingBlocker(),
+                adapter=RecordingAdapter(), response_queue=InMemoryCommandQueue(),
             )
 
         assert ids == []                    # 沒有 Core Event
