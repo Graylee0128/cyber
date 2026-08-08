@@ -34,10 +34,10 @@
 | ~~[02a · #2](https://github.com/Graylee0128/cyber/issues/2)~~ **done** | 測試載具 | 01 | CI 105 passed（含 PG）|
 | ~~[02b · #3](https://github.com/Graylee0128/cyber/issues/3)~~ **done** | 第一條紅燈 | 02a | 紅→綠（03） |
 | ~~[03 · #4](https://github.com/Graylee0128/cyber/issues/4)~~ **done** | SQLi → Core Event | 02b | CI 128 passed |
-| [04 · #5](https://github.com/Graylee0128/cyber/issues/5) | Receiver pure core | 03 | `technique_outside_whitelist_rejected` 等四條 |
-| [05 · #6](https://github.com/Graylee0128/cyber/issues/6) | Alert lifecycle | 03 | `resolved_shares_event_id_with_firing` |
-| [06 · #7](https://github.com/Graylee0128/cyber/issues/7) | Evidence resolver | 03 | `returns_context_window_not_single_line` |
-| [07 · #8](https://github.com/Graylee0128/cyber/issues/8) | Source Registry 狀態機 | 03 | `expired_heartbeat_is_stale_not_absent` |
+| ~~[04 · #5](https://github.com/Graylee0128/cyber/issues/5)~~ **done** | Receiver pure core | 03 | 四條全綠 |
+| ~~[05 · #6](https://github.com/Graylee0128/cyber/issues/6)~~ **done** | Alert lifecycle | 03 | 共用 event_id、containment≠MTTR |
+| ~~[06 · #7](https://github.com/Graylee0128/cyber/issues/7)~~ **done** | Evidence resolver | 03 | subagent；fake backend 證明可換 |
+| ~~[07 · #8](https://github.com/Graylee0128/cyber/issues/8)~~ **done** | Source Registry 狀態機 | 03 | subagent；stale≠absent |
 | [08 · #9](https://github.com/Graylee0128/cyber/issues/9) | Falco 作為 sensor | 03, 04 | `disabled_rule_shows_detection_gap` |
 | [09 · #10](https://github.com/Graylee0128/cyber/issues/10) | Response 閉環 agent pull | 03 | `agent_pulls_no_inbound_to_target` |
 | [10 · #11](https://github.com/Graylee0128/cyber/issues/11) | Prometheus／OTLP 路徑 | 03, 04 | `metric_alert_produces_core_event` |
