@@ -32,8 +32,8 @@
 |---|---|---|---|
 | ~~[01 · #1](https://github.com/Graylee0128/cyber/issues/1)~~ **done** | 時間同步基準線 | — | 41 tests，CI 綠 |
 | ~~[02a · #2](https://github.com/Graylee0128/cyber/issues/2)~~ **done** | 測試載具 | 01 | CI 105 passed（含 PG）|
-| [02b · #3](https://github.com/Graylee0128/cyber/issues/3) | 第一條紅燈 | 02a | `sqli_produces_core_event`（刻意紅著交票） |
-| [03 · #4](https://github.com/Graylee0128/cyber/issues/4) | SQLi → Core Event | 02b | 上條轉綠 |
+| ~~[02b · #3](https://github.com/Graylee0128/cyber/issues/3)~~ **done** | 第一條紅燈 | 02a | 紅→綠（03） |
+| ~~[03 · #4](https://github.com/Graylee0128/cyber/issues/4)~~ **done** | SQLi → Core Event | 02b | CI 128 passed |
 | [04 · #5](https://github.com/Graylee0128/cyber/issues/5) | Receiver pure core | 03 | `technique_outside_whitelist_rejected` 等四條 |
 | [05 · #6](https://github.com/Graylee0128/cyber/issues/6) | Alert lifecycle | 03 | `resolved_shares_event_id_with_firing` |
 | [06 · #7](https://github.com/Graylee0128/cyber/issues/7) | Evidence resolver | 03 | `returns_context_window_not_single_line` |
