@@ -79,6 +79,8 @@
 - **2026-08-08** —— MTTR 終點＝response 生效；Grafana Resolved 另名 `containment duration`（ADR ⑦）
 - **2026-08-08** —— 指標只留 `action coverage`，廢除 `Detection Rate`（ADR ⑨）
 - **2026-08-08** —— 03 直接寫成 pure core ／ shell，不先做壞結構再重構
+- **2026-08-08** —— **語言統一 Python**，含 09 的 response agent。理由：blast radius 涵蓋全部 13 張票，混語言會讓 02a 的載具要顧兩套。代價記在 09
+- **2026-08-08** —— 其餘實作選型（測試框架、本機環境、Core Event 儲存、receiver 框架與 port）**由 02a 一次拍板**，不另寫 spec —— 那是實作選型不是契約，寫進 spec 只會過期
 
 ## Fog
 

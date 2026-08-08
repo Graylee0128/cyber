@@ -19,3 +19,5 @@
 - [ ] 移除後 03 與 08 的測試仍全綠
 
 MTTR 定義見 [ADR 0001](../../../docs/adr/0001-p1-output-contract.md) ⑦。
+
+**語言代價（2026-08-08）：** agent 用 Python，不是 Go。target 側因此需要 Python runtime 或打包步驟（PyInstaller 之類）。做本票時決定走哪條，結論回寫 map.md。單一語言的好處是 02a 的載具只顧一套；代價落在這裡。
