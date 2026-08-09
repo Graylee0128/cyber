@@ -38,7 +38,7 @@
 | ~~[05 · #6](https://github.com/Graylee0128/cyber/issues/6)~~ **done** | Alert lifecycle | 03 | 共用 event_id、containment≠MTTR |
 | ~~[06 · #7](https://github.com/Graylee0128/cyber/issues/7)~~ **done** | Evidence resolver | 03 | subagent；fake backend 證明可換 |
 | ~~[07 · #8](https://github.com/Graylee0128/cyber/issues/8)~~ **done** | Source Registry 狀態機 | 03 | subagent；stale≠absent |
-| [08 · #9](https://github.com/Graylee0128/cyber/issues/9) **管線 CI 綠/真 Falco 走 golden VM** | Falco 作為 sensor | 03, 04 | 管線(rule+contract+決定性測試)CI 綠；**容器 Falco 在 host kernel 7.0 起不了**(modern-eBPF CO-RE relo + kmod 皆不支援該 kernel，2026-08-09 實測 0.39.2/0.44.1)；真 Falco 由 Slice 4 golden VM(kernel 6.8) 承載(2b-① 已證) |
+| [08 · #9](https://github.com/Graylee0128/cyber/issues/9) **管線 CI 綠 + 真 Falco golden VM 實跑** | Falco 作為 sensor | 03, 04 | 管線(rule+contract+決定性測試)CI 綠；容器 Falco 於 host kernel 7.0 不支援(CO-RE+kmod 皆倒)；**真 Falco 在 golden VM(6.8) 實測 `falco-modern-bpf active`**(2026-08-09)，即「Falco 在 target 側運行」的可運行證據 |
 | ~~[09 · #10](https://github.com/Graylee0128/cyber/issues/10)~~ **done** | Response 閉環 agent pull | 03 | expand→contract；agent pull 保單向 |
 | [10 · #11](https://github.com/Graylee0128/cyber/issues/11) **✅ CI 綠** | Prometheus／OTLP 路徑 | 03, 04 | OTLP `:4317` push 取代 scrape；prometheus 移出 z-target，契約 2 首次真成立 |
 | [11 · #12](https://github.com/Graylee0128/cyber/issues/12) **設定+量測done/磁碟待大主機** | raw log 保留時段 | 03 | window+快照純函式綠；loki retention 設定 + 量測腳本；磁碟數字待大主機 |
@@ -172,9 +172,13 @@ VM+容器 + Open vSwitch，user 2026-08-09 拍板）。切成 4 個 slice，見
   brute-force metric E2E（T1110）經 OTLP 路徑仍綠。
 - **Slice 3-②（#12）**：loki-config 開 compactor retention（168h）+ 具名 lokidata volume；
   `measure-log-retention.sh` 量 app/falco 行數 + Loki volume 磁碟 + retention。磁碟數字待大主機。
-- **Slice 4（腳本齊，待大主機驗）**：`range-up.sh` 一鍵 IaC（組 Slice1+2a，`--with-red`
-  六台 kali 接 VLAN30、`--with-falco` 用 golden 靶機）；`build-golden-target.sh` 烤 Falco
-  進 image 跑無網 VLAN20；`range-reset.sh` Reset。**不在 CI**（巢狀虛擬化）。
+- **Slice 4 ✅ 大主機全驗（2026-08-09）**：`range-up.sh` 一鍵 IaC 實測綠——
+  golden 靶機(Falco 已烤進)接無網 VLAN20、cloud-init 重跑拿到靜態 IP、契約 1/2 過；
+  六台 kali(netshoot)接 VLAN30 各自 source IP `.11~.16`；容器 red 吃同一套 nftables
+  方向性（實測 RED→MGMT:3100 timeout=擋、RED→TARGET:80 refused=放行）。
+  **`build-golden-target.sh` 印 `GOLDEN-FALCO-STATE: active`——真 Falco(modern-eBPF)
+  在 golden VM(kernel 6.8) 內確實運行**，這是 #9「Falco 在 target 側」繞開 host
+  kernel 7.0 的可運行證據。`range-reset.sh`=teardown+range-up（兩者皆已驗）。**不在 CI**。
 
 仍只能在真環境（大主機）收的：真 VM、Falco eBPF、OTLP push、生產規模數字。
 GitHub runner 不支援巢狀虛擬化，故 Slice 2+ 的真 VM 部分不在 CI。
