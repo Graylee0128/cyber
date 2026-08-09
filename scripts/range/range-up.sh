@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# 票 #13 Slice 4 —— 一鍵起整組 range（IaC）。組合已驗的片段：
+#   Slice 1  四區 OVS/VLAN + router + nftables 方向性防火牆（build-range 內含）
+#   Slice 2a 靶機真 VM 接 VLAN20（build-vm-target）
+#   Slice 4  （選）六台紅隊容器接 VLAN30；（選）靶機用 Falco golden image
+#
+# 選項：
+#   --with-red     另起六台紅隊容器接 VLAN30（attach-red.sh）
+#   --with-falco   靶機用 golden image（Falco 已烤進）跑在無網 VLAN20；
+#                  golden 不存在會先 build-golden-target.sh 產出
+#
+# 需 root + Slice 2 依賴。**不在 CI**（巢狀虛擬化）。冪等：內部各步自帶清理。
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CACHE="/var/lib/libvirt/images"
+GOLDEN="$CACHE/range-target-golden.qcow2"
+
+WITH_RED=0
+WITH_FALCO=0
+for arg in "$@"; do
+  case "$arg" in
+    --with-red)   WITH_RED=1 ;;
+    --with-falco) WITH_FALCO=1 ;;
+    *) echo "未知選項：$arg（可用 --with-red / --with-falco）"; exit 2 ;;
+  esac
+done
+
+echo "▶▶ Range up 開始（with-red=$WITH_RED with-falco=$WITH_FALCO）"
+
+if [ "$WITH_FALCO" = 1 ]; then
+  if [ ! -f "$GOLDEN" ]; then
+    echo "▶ golden image 不存在，先烤（build-golden-target.sh）"
+    bash "$DIR/build-golden-target.sh"
+  fi
+  echo "▶ 靶機用 golden image 起在 VLAN20（Falco 已在內）"
+  BASE_OVERRIDE="$GOLDEN" bash "$DIR/build-vm-target.sh"
+else
+  echo "▶ 靶機用乾淨 cloud image 起在 VLAN20"
+  bash "$DIR/build-vm-target.sh"
+fi
+
+if [ "$WITH_RED" = 1 ]; then
+  echo "▶ 起六台紅隊容器接 VLAN30"
+  bash "$DIR/attach-red.sh"
+fi
+
+echo "▶▶ Range up 完成。驗收：sudo bash $DIR/verify-range.sh"
+echo "   靶機 VLAN20: 10.167.20.10 | 紅隊 VLAN30: 10.167.30.11~16 | mgmt VLAN10: 10.167.10.10"

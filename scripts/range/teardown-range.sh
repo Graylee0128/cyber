@@ -4,9 +4,17 @@ set -uo pipefail
 
 pkill -f "scripts/range/stub_listener.py" 2>/dev/null || true
 
-# Slice 2a/2b：先關 VM 與 libvirt network（若有裝 libvirt）。
+# Slice 4：先清紅隊容器（含其 netns 符號連結）。
+if command -v docker >/dev/null 2>&1; then
+  for i in 1 2 3 4 5 6; do
+    docker rm -f "range-red$i" 2>/dev/null || true
+    rm -f "/var/run/netns/range-red$i" 2>/dev/null || true
+  done
+fi
+
+# Slice 2a/2b/4：關 VM 與 libvirt network（若有裝 libvirt）。
 if command -v virsh >/dev/null 2>&1; then
-  for vm in range-target range-falco-smoke; do
+  for vm in range-target range-falco-smoke range-golden-build; do
     virsh destroy "$vm" 2>/dev/null || true
     virsh undefine "$vm" --nvram 2>/dev/null || true
   done
