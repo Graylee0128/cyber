@@ -51,10 +51,33 @@ def _next_marker(kind: str) -> str:
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
-        source_ip = self.headers.get("X-Forwarded-For", self.client_address[0])
+        # source_ip 一律取 TCP 連線的對端，**絕不看 X-Forwarded-For**。
+        # 這條拓樸裡紅隊直連靶機，中間沒有任何 proxy —— 信任 XFF 換不到好處，卻讓
+        # 「六台紅隊 source IP 可分辨」這個契約證據變成送個 header 就能偽造的東西。
+        # 歸屬證據不能由被歸屬方控制（2026-08-09 code review）。
+        source_ip = self.client_address[0]
 
         if path == "/healthz":
             self._text(200, "ok")
+            return
+
+        if path == "/uncovered":
+            # 「有遙測、但沒有任何 Grafana 規則覆蓋」的動作 —— 決定性測試的真環境素材。
+            # Falco 會抓到並推進 Loki（遙測在），但 deploy/grafana 那邊刻意沒有對應規則，
+            # 所以不會有告警、不會有 Core Event。這正是 ADR ③ 要能分辨的
+            # 「看得到卻沒偵測到」= DETECTION_GAP，而不是「根本沒看到」= VISIBILITY_GAP。
+            marker = _next_marker("UNCOVERED")
+            try:
+                subprocess.run(
+                    ["/bin/sh", "-c", f"echo {marker}; id"],
+                    capture_output=True, timeout=5, check=False,
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._text(500, f"exec error: {exc}")
+                return
+            _write_log({"ts": _now(), "app": "range-target", "path": "/uncovered",
+                        "source_ip": source_ip, "marker": marker, "outcome": "executed"})
+            self._text(200, f"executed {marker}\n")
             return
 
         if path == "/exec":

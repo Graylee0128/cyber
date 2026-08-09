@@ -19,6 +19,8 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$DIR/../.." && pwd)"
 # shellcheck source=scripts/range/lib-cloudimg.sh
 source "$DIR/lib-cloudimg.sh"
+# shellcheck source=scripts/range/zones.env
+source "$DIR/zones.env"
 
 VM="range-golden-build"
 IMG_URL="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
@@ -89,7 +91,9 @@ echo "▶ 等烤完 + VM 關機..."
 ok=0
 for _ in $(seq 1 200); do   # 200×3s = 600s
   state="$(virsh domstate "$VM" 2>/dev/null || echo unknown)"
-  if grep -q "GOLDEN-BAKE-DONE" "$CONSOLE" 2>/dev/null && [ "$state" = "shut off" ]; then
+  # DONE 與 ABORT 都算「跑完了」——ABORT 的情形下 bake.sh 自己會 poweroff -f，
+  # 不提早結束的話這裡會白等滿 600s 才報一個沒資訊的逾時。
+  if grep -qE "GOLDEN-BAKE-(DONE|ABORT)" "$CONSOLE" 2>/dev/null && [ "$state" = "shut off" ]; then
     ok=1; break
   fi
   sleep 3
@@ -107,10 +111,16 @@ bake_fail=0
 grep -q "GOLDEN-FALCO-STATE: active" "$CONSOLE" || { echo "❌ falco 未 active"; bake_fail=1; }
 grep -q "GOLDEN-ALLOY-STATE: active" "$CONSOLE" || { echo "❌ alloy 未 active"; bake_fail=1; }
 grep -q "GOLDEN-APP-STATE: active"   "$CONSOLE" || { echo "❌ 靶機 app 未 active"; bake_fail=1; }
-if grep -qE "GOLDEN-RULE-HITS: exec=[1-9]" "$CONSOLE" && grep -qE "GOLDEN-RULE-HITS: exec=[0-9]+ secret=[1-9]" "$CONSOLE"; then
-  echo "   ✅ Falco 兩條 rule（T1059 exec / T1005 敏感檔）在 VM 內實際命中"
+if grep -qE "GOLDEN-RULE-HITS: exec=[1-9][0-9]* secret=[1-9][0-9]* uncovered=[1-9][0-9]*" "$CONSOLE"; then
+  echo "   ✅ Falco 三條 rule（T1059 exec / T1005 敏感檔 / uncovered）在 VM 內實際命中"
 else
-  echo "❌ Falco rule 未命中（看 GOLDEN-RULE-HITS）"; bake_fail=1
+  echo "❌ Falco rule 未全部命中（看 GOLDEN-RULE-HITS）"; bake_fail=1
+fi
+# uncovered 這條的意義是「有遙測、但刻意沒有 Grafana 規則覆蓋」——決定性測試（ADR ③）
+# 的真環境素材。它在 bake 期就要證明 Falco 抓得到，否則上線後那條測試會分不出
+# 「規則沒覆蓋」與「Falco 根本沒看到」。
+if grep -q "GOLDEN-BAKE-ABORT" "$CONSOLE" 2>/dev/null; then
+  echo "❌ bake 中途失敗（GOLDEN-BAKE-ABORT）"; bake_fail=1
 fi
 if [ "$bake_fail" != 0 ]; then
   echo
@@ -130,5 +140,5 @@ virsh undefine "$VM" --nvram 2>/dev/null || true
 rm -f "$BUILD"
 
 echo "✅ Golden image 就緒：$GOLDEN"
-echo "   內含：Falco(modern-eBPF) + Alloy(推 10.167.10.20:3100) + 靶機 app(:80)，全部 enable"
+echo "   內含：Falco(modern-eBPF) + Alloy(推 $MGMT_LOKI_IP:3100) + 靶機 app(:80)，全部 enable"
 echo "   用法：range-up.sh --with-falco"

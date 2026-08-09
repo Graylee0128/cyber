@@ -17,8 +17,16 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BR="br-range"
-BASE="10.167"  # 10.167.<vlan>.<host>
+# 分區位址的唯一定義處（見 zones.env 開頭）。所有 range 腳本都 source 它，
+# 位址不再以字面值散落在各檔。
+# shellcheck source=scripts/range/zones.env
+source "$DIR/zones.env"
+BR="$RANGE_BRIDGE"
+BASE="$RANGE_NET_PREFIX"  # <prefix>.<vlan>.<host>
+MGMT_CIDR="$RANGE_NET_PREFIX.$Z_MGMT_VLAN.0/24"
+TARGET_CIDR="$RANGE_NET_PREFIX.$Z_TARGET_VLAN.0/24"
+RED_CIDR="$RANGE_NET_PREFIX.$Z_RED_VLAN.0/24"
+RED_HOST_FIRST="${RED_IP_FIRST##*.}"
 
 echo "▶ 清掉可能殘留的舊 range"
 # 用 bash 呼叫，不依賴檔案 +x（git checkout 未必帶執行權限，否則 teardown 會被
@@ -48,7 +56,7 @@ add_node() {
 
 echo "▶ 建 router netns（四區 gateway + inter-VLAN 路由）"
 ip netns add ns-router
-for vlan in 10 20 30 40; do
+for vlan in "$Z_MGMT_VLAN" "$Z_TARGET_VLAN" "$Z_RED_VLAN" "$Z_APP_VLAN"; do
   ip link add "h-r$vlan" type veth peer name "c-r$vlan"
   ip link set "c-r$vlan" netns ns-router
   ovs-vsctl add-port "$BR" "h-r$vlan" tag="$vlan"
@@ -61,25 +69,27 @@ ip netns exec ns-router ip link set lo up
 ip netns exec ns-router sysctl -qw net.ipv4.ip_forward=1
 
 echo "▶ 建各區節點"
-add_node ns-mgmt   10 10
+add_node ns-mgmt "$Z_MGMT_VLAN" "${MGMT_STUB_IP##*.}"
 # 混合模式（Slice 2a）：target 換成真 VM 接 VLAN20，就不建 target netns（IP 會撞）。
 if [ "${SKIP_TARGET_NETNS:-0}" = "1" ]; then
-  echo "   • ns-target 略過（SKIP_TARGET_NETNS=1；由真 VM 接 VLAN20）"
+  echo "   • ns-target 略過（SKIP_TARGET_NETNS=1；由真 VM 接 VLAN$Z_TARGET_VLAN）"
 else
-  add_node ns-target 20 10
+  add_node ns-target "$Z_TARGET_VLAN" "${TARGET_IP##*.}"
 fi
 # 同理（Slice 4）：紅隊換成真容器接 VLAN30 時，不建 netns red —— 兩者用同一組
 # IP（.11~.16），同時存在會在 VLAN30 上位址衝突（ARP 兩邊都回）。
 if [ "${SKIP_RED_NETNS:-0}" = "1" ]; then
-  echo "   • ns-red1~6 略過（SKIP_RED_NETNS=1；由真容器接 VLAN30）"
+  echo "   • ns-red1~$RED_COUNT 略過（SKIP_RED_NETNS=1；由真容器接 VLAN$Z_RED_VLAN）"
 else
-  for i in 1 2 3 4 5 6; do
-    add_node "ns-red$i" 30 "1$i"   # 10.167.30.11 .. .16，六台各自 IP
+  for i in $(seq 1 "$RED_COUNT"); do
+    add_node "ns-red$i" "$Z_RED_VLAN" "$((RED_HOST_FIRST + i - 1))"
   done
 fi
 
 echo "▶ 套 nftables 方向性防火牆（在 router 的 forward hook；policy drop）"
-ip netns exec ns-router nft -f - <<'NFT'
+# 不引號的 heredoc：要把 zones.env 的網段代進來。nft 規則本身不含 `$`，
+# 也不含 `${...}`，所以展開不會誤傷（`{ 80, 3306 }` 在 heredoc 內不做 brace expansion）。
+ip netns exec ns-router nft -f - <<NFT
 table inet range_fw {
   chain forward {
     type filter hook forward priority filter; policy drop;
@@ -87,11 +97,11 @@ table inet range_fw {
     # 回程一律放行（讓契約 1 建立的連線能雙向完成）。
     ct state established,related accept
 
-    # 契約 1：TARGET(VLAN20) → MGMT(VLAN10) 允許（telemetry）。
-    ip saddr 10.167.20.0/24 ip daddr 10.167.10.0/24 accept
+    # 契約 1：TARGET(VLAN$Z_TARGET_VLAN) → MGMT(VLAN$Z_MGMT_VLAN) 允許（telemetry）。
+    ip saddr $TARGET_CIDR ip daddr $MGMT_CIDR accept
 
-    # §12.3：RED(VLAN30) → TARGET(VLAN20) 的 :80 / :3306 允許（紅隊打靶）。
-    ip saddr 10.167.30.0/24 ip daddr 10.167.20.0/24 tcp dport { 80, 3306 } accept
+    # §12.3：RED(VLAN$Z_RED_VLAN) → TARGET(VLAN$Z_TARGET_VLAN) 的 :80 / :3306 允許（紅隊打靶）。
+    ip saddr $RED_CIDR ip daddr $TARGET_CIDR tcp dport { 80, 3306 } accept
 
     # 其餘全 drop（policy）：
     #   契約 2  MGMT→TARGET 的 new  被擋（沒有放行規則，只有 established 回程）

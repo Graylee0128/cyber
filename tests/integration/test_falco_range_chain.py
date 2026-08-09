@@ -11,8 +11,8 @@ Z-MGMT 的 Loki（TARGET→MGMT :3100＝契約 1 實用），紅隊是接 VLAN30
 三條：
 1. `test_exec_becomes_core_event_T1059` —— SA §7 執行面
 2. `test_sensitive_file_access_becomes_core_event_T1005` —— SA §7 Scenario 03
-3. `test_disabled_rule_is_detection_gap_not_visibility_gap` —— 決定性測試的真環境版，
-   `telemetry_present` 來自真 Loki 查詢
+3. `test_uncovered_action_is_detection_gap_not_visibility_gap` —— 決定性測試的真環境版：
+   `detected` / `source_state` / `telemetry_present` 三個輸入**全部實採**，沒有字面值
 
 前提（由 scripts/test.sh 準備）：`range-up.sh --with-red --with-falco` 已跑完、
 compose 全棧在跑。以 `PURPLE_RANGE_CHAIN=1` 開啟，否則 skip（一般 CI 無巢狀虛擬化）。
@@ -23,6 +23,7 @@ from __future__ import annotations
 import os
 import subprocess
 import time
+from pathlib import Path
 
 import pytest
 
@@ -138,27 +139,76 @@ def test_sensitive_file_access_becomes_core_event_T1005(events):
     _ok(f"Core Event {core['event_id']} technique=T1005（SA §7 Scenario 03 通）")
 
 
-def test_disabled_rule_is_detection_gap_not_visibility_gap():
-    """決定性測試（真環境版）：telemetry_present 來自真 Loki，不是字面值。
+def test_uncovered_action_is_detection_gap_not_visibility_gap(events):
+    """決定性測試（真環境版）：`classify_miss` 的**三個輸入全部實採**，沒有字面值。
 
-    規則沒開火時，只要 raw 遙測在，就必須判偵測缺口 —— 這條紅了代表實質退回 D3，
-    Falco 覆蓋範圍內的偵測缺口全部不可觀測（ADR ③）。
+    #9 的 spec 是「當那條 Grafana rule 被停用時，呈現的是偵測缺口而不是可見性缺口」。
+    改用**等價且可重複**的做法：靶機 `/uncovered` 會觸發一條 Falco 規則
+    （`PurpleScope Uncovered Action`），而 `deploy/grafana` 刻意沒有對應的告警規則。
+    於是 —— 遙測在、沒有告警 —— 正是「規則被停用」要製造的那個情形，
+    但不必在測試裡去改 Grafana 的 provisioned 設定（那既不可重複、也會污染其他測試）。
+
+    2026-08-09 code review 之前，這條測試把 `detected=False` 與
+    `source_state=HEALTHY` 寫成字面值，只有 `telemetry_present` 是真的 —— 它證明的
+    其實只是「Loki 裡有遙測」，卻掛著決定性測試的名字。現在三個輸入分別來自：
+      detected          ← 真的去 Core Event 儲存查，確認**沒有**該情境的事件
+      source_state      ← Falco 的事件正在進 Loki，即 collector 活著
+      telemetry_present ← 真 Loki 查詢
+
+    這條紅了代表實質退回 D3，Falco 覆蓋範圍內的偵測缺口全部不可觀測（ADR ③）。
     """
-    print("\n=== [決定性/真環境] 有 Falco telemetry 但沒告警 → 偵測缺口 ===", flush=True)
-    _step("打 /exec 讓 Falco 事件確實進 Loki")
-    for _ in range(3):
-        _attack("/exec")
+    print("\n=== [決定性/真環境] 有 Falco telemetry 但無規則覆蓋 → 偵測缺口 ===", flush=True)
 
-    count = _wait_loki("PurpleScope exec detected")
-    telemetry_present = count > 0
-    assert telemetry_present, "前提不滿足：Loki 沒有 Falco 遙測"
-    _ok(f"真 Loki 查到 {count} 行 → telemetry_present={telemetry_present}")
+    _step("前提①：確認 Grafana 真的沒有任何規則覆蓋 uncovered（設定層，不是靠註解宣稱）")
+    rules_yaml = (
+        Path(__file__).resolve().parents[2]
+        / "deploy" / "grafana" / "provisioning" / "alerting" / "rules.yaml"
+    ).read_text(encoding="utf-8")
+    assert "uncovered" not in rules_yaml.lower(), (
+        "有人幫 uncovered 加了 Grafana 規則 —— 這條測試的前提沒了。"
+        "那條規則的價值就在於它**不被覆蓋**；要加規則請另立情境，別動這條。"
+    )
+    _ok("Grafana provisioned 規則中查無 uncovered —— 「沒有規則覆蓋」成立")
+
+    mark = events.now()
+    _step("從 range-red3 打靶機 /uncovered 三次（Falco 抓得到，但沒有規則會告警）")
+    for _ in range(3):
+        _attack("/uncovered", red="range-red3")
+
+    _step("實採②：telemetry_present ← 真 Loki")
+    uncovered_lines = _wait_loki("PurpleScope uncovered action")
+    telemetry_present = uncovered_lines > 0
+    assert telemetry_present, (
+        "前提不滿足：Loki 查不到 uncovered 的 Falco 行。"
+        "遙測都沒進來的話，判成可見性缺口才是對的，這條測試無從證明 D1。"
+    )
+    _ok(f"真 Loki 查到 {uncovered_lines} 行 → telemetry_present=True")
+
+    _step("實採③：source_state ← Falco 是否還在產出事件（活著才算 HEALTHY）")
+    falco_alive = loki_line_count(LOKI_URL, FALCO_SELECTOR, since_s=600) > 0
+    source_state = SourceState.HEALTHY if falco_alive else SourceState.STALE
+    assert source_state is SourceState.HEALTHY, (
+        "Falco 沒在產出事件 —— 這是可見性缺口的情形，不是本測試要證明的偵測缺口"
+    )
+    _ok(f"Falco 事件持續進 Loki → source_state={source_state}")
+
+    _step("實採①：detected ← 等過 Grafana 評估週期，確認真的沒有對應的 Core Event")
+    time.sleep(45)  # Grafana eval 10s + webhook + receiver，留足餘裕
+    new_events = events.since(mark)
+    uncovered_events = [
+        e for e in new_events
+        if "uncovered" in str(e.get("scenario_id", "")).lower()
+        or "uncovered" in str(e.get("technique", "")).lower()
+    ]
+    detected = bool(uncovered_events)
+    assert not detected, f"不該有 uncovered 的 Core Event，卻查到：{uncovered_events}"
+    _ok(f"45s 內 {len(new_events)} 筆新事件中，無一屬於 uncovered → detected=False")
 
     result = classify_miss(
-        detected=False,                      # 假設該 Grafana rule 被停用 → 沒告警
-        source_state=SourceState.HEALTHY,    # Falco 活著（事件進得了 Loki 即證）
+        detected=detected,                    # ← 真的查過 Core Event 儲存
+        source_state=source_state,            # ← 真的看過 Falco 還活著
         telemetry_present=telemetry_present,  # ← 真 Loki 查詢結果
     )
     assert result is MissClass.DETECTION_GAP
     assert result is not MissClass.VISIBILITY_GAP
-    _ok("判定 DETECTION_GAP（看得到卻沒偵測到）—— D1 在真環境成立")
+    _ok("判定 DETECTION_GAP（看得到卻沒偵測到）—— D1 在真環境成立，三個輸入全部實採")

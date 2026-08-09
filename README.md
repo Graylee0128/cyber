@@ -117,7 +117,7 @@ T4 是整條鏈最真的一段（`tests/integration/test_falco_range_chain.py`�
 |---|---|
 | `/exec` → Core Event T1059 | 紅隊容器(VLAN30) → 靶機 VM(VLAN20):80 → VM 內 Falco 抓 execve → Alloy → Loki(VLAN10) → Grafana → Core Event |
 | `/readsecret` → Core Event T1005 | SA §7 **Scenario 03** 敏感檔存取，同一條鏈 |
-| 規則停用 → 偵測缺口 | 決定性測試的真環境版：`telemetry_present` 來自**真 Loki 查詢**，不是字面值 |
+| `/uncovered` → 偵測缺口 | 決定性測試的真環境版：Falco 抓得到但**刻意沒有 Grafana 規則覆蓋**，`detected`／`source_state`／`telemetry_present` 三個輸入全部從真環境實採 |
 
 節點清單在 [config/clock-nodes.yaml](./config/clock-nodes.yaml)。**每加一個遙測來源就要加一個節點** ——
 沒列進來的節點不會被檢查，而不被檢查的時鐘遲早會漂。

@@ -123,7 +123,7 @@ NESTED="$(cat /sys/module/kvm_amd/parameters/nested /sys/module/kvm_intel/parame
 # 這裡失敗不擋部署 —— 部署不需要 pytest，只是先講清楚測試會受影響。
 # shellcheck source=scripts/lib-python.sh
 source "$REPO/scripts/lib-python.sh"
-if PY_FOR_TESTS="$(purple_pick_python "$REPO")"; then
+if PY_FOR_TESTS="$(purple_ensure_python "$REPO")"; then
   echo "   ✓ 測試用 python：$PY_FOR_TESTS"
 else
   echo "⚠ 備不出帶 pytest 的 python（缺 python3-venv？）—— test.sh 的 T1/T2/T4 會略過"
@@ -131,7 +131,7 @@ else
   # 進而讓整支腳本在這裡無聲中止。
   if [ "$INSTALL_DEPS" = 1 ]; then
     apt_install python3-venv
-    purple_pick_python "$REPO" >/dev/null || true
+    purple_ensure_python "$REPO" >/dev/null || true
   fi
 fi
 
@@ -181,4 +181,6 @@ bash "$RANGE/range-up.sh" "${UP_ARGS[@]}"
 echo
 echo "✅ 部署完成。測試：sudo bash test.sh"
 echo "   Grafana http://localhost:3000 (admin/admin) | Loki :3100 | Evidence API :8001"
-echo "   靶機 VM 10.167.20.10 | 紅隊 10.167.30.11~16 | MGMT 10.167.10.10 / Loki .20"
+# shellcheck source=scripts/range/zones.env
+source "$RANGE/zones.env"
+echo "   靶機 VM $TARGET_IP | 紅隊 $RED_IP_FIRST 起 $RED_COUNT 台 | MGMT $MGMT_STUB_IP / Loki $MGMT_LOKI_IP"

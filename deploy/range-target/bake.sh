@@ -5,8 +5,50 @@
 # 最後 cloud-init clean + poweroff，host 再把 disk 轉成 golden。
 #
 # 這支跑在**有網的 NAT**（VLAN20 無外網，裝不了套件）；golden 之後才上 VLAN20。
+#
+# 錯誤處理（2026-08-09 code review）：原本整支只有 `set -x`，curl 抓 key、apt 裝
+# Falco/Alloy 失敗了都照樣往下跑，真因要三分鐘後以「ALLOY-STATE: failed」這種粗網目
+# 才浮現。現在改 `set -Eeuo pipefail` + ERR trap：哪一行死的當場講清楚。
+# 不能只加 `set -e` —— 那會跳過結尾的 poweroff，host 端白等 600s 逾時；所以 trap 裡
+# 一定要印 GOLDEN-BAKE-ABORT（host 用它提早結束等待）並自己關機。
+set -Eeuo pipefail
+
 exec > >(tee /dev/console) 2>&1
 set -x
+
+# 這顆 VM 要跑的三個 service —— 一處定義，enable / start / 檢查 / 收尾都用它，
+# 免得日後加第四個（例如票 #17 的 response agent）要改四個地方。
+UNITS=(falco-modern-bpf.service purplescope-alloy.service range-target-app.service)
+
+# 診斷本身不該因為「被診斷的東西是壞的」而中止腳本，所以整段關掉 errexit。
+# 每行都加 DIAG| 前綴：關機序列有上百行，host 端才能精準撈出診斷而不是被淹掉。
+diag() { sed 's/^/DIAG| /'; }
+diagnose() {
+  local unit="$1"
+  set +e
+  echo "DIAG| ---- 診斷 $unit ----"
+  systemctl status "$unit" --no-pager -l 2>&1 | tail -15 | diag
+  journalctl -u "$unit" --no-pager 2>/dev/null | grep -iE "error|fatal|failed|panic" | head -15 | diag
+  journalctl -u "$unit" --no-pager 2>/dev/null | tail -15 | diag
+  set -e
+}
+
+# 任何未預期的失敗都走這裡：講清楚死在哪一行，然後**一定要關機**。
+on_error() {
+  local rc=$? line=$1
+  trap - ERR                 # 防止 handler 內再觸發自己
+  set +e
+  echo "=== GOLDEN-BAKE-ABORT: bake.sh 第 $line 行失敗（exit $rc）==="
+  echo "DIAG| ---- 失敗前後的系統狀態 ----"
+  { df -h /; free -m; tail -30 /var/log/apt/term.log 2>/dev/null; } 2>&1 | diag
+  for u in "${UNITS[@]}"; do
+    systemctl list-unit-files "$u" >/dev/null 2>&1 && diagnose "$u"
+  done
+  echo "=== GOLDEN-BAKE-DONE（ABORT）==="
+  poweroff -f
+}
+trap 'on_error $LINENO' ERR
+
 echo "=== GOLDEN-BAKE-BEGIN（烤 Falco + Alloy + 靶機 app）==="
 export DEBIAN_FRONTEND=noninteractive
 
@@ -16,7 +58,7 @@ echo "deb [signed-by=/usr/share/keyrings/falcosecurity.asc] https://download.fal
   > /etc/apt/sources.list.d/falcosecurity.list
 apt-get update -q
 apt-get install -y -q falco
-echo "falco 版本：$(falco --version 2>/dev/null | head -1)"
+echo "falco 版本：$(falco --version 2>/dev/null | head -1 || true)"
 
 # Falco 設定：JSON + 寫檔給 Alloy tail。自訂 rule 已放進 /etc/falco/rules.d（預設會載入該目錄）。
 mkdir -p /var/log/falco /etc/falco/config.d
@@ -63,7 +105,7 @@ RestartSec=5
 WantedBy=multi-user.target
 UNIT
 
-echo "--- 3/5 靶機 app（:80 /exec /readsecret）---"
+echo "--- 3/5 靶機 app（:80 /exec /readsecret /uncovered）---"
 mkdir -p /var/log/range-target
 cat > /etc/systemd/system/range-target-app.service <<'UNIT'
 [Unit]
@@ -83,55 +125,63 @@ UNIT
 echo "--- 4/5 enable 服務（golden 開機後自動就位，無網也能跑）---"
 systemctl daemon-reload
 # 逐個 enable：一次列多個時只要有一個 unit 名不存在，整條指令失敗、其餘也沒 enable 到。
+# 這裡刻意不讓 enable/start 失敗直接中止 —— 下面的 STATE 檢查會逐個判並印診斷，
+# 那比死在第一個失敗的 unit 上更有資訊量。
 echo "[裝好的相關 unit]"
 systemctl list-unit-files 2>/dev/null | grep -iE 'falco|alloy' || echo "(找不到 falco/alloy unit)"
-for u in falco-modern-bpf.service purplescope-alloy.service range-target-app.service; do
+for u in "${UNITS[@]}"; do
   systemctl enable "$u" || echo "!! enable $u 失敗"
 done
 
 echo "--- 5/5 就地驗一次（有網、kernel 6.8）---"
-for u in falco-modern-bpf.service range-target-app.service purplescope-alloy.service; do
+for u in "${UNITS[@]}"; do
   systemctl start "$u" || echo "!! start $u 失敗"
 done
 sleep 10
-FALCO_STATE=$(systemctl is-active falco-modern-bpf.service)
-ALLOY_STATE=$(systemctl is-active purplescope-alloy.service)
-APP_STATE=$(systemctl is-active range-target-app.service)
-echo "=== GOLDEN-FALCO-STATE: $FALCO_STATE ==="
-echo "=== GOLDEN-ALLOY-STATE: $ALLOY_STATE ==="
-echo "=== GOLDEN-APP-STATE: $APP_STATE ==="
 
-# 任一沒起來就把真因印到 console —— 這顆 VM 沒有 SSH，console 是唯一的窗口，
+# `systemctl is-active` 在服務沒起來時回非 0 —— 沒有 `|| true` 會被 errexit 當成
+# 腳本失敗，反而拿不到我們想印的狀態與診斷。
+bake_fail=0
+for u in "${UNITS[@]}"; do
+  state="$(systemctl is-active "$u" || true)"
+  # unit 名 → 標籤：falco-modern-bpf → FALCO、purplescope-alloy → ALLOY、range-target-app → APP
+  case "$u" in
+    falco*)       label=FALCO ;;
+    *alloy*)      label=ALLOY ;;
+    *target-app*) label=APP ;;
+    *)            label="${u%%.*}" ;;
+  esac
+  echo "=== GOLDEN-$label-STATE: $state ==="
+  if [ "$state" != active ]; then
+    bake_fail=1
+    diagnose "$u"
+  fi
+done
+
+# 沒起來時把設定也印出來 —— 這顆 VM 沒有 SSH，console 是唯一的窗口，
 # 少印一次就要多花一輪 5 分鐘重烤。
-# 每行都加 DIAG| 前綴：關機序列有上百行，host 端才能精準撈出診斷而不是被淹掉。
-diag() { sed 's/^/DIAG| /'; }
-diagnose() {
-  local unit="$1"
-  echo "DIAG| ---- 診斷 $unit ----"
-  systemctl status "$unit" --no-pager -l 2>&1 | tail -15 | diag
-  journalctl -u "$unit" --no-pager 2>/dev/null | grep -iE "error|fatal|failed|panic" | head -15 | diag
-  journalctl -u "$unit" --no-pager 2>/dev/null | tail -15 | diag
-}
-if [ "$FALCO_STATE" != active ]; then
-  diagnose falco-modern-bpf.service
+if [ "$bake_fail" != 0 ]; then
+  set +e
   echo "DIAG| ---- falco 設定與規則 ----"
   { ls -l /etc/falco/config.d/ /etc/falco/rules.d/; cat /etc/falco/config.d/purplescope.yaml; } 2>&1 | diag
-fi
-if [ "$ALLOY_STATE" != active ]; then
-  diagnose purplescope-alloy.service
   echo "DIAG| ---- alloy 設定與前景實跑（把解析錯誤逼出來）----"
   { ls -l /etc/alloy/; echo "[config 前 5 行]"; head -5 /etc/alloy/config.alloy; } 2>&1 | diag
   # 前景跑一次：unit 的 stdout 有時被吞，直接跑最能拿到真正的錯誤訊息。
   timeout 15 alloy run /etc/alloy/config.alloy --storage.path=/tmp/alloy-probe 2>&1 | tail -25 | diag
+  set -e
 fi
 
-# 就地觸發一次，確認 Falco 真的抓得到我們的兩條 rule（bake 期自證，不必等上線才發現）。
-curl -s -m 5 http://127.0.0.1/exec       >/dev/null || true
-curl -s -m 5 http://127.0.0.1/readsecret >/dev/null || true
+# 就地觸發一次，確認 Falco 真的抓得到我們的三條 rule（bake 期自證，不必等上線才發現）。
+# /uncovered 也在這裡打一次：它的 Falco 規則存在但**刻意沒有 Grafana 規則**，
+# 決定性測試靠它區分「看得到卻沒偵測到」與「根本沒看到」（ADR ③）。
+for ep in /exec /readsecret /uncovered; do
+  curl -s -m 5 "http://127.0.0.1$ep" >/dev/null || true
+done
 sleep 5
 EXEC_HITS=$(grep -c "PurpleScope exec detected" /var/log/falco/events.json 2>/dev/null || echo 0)
 SEC_HITS=$(grep -c "PurpleScope sensitive file access" /var/log/falco/events.json 2>/dev/null || echo 0)
-echo "=== GOLDEN-RULE-HITS: exec=$EXEC_HITS secret=$SEC_HITS ==="
+UNCOV_HITS=$(grep -c "PurpleScope uncovered action" /var/log/falco/events.json 2>/dev/null || echo 0)
+echo "=== GOLDEN-RULE-HITS: exec=$EXEC_HITS secret=$SEC_HITS uncovered=$UNCOV_HITS ==="
 
 echo "=== GOLDEN-BAKE-DONE ==="
 
@@ -139,7 +189,7 @@ echo "=== GOLDEN-BAKE-DONE ==="
 #  - 清掉 bake 期產生的 log/事件，image 才乾淨（上線後的事件才是演練資料）
 #  - cloud-init clean：讓下次以此為 base 開機時，build-vm-target 的靜態 IP + 契約
 #    cloud-init 會**重跑**（否則被當成同一 instance 直接略過）
-systemctl stop purplescope-alloy.service falco-modern-bpf.service range-target-app.service || true
+systemctl stop "${UNITS[@]}" || true
 rm -f /var/log/falco/events.json /var/log/range-target/app.log
 cloud-init clean --logs
 poweroff

@@ -10,11 +10,15 @@
 # 覆寫點：RED_IMAGE（預設 nicolaka/netshoot；真 kali 用 RED_IMAGE=kalilinux/kali-rolling）。
 set -euo pipefail
 
-BR="br-range"
-BASE="10.167.30"
-GW="10.167.30.1"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/range/zones.env
+source "$DIR/zones.env"
+BR="$RANGE_BRIDGE"
+RED_NET="${RED_IP_FIRST%.*}"        # 10.167.30
+RED_HOST_FIRST="${RED_IP_FIRST##*.}"  # 11
+GW="$Z_RED_GW"
 RED_IMAGE="${RED_IMAGE:-nicolaka/netshoot}"
-COUNT="${COUNT:-6}"
+COUNT="${COUNT:-$RED_COUNT}"
 
 if ! ovs-vsctl br-exists "$BR" 2>/dev/null; then
   echo "❌ $BR 不存在 —— 先跑 build-range.sh 或 build-vm-target.sh 建四區骨架"
@@ -23,10 +27,10 @@ fi
 
 mkdir -p /var/run/netns
 
-echo "▶ 起 $COUNT 台紅隊容器接 $BR / VLAN30（image=$RED_IMAGE）"
+echo "▶ 起 $COUNT 台紅隊容器接 $BR / VLAN$Z_RED_VLAN（image=$RED_IMAGE）"
 for i in $(seq 1 "$COUNT"); do
   name="range-red$i"
-  ip="$BASE.1$i"          # 10.167.30.11 .. .16
+  ip="$RED_NET.$((RED_HOST_FIRST + i - 1))"   # zones.env 的 RED_IP_FIRST 起算
   host_if="hr$i"          # host 端 veth（<=15 字元）
   cont_if="cr$i"
 
@@ -40,7 +44,7 @@ for i in $(seq 1 "$COUNT"); do
   ip link del "$host_if" 2>/dev/null || true
   ip link add "$host_if" type veth peer name "$cont_if"
   ovs-vsctl --if-exists del-port "$BR" "$host_if"
-  ovs-vsctl add-port "$BR" "$host_if" tag=30
+  ovs-vsctl add-port "$BR" "$host_if" tag="$Z_RED_VLAN"
   ip link set "$host_if" up
   ip link set "$cont_if" netns "$name"
   ip netns exec "$name" ip link set "$cont_if" name eth0
@@ -48,9 +52,9 @@ for i in $(seq 1 "$COUNT"); do
   ip netns exec "$name" ip link set eth0 up
   ip netns exec "$name" ip link set lo up
   ip netns exec "$name" ip route add default via "$GW" 2>/dev/null || true
-  echo "   • $name → VLAN30 $ip（pid $pid）"
+  echo "   • $name → VLAN$Z_RED_VLAN $ip（pid $pid）"
 done
 
 echo "✅ $COUNT 台紅隊容器就緒。範例攻擊（六個可分辨 source IP 打靶機 :80）："
-echo "   for i in \$(seq 1 $COUNT); do docker exec range-red\$i curl -s -m3 http://10.167.20.10/ >/dev/null && echo red\$i打了; done"
+echo "   for i in \$(seq 1 $COUNT); do docker exec range-red\$i curl -s -m3 http://$TARGET_IP/ >/dev/null && echo red\$i打了; done"
 echo "   拆除：scripts/range/teardown-range.sh（已含 range-red* 清理）"

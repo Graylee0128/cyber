@@ -21,8 +21,10 @@ CACHE="/var/lib/libvirt/images"
 BASE="${BASE_OVERRIDE:-$CACHE/noble-cloudimg.img}"
 DISK="$CACHE/$VM.qcow2"
 CONSOLE="/tmp/range-target-console.log"
-TARGET_IP="10.167.20.10"
-MGMT_IP="10.167.10.10"
+NONCE_FILE="/tmp/range-target-boot.nonce"
+# shellcheck source=scripts/range/zones.env
+source "$DIR/zones.env"   # TARGET_IP / MGMT_STUB_IP / Z_TARGET_GW 等位址的唯一定義處
+MGMT_IP="$MGMT_STUB_IP"
 OSV="${OSV:-ubuntu24.04}"
 VM_MEM="${VM_MEM:-2048}"
 VM_VCPUS="${VM_VCPUS:-2}"
@@ -58,42 +60,37 @@ fi
 echo "▶ 清掉舊 VM（冪等）"
 virsh destroy "$VM" 2>/dev/null || true
 virsh undefine "$VM" --nvram 2>/dev/null || true
-rm -f "$DISK" "$CONSOLE"
+rm -f "$DISK" "$CONSOLE" "$NONCE_FILE"
 
 echo "▶ 建 overlay disk（不動原 image）"
 qemu-img create -f qcow2 -F qcow2 -b "$BASE" "$DISK" 10G >/dev/null
 
 echo "▶ 產生 cloud-init（靜態 IP + 開機自驗契約 1）"
+# boot nonce：host 端也存一份，verify-range 用它判斷 console log 是不是**這顆** VM 留的。
+BOOT_NONCE="$(od -An -tx1 -N16 /dev/urandom | tr -dc '0-9a-f')"
+echo "$BOOT_NONCE" > "$NONCE_FILE"
+
 UD="$(mktemp)"; NC="$(mktemp)"
-cat > "$UD" <<'YAML'
+# 探測腳本走 write_files + base64（與 build-golden-target.sh 同慣例）：位址與 nonce
+# 當 argv 傳入，Python 內容完全不經 shell 展開，沒有跳脫地雷。
+cat > "$UD" <<YAML
 #cloud-config
 package_update: false
+write_files:
+  - path: /opt/contract1_probe.py
+    permissions: '0755'
+    encoding: b64
+    content: $(base64 -w0 "$DIR/contract1_probe.py")
 runcmd:
-  - |
-    python3 - <<'PY' | tee /dev/console
-    import socket
-    MGMT = "10.167.10.10"
-    ports = {3100: "Loki", 9090: "Prometheus", 4317: "OTLP"}
-    print("=== SLICE2A-BEGIN（從真 VM 測契約 1）===")
-    bad = []
-    for p, n in ports.items():
-        s = socket.socket(); s.settimeout(3)
-        try:
-            s.connect((MGMT, p)); print(f"契約1 OK: TARGET(VM) -> MGMT {n}:{p} 通")
-        except OSError as e:
-            bad.append(p); print(f"契約1 破: {n}:{p} 不通 ({e})")
-        finally:
-            s.close()
-    print("=== SLICE2A-RESULT:", "PASS" if not bad else f"FAIL {bad}", "===")
-    PY
+  - [bash, -c, "python3 /opt/contract1_probe.py $MGMT_IP $BOOT_NONCE | tee /dev/console"]
 YAML
-cat > "$NC" <<'YAML'
+cat > "$NC" <<YAML
 version: 2
 ethernets:
   zt:
     match: {name: "e*"}
-    addresses: [10.167.20.10/24]
-    routes: [{to: default, via: 10.167.20.1}]
+    addresses: [$TARGET_IP/24]
+    routes: [{to: default, via: $Z_TARGET_GW}]
 YAML
 
 echo "▶ 建靶機 VM 接 range-ovs / z-target（VLAN20）"

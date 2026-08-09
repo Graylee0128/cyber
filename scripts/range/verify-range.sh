@@ -14,11 +14,59 @@ set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$DIR/../.." && pwd)"
 VT="$REPO/scripts/verify_topology.py"
-MGMT="10.167.10.10"
-TARGET="10.167.20.10"
+# shellcheck source=scripts/range/zones.env
+source "$DIR/zones.env"
+MGMT="$MGMT_STUB_IP"
+TARGET="$TARGET_IP"
+CONSOLE="/tmp/range-target-console.log"
+NONCE_FILE="/tmp/range-target-boot.nonce"
+LOKI_URL="${PURPLE_LOKI_URL:-http://localhost:3100}"
 fails=0
 
 has_ns() { ip netns list 2>/dev/null | awk '{print $1}' | grep -qx "$1"; }
+
+# 從某台紅隊節點對靶機 :80 送一個**真的 HTTP request**（RED→TARGET:80 是 §12.3 允許的）。
+# 一定要送 request 不能只 connect：VM 模式的證據來源是靶機 app 的 log，而 app 只在
+# 處理完請求時才寫 source_ip。用 /probe（未知路徑走 404 分支會寫 log）而非 /healthz
+# （刻意不寫 log）或 /exec、/readsecret（會觸發 Falco 規則、污染 T4 的事件計數）。
+PROBE_PY="$(mktemp)"
+cat > "$PROBE_PY" <<'PY'
+import socket, sys
+s = socket.socket(); s.settimeout(3)
+s.connect((sys.argv[1], 80))   # 連得上是唯一的硬條件
+# 送不出去不算失敗：netns 模式的 stub listener accept 完就 conn.close()，
+# 這個 sendall 可能撞上 RST；但 source IP 在 accept 當下就記下來了。
+try:
+    s.sendall(b"GET /probe HTTP/1.1\r\nHost: range-target\r\nConnection: close\r\n\r\n")
+    s.recv(256)
+except OSError:
+    pass
+s.close()
+PY
+trap 'rm -f "$PROBE_PY"' EXIT
+
+probe_target_from_red() {  # probe_target_from_red <紅隊節點名>
+  ip netns exec "$1" python3 "$PROBE_PY" "$TARGET" 2>/dev/null
+}
+
+# 查 Loki：某個 selector 在 <since_s> 秒內有幾行。用於「現在這一刻通不通」的實證。
+loki_recent_lines() {  # loki_recent_lines <selector> <since_s>
+  python3 - "$LOKI_URL" "$1" "$2" <<'PY'
+import json, sys, time, urllib.parse, urllib.request
+base, selector, since = sys.argv[1].rstrip("/"), sys.argv[2], float(sys.argv[3])
+end = time.time(); start = end - since
+q = urllib.parse.urlencode({"query": selector, "start": str(int(start * 1e9)),
+                            "end": str(int(end * 1e9)), "limit": "1000",
+                            "direction": "backward"})
+try:
+    with urllib.request.urlopen(f"{base}/loki/api/v1/query_range?{q}", timeout=5) as r:
+        payload = json.load(r)
+except Exception:
+    print(-1); sys.exit(0)          # -1＝查不動（與「查得動但 0 行」要分得開）
+streams = (payload.get("data") or {}).get("result") or []
+print(sum(len(s.get("values", [])) for s in streams))
+PY
+}
 
 # --- 偵測佈局 ---------------------------------------------------------------
 if has_ns ns-target; then TARGET_MODE="netns"; else TARGET_MODE="vm"; fi
@@ -32,12 +80,54 @@ echo "=== 契約 1：TARGET → MGMT（:3100 :9090 :4317 通）==="
 if [ "$TARGET_MODE" = "netns" ]; then
   ip netns exec ns-target python3 "$VT" --from-zone target --mgmt "$MGMT" || fails=1
 else
-  # 真 VM 無法從 host 直接 exec（刻意：不持有 VM 憑證）。這條在 VM 開機時由
-  # build-vm-target 的 cloud-init 自驗過（SLICE2A-RESULT），這裡覆核那份證據。
-  if grep -q "SLICE2A-RESULT: PASS" /tmp/range-target-console.log 2>/dev/null; then
-    echo "  ✓ 由靶機 VM 開機自驗通過（/tmp/range-target-console.log 的 SLICE2A-RESULT: PASS）"
+  # VM 模式分兩段，而且**只有現場實證那段決定通過與否**。
+  #
+  # 為什麼要改（2026-08-09 code review）：原本整條契約 1 靠 grep console log 的
+  # SLICE2A-RESULT。那個檔只在建新 VM 時被 rm，所以 VM 掛掉、防火牆被改、Loki 從
+  # VLAN10 拆掉之後，它照樣回報通過 —— 四條契約裡唯一無法對開機後的退化變紅的一條。
+  #
+  #   a) :3100 —— 現場實證：打靶機一下，看 Loki 是否在**剛剛**收到它推來的新行。
+  #      這同時證明 TARGET→MGMT:3100 此刻通（不是開機當時通）。
+  #   b) :9090 / :4317 —— 靶機沒有東西會往這兩個 port 推，host 也刻意不持有 VM 憑證，
+  #      只能沿用開機自驗。但改成必須：VM 現在 running ＋ console log 的 boot nonce
+  #      與 host 端 sidecar 相符（證明那份記錄屬於**這顆**VM，不是上一輪殘骸）。
+
+  if ! virsh domstate range-target 2>/dev/null | grep -q running; then
+    echo "  ✗ 靶機 VM 不在 running —— 契約 1 無從談起"; fails=1
   else
-    echo "  ✗ 找不到靶機 VM 的契約 1 自驗證據"; fails=1
+    # (a) 現場實證 :3100
+    if [ "$RED_MODE" = "none" ]; then
+      echo "  ⚠ 無紅隊節點，無法主動觸發靶機產生新遙測；改看它既有的推送"
+    else
+      probe_target_from_red "${RED_NS_PREFIX}1" || true
+    fi
+    fresh=0
+    for _ in $(seq 1 10); do   # Alloy 推送有批次延遲，給 ~20s
+      fresh="$(loki_recent_lines '{app="range-target"}' 60)"
+      [ "$fresh" != "-1" ] && [ "$fresh" -gt 0 ] && break
+      sleep 2
+    done
+    if [ "$fresh" = "-1" ]; then
+      echo "  ✗ Loki 查不動（$LOKI_URL）—— 無法對契約 1 做現場實證"; fails=1
+    elif [ "$fresh" -gt 0 ]; then
+      echo "  ✓ :3100 現場實證：Loki 近 60s 收到靶機推來的 $fresh 行（TARGET→MGMT 此刻通）"
+    else
+      echo "  ✗ :3100 現場實證失敗：打了靶機但 Loki 60s 內沒收到任何新行"
+      echo "    → 靶機 VM 的 Alloy 沒推上來，或 Loki 沒掛在 VLAN$Z_MGMT_VLAN（attach-mgmt.sh）"
+      fails=1
+    fi
+
+    # (b) :9090 / :4317 的開機自驗，加上「這份證據屬於現在這顆 VM」的檢查
+    want_nonce="$(cat "$NONCE_FILE" 2>/dev/null || echo "")"
+    if [ -z "$want_nonce" ]; then
+      echo "  ✗ 找不到 boot nonce（$NONCE_FILE）—— 無法確認開機自驗屬於這顆 VM"; fails=1
+    elif ! grep -q "nonce=$want_nonce" "$CONSOLE" 2>/dev/null; then
+      echo "  ✗ console log 的 boot nonce 對不上 —— 那份自驗是舊 VM 留下的，不採信"; fails=1
+    elif grep -q "SLICE2A-RESULT: PASS" "$CONSOLE" 2>/dev/null; then
+      echo "  ✓ :9090 / :4317 由本顆 VM 開機自驗通過（nonce 相符；非現場探測）"
+    else
+      echo "  ✗ 本顆 VM 的開機自驗未通過（見 $CONSOLE 的 SLICE2A-RESULT）"; fails=1
+    fi
   fi
 fi
 
@@ -69,35 +159,10 @@ else
     LPID=""   # VM 模式：靶機 app 自己會記 source_ip，稍後從它的 log 取
   fi
 
-  # 送**真的 HTTP request**，不是純 TCP connect。
-  # VM 模式的證據來源是靶機 app 的 log，而 app 只在處理完請求時才寫 source_ip；
-  # 連上就斷不會產生任何一行 log（2026-08-09 實測，就是這條讓「六台可分辨」永遠是 0）。
-  # netns 模式的 stub listener 記的是 accept 到的 peer，多送一個 request 也無害。
-  # 探測腳本先落成檔案再跑：heredoc 混 `\` 續行與 `||` 的語意很微妙，寫成檔案才讀得懂。
-  # netns 換的只是網路命名空間，檔案系統共用，所以 /tmp 這支六個 netns 都讀得到。
-  PROBE="$(mktemp)"
-  cat > "$PROBE" <<'PY'
-import socket, sys
-s = socket.socket(); s.settimeout(3)
-s.connect((sys.argv[1], 80))   # 連得上是唯一的硬條件
-# 用 /probe 而非 /healthz：healthz 刻意不寫 log，而 /exec 與 /readsecret 會觸發
-# Falco 規則、污染 T4 的事件計數。未知路徑走 404 分支，**會**寫一行帶 source_ip 的
-# log —— 剛好是這裡唯一需要的證據。
-#
-# 送不出去不算失敗：netns 模式的 stub listener accept 完就 conn.close()，
-# 這個 sendall 可能撞上 RST；但 source IP 在 accept 當下就記下來了。
-try:
-    s.sendall(b"GET /probe HTTP/1.1\r\nHost: range-target\r\nConnection: close\r\n\r\n")
-    s.recv(256)
-except OSError:
-    pass
-s.close()
-PY
-  for i in 1 2 3 4 5 6; do
-    ip netns exec "${RED_NS_PREFIX}$i" python3 "$PROBE" "$TARGET" 2>/dev/null \
-      || echo "  red$i 連 target:80 失敗（§12.3 應允許）"
+  # 六台各打一次（probe_target_from_red 的說明見檔頭）。
+  for i in $(seq 1 "$RED_COUNT"); do
+    probe_target_from_red "${RED_NS_PREFIX}$i"       || echo "  red$i 連 target:80 失敗（§12.3 應允許）"
   done
-  rm -f "$PROBE"
   sleep 1
   [ -n "$LPID" ] && { kill "$LPID" 2>/dev/null || true; }
 
@@ -105,7 +170,6 @@ PY
     # VM 模式：source IP 從**真 Loki** 撈靶機 app 的 log（同時證明 Falco/app 的
     # telemetry 真的走完 TARGET→MGMT→Loki，比 stub listener 更強的證據）。
     : > "$REC"
-    LOKI_URL="${PURPLE_LOKI_URL:-http://localhost:3100}"
     for _ in $(seq 1 15); do
       python3 - "$LOKI_URL" "$REC" <<'PY' && break
 import json, sys, time, urllib.parse, urllib.request
@@ -139,9 +203,10 @@ PY
     # 而三者的修法天差地遠（改 range / 修 Alloy / 修靶機 app），不能讓人用猜的。
     if [ ! -s "$REC" ]; then
       echo "  ── 診斷：靶機 telemetry 沒進 Loki ──"
-      python3 - "$LOKI_URL" <<'PY'
+      python3 - "$LOKI_URL" "$MGMT_LOKI_IP" "$Z_MGMT_VLAN" <<'PY'
 import json, sys, time, urllib.parse, urllib.request
 base = sys.argv[1].rstrip("/")
+loki_ip, mgmt_vlan = sys.argv[2], sys.argv[3]
 
 def count(expr):
     end = time.time(); start = end - 900
@@ -165,7 +230,7 @@ if app_err or falco_err:
     print("  → Loki 查不動：先確認 compose 的 loki 有在跑（docker compose ps）")
 elif app_n == 0 and falco_n == 0:
     print("  → 靶機 VM 的 Alloy 沒推上來：契約 1（TARGET→MGMT :3100）實用斷了。")
-    print("    查：VM 內 purplescope-alloy.service 狀態、Loki 是否掛在 VLAN10 10.167.10.20")
+    print(f"    查：VM 內 purplescope-alloy.service 狀態、Loki 是否掛在 VLAN{mgmt_vlan} {loki_ip}")
     print("    （scripts/range/attach-mgmt.sh），以及 golden 是否為新版（.stamp）")
 elif app_n == 0:
     print("  → Alloy 通（falco 進得來），但靶機 app 沒寫 log：")

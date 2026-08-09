@@ -14,10 +14,13 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$DIR/../.." && pwd)"
-BR="br-range"
+# shellcheck source=scripts/range/zones.env
+source "$DIR/zones.env"
+BR="$RANGE_BRIDGE"
 NS="range-loki"
-IP="10.167.10.20"
-GW="10.167.10.1"
+IP="$MGMT_LOKI_IP"
+GW="$Z_MGMT_GW"
+TARGET_CIDR="$RANGE_NET_PREFIX.$Z_TARGET_VLAN.0/24"
 HOST_IF="hlokimgmt"
 CONT_IF="clokimgmt"
 
@@ -49,6 +52,6 @@ ip netns exec "$NS" ip link set "$CONT_IF" name mgmt0
 ip netns exec "$NS" ip addr add "$IP/24" dev mgmt0
 ip netns exec "$NS" ip link set mgmt0 up
 # 回程路由：Loki 回給 VLAN20 的封包要走 range gateway，否則會被丟去 docker 預設路由。
-ip netns exec "$NS" ip route add 10.167.20.0/24 via "$GW" dev mgmt0 2>/dev/null || true
+ip netns exec "$NS" ip route add "$TARGET_CIDR" via "$GW" dev mgmt0 2>/dev/null || true
 
 echo "✅ Loki 已在 Z-MGMT：$IP:3100（靶機 VM 的 Alloy 推這裡＝契約 1 實用）"

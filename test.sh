@@ -46,7 +46,7 @@ echo "════════════════════════�
 
 # 解析 python 要在 banner 之後：第一次可能會就地建 venv（有輸出），夾在標題前很亂。
 # 不能只用 `command -v python3` —— sudo 下那是 root 的直譯器，看不到使用者的 pytest。
-if PY="$(purple_pick_python "$REPO")"; then
+if PY="$(purple_ensure_python "$REPO")"; then
   echo "   python：$PY"
   HAVE_PY=1
 else

@@ -31,3 +31,23 @@
   output: "PurpleScope sensitive file access (file=%fd.name proc=%proc.name cmd=%proc.cmdline pid=%proc.pid)"
   priority: WARNING
   tags: [purplescope, T1005, collection]
+
+# 決定性測試（ADR ③）的真環境素材：**刻意沒有對應的 Grafana 告警規則**。
+#
+# 靶機 /uncovered 會生一個帶 PURPLESCOPE_UNCOVERED 標記的 shell。Falco 抓得到、
+# Alloy 推得進 Loki，所以「遙測在」是真的；但 deploy/grafana/provisioning/alerting
+# 那邊查無此規則，所以不會有告警、不會有 Core Event。
+#
+# 這正是 D1 要能分辨的情形：看得到卻沒偵測到 ＝ DETECTION_GAP（偵測缺口），
+# 而不是 VISIBILITY_GAP（根本沒看到）。若哪天有人幫這條加了 Grafana 規則，
+# tests/integration/test_falco_range_chain.py 的決定性測試會紅 —— 那是刻意的護欄，
+# 不是壞掉：這條規則的價值就在於它**不被覆蓋**。
+- rule: PurpleScope Uncovered Action
+  desc: deliberately un-alerted - telemetry exists but no detection rule covers it
+  condition: >
+    evt.type=execve and evt.dir=< and
+    proc.name in (sh, bash, dash, ash) and
+    proc.cmdline contains PURPLESCOPE_UNCOVERED
+  output: "PurpleScope uncovered action (cmd=%proc.cmdline pid=%proc.pid parent=%proc.pname)"
+  priority: NOTICE
+  tags: [purplescope, uncovered]

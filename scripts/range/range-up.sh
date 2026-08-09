@@ -17,6 +17,8 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$DIR/../.." && pwd)"
 # shellcheck source=scripts/range/lib-cloudimg.sh
 source "$DIR/lib-cloudimg.sh"
+# shellcheck source=scripts/range/zones.env
+source "$DIR/zones.env"
 CACHE="/var/lib/libvirt/images"
 GOLDEN="$CACHE/range-target-golden.qcow2"
 
@@ -68,5 +70,5 @@ if [ "$WITH_FALCO" = 1 ]; then
 fi
 
 echo "▶▶ Range up 完成。驗收：sudo bash $DIR/verify-range.sh"
-echo "   靶機 VLAN20: 10.167.20.10 | 紅隊 VLAN30: 10.167.30.11~16"
-echo "   MGMT VLAN10: 10.167.10.10(stub) / 10.167.10.20(真 Loki)"
+echo "   靶機 VLAN$Z_TARGET_VLAN: $TARGET_IP | 紅隊 VLAN$Z_RED_VLAN: $RED_IP_FIRST 起 $RED_COUNT 台"
+echo "   MGMT VLAN$Z_MGMT_VLAN: $MGMT_STUB_IP(stub) / $MGMT_LOKI_IP(真 Loki)"
