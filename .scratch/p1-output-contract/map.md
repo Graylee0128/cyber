@@ -118,11 +118,11 @@ agent pull 單向）都已被可執行的斷言證明，不只是文件宣稱。
 
 ```text
 #14 Evidence API 服務 ─→ #15 compose 網段隔離 ─→ #16 bring-up + handoff smoke ─→ #13 真網段
-   ✅ done               (逼近四區，部分驗)         (Z-MGMT 軟體完成里程碑)      (真 VLAN，env-gated)
+   ✅ done               ✅ done                   (Z-MGMT 軟體完成里程碑)      (真 VLAN，env-gated)
 ```
 
 - ~~**#14**~~ **done**：Evaluation Engine v0＝Evidence API `GET /evidence/{event_id}`。E2E 對**真 Loki** 取回 34 行上下文窗、依身分過濾、無 backend 洩漏。LokiBackend 已實作真查詢
-- **#15**：compose 四網段逼近隔離，`verify_topology.py` 對可強制部分驗證
+- ~~**#15**~~ **done**：compose 定義四網段（z-app/z-mgmt/z-target/z-red），服務依 SA §12 歸位。靠 network membership 逼近隔離。交付的隔離證據：E2E 實測 **app(z-target) 連不到 postgres(z-mgmt)**，對照組 app 連得到同區 prometheus。`check_zone_assignments` 純函式驗區歸屬＋擋 compose 漂移；`verify_topology.py --compose` 可對解析後 config 驗。**compose 做不到、委派 #13**：契約 2 方向（prometheus 為 scrape 上 z-target 是刻意留的疤）、z-mgmt 未設 internal（會斷 host published port）、真 VLAN/macvlan/防火牆/六台 kali source IP
 - **#16**：一鍵起整組健康住戶 ＋ P1→P2 handoff smoke＝**Z-MGMT 軟體完成**
 - **#13**：真 VLAN10/firewall/deploy＝Z-MGMT **完全完成**，需真 infra
 - 範圍界定：coverage/MTTD 計算與 Console 屬 P2 evaluation，**不在**「完成 Z-MGMT」內

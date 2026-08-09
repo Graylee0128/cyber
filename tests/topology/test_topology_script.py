@@ -34,6 +34,12 @@ def test_script_mentions_collectors_and_kali():
         assert marker in text, f"腳本沒涵蓋 {marker}"
 
 
+def test_script_offers_compose_mode():
+    """票 #15：CLI 提供 --compose 模式，對 compose 網段歸屬驗可強制的區規則。"""
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert "--compose" in text
+
+
 def test_missing_environment_does_not_fake_pass():
     """缺 --mgmt/--target 時退出碼必須非 0。"""
     import subprocess

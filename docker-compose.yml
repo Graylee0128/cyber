@@ -7,8 +7,19 @@
 # 服務名 = source registry 的來源 id（spec §3.3）。單一指令 `docker compose up`
 # 本機與 CI 一致（票 02a 的驗收條件）。
 #
-# 注意：這裡沒有四區 VLAN / macvlan / 6 台 kali 的網段拓樸 —— 那需要真網段
-# （workstream 6 / issue #13），compose bridge network 無法忠實模擬。
+# 四區網段（票 #15，SA §12）：z-app / z-mgmt / z-target / z-red。靠 network
+# membership 逼近隔離 —— 沒有共享 network 的兩個容器彼此不可達（連 DNS 都不解析）。
+# 這能強制的：mgmt 住戶都在 z-mgmt、collector 在 target 側、RED 與 MGMT 結構隔離。
+#
+# compose **無法**忠實模擬的（委派 #13 / workstream 6）：
+#   - 契約 2 的**方向**（TARGET→MGMT 單向）—— 共享 network 天生雙向；
+#     prometheus 為了 scrape 必須同時上 z-target，這正是真防火牆會擋的 MGMT→TARGET
+#     方向（真環境走 OTLP :4317 push 取代 scrape，見 #10/#11）
+#   - z-mgmt 未設 internal:true —— E2E 測試在 host 端經 published port 打各服務，
+#     internal 會切斷 host↔容器的 port 轉發。真單向防火牆屬 #13
+#   - 真 VLAN/macvlan、六台 kali 可分辨 source IP
+# z-app（Range Core／Product UI，WS5）與 z-red（六台 kali）在此 compose 無住戶，
+# 定義出來以完整表達四區模型；真住戶在 #13 / WS5。
 
 services:
   postgres:
@@ -19,6 +30,8 @@ services:
       POSTGRES_DB: purple
     ports:
       - "5432:5432"
+    networks:
+      - z-mgmt
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U purple -d purple"]
       interval: 2s
@@ -35,6 +48,8 @@ services:
       - "8080:8080"
     volumes:
       - applogs:/var/log/app
+    networks:
+      - z-target
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8080/healthz')\""]
       interval: 3s
@@ -48,9 +63,13 @@ services:
       - ./deploy/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
     ports:
       - "3100:3100"
+    networks:
+      - z-mgmt
     # 沒有 healthcheck：loki 映像是精簡 base，無 shell/wget，CMD-SHELL 會永遠失敗。
     # 就緒性交給下游重試與 E2E 測試的寬裕等待窗吸收。
 
+  # collector：在 target 側（契約 4）。透過共享 volume 讀 app log，經 z-mgmt push
+  # 到 Loki —— 這條 z-target→z-mgmt 就是契約 1 的 TARGET→MGMT telemetry。
   alloy:
     image: grafana/alloy:v1.4.2
     command:
@@ -60,6 +79,9 @@ services:
     volumes:
       - ./deploy/alloy/config.alloy:/etc/alloy/config.alloy:ro
       - applogs:/var/log/app:ro
+    networks:
+      - z-target
+      - z-mgmt
     depends_on:
       loki:
         condition: service_started
@@ -73,6 +95,12 @@ services:
       - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
       - "9090:9090"
+    # z-mgmt 住戶，但為了 scrape target 上的 app 必須同時上 z-target。
+    # 這條 MGMT→TARGET 正是契約 2 真防火牆會擋的方向；compose 無法擋方向，
+    # 真環境改走 OTLP push（#10/#11）。刻意留這道疤，別假裝 compose 有做到單向。
+    networks:
+      - z-mgmt
+      - z-target
     depends_on:
       vulnerable-app:
         condition: service_healthy
@@ -86,6 +114,8 @@ services:
       PURPLE_RECEIVER_PORT: "8000"
     ports:
       - "8000:8000"
+    networks:
+      - z-mgmt
     depends_on:
       postgres:
         condition: service_healthy
@@ -107,6 +137,8 @@ services:
       PURPLE_LOKI_URL: http://loki:3100
     ports:
       - "8001:8001"
+    networks:
+      - z-mgmt
     depends_on:
       postgres:
         condition: service_healthy
@@ -129,6 +161,8 @@ services:
       - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
     ports:
       - "3000:3000"
+    networks:
+      - z-mgmt
     depends_on:
       loki:
         condition: service_started
@@ -136,6 +170,13 @@ services:
         condition: service_healthy
       prometheus:
         condition: service_started
+
+# 四區網段（SA §12）。z-app / z-red 目前無住戶（見檔頭），定義出來以完整表達模型。
+networks:
+  z-app:
+  z-mgmt:
+  z-target:
+  z-red:
 
 volumes:
   applogs:

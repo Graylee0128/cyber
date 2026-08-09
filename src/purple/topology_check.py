@@ -60,3 +60,61 @@ def check_source_ips_distinguishable(source_ips: list[str]) -> list[str]:
             f" —— 可能被 SNAT 塌成主機 IP：{sorted(unique)}"
         ]
     return []
+
+
+# --- 四區網段模型（SA §12）：docker compose network 逼近隔離（票 #15）--------
+#
+# compose network 名 = 區名。這裡靠的是 Docker 的一條硬性質：**沒有共享 network
+# 的兩個容器彼此不可達**（連 embedded DNS 都不解析對方的服務名）。
+#
+# 能強制的（本函式檢查）：
+#   - mgmt 平面住戶都在 z-mgmt（SA §12.1：Z-MGMT 只承載觀測與評估）
+#   - collector 在 target 側（契約 4）
+#   - z-red 與 z-mgmt 不得被任何容器橋接 → 契約 3（RED→MGMT deny）結構上成立
+# 不能強制的（**不**在此檢查，委派 #13 的真網段/防火牆）：
+#   - 契約 2 的**方向**（TARGET→MGMT 單向）—— 共享 network 天生雙向
+#   - 真 VLAN/macvlan、六台 kali 可分辨 source IP、真單向防火牆
+Z_APP = "z-app"
+Z_MGMT = "z-mgmt"
+Z_TARGET = "z-target"
+Z_RED = "z-red"
+
+#: 觀測／評估平面住戶。
+MGMT_RESIDENTS = frozenset(
+    {"postgres", "loki", "prometheus", "grafana", "receiver", "evaluation-engine"}
+)
+#: collector 必須在 target 側（契約 4）。
+TARGET_COLLECTORS = frozenset({"alloy"})
+
+
+def check_zone_assignments(service_networks: dict[str, set[str]]) -> list[str]:
+    """對 compose 的 service→networks 對映，驗證 Docker membership 能強制的區規則。
+
+    不在此 compose 的服務會被跳過（同一份邏輯要能驗只起部分服務的子集）。
+    """
+    fails: list[str] = []
+
+    for svc in MGMT_RESIDENTS:
+        nets = service_networks.get(svc)
+        if nets is not None and Z_MGMT not in nets:
+            fails.append(
+                f"區違規：mgmt 住戶 {svc} 不在 {Z_MGMT}（在 {sorted(nets)}）"
+            )
+
+    for svc in TARGET_COLLECTORS:
+        nets = service_networks.get(svc)
+        if nets is not None and Z_TARGET not in nets:
+            fails.append(
+                f"契約4 破：collector {svc} 不在 target 側 {Z_TARGET}（在 {sorted(nets)}）"
+            )
+
+    bridgers = sorted(
+        s for s, nets in service_networks.items() if Z_RED in nets and Z_MGMT in nets
+    )
+    if bridgers:
+        fails.append(
+            f"契約3 破：{bridgers} 同時橋接 {Z_RED} 與 {Z_MGMT}，"
+            f"RED→MGMT 不再結構隔離"
+        )
+
+    return fails
