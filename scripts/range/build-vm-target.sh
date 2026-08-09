@@ -37,11 +37,20 @@ virsh net-start range-ovs 2>/dev/null || true
 virsh net-autostart range-ovs 2>/dev/null || true
 
 echo "▶ 取 Ubuntu cloud image（快取於 $BASE）"
-# 下載到 .part 暫存檔、可續傳（-C -），完成才 mv 成正式檔。這樣中途斷線只會留
-# 半截的 .part（下次續傳），永遠不會有半截的 $BASE 被後面誤當成完整 image。
+# cloud image 是 qcow2；qemu-img check 通過才算完整（0=好、3=只是 leak 也可用）。
+# 這道把關擋掉「半截下載」的損毀 image——否則 overlay 會讀到壞區塊，VM 開機直接
+# EXT4 I/O error → kernel panic（查起來像網路問題，其實是磁碟）。
+img_ok() { local rc; qemu-img check "$1" >/dev/null 2>&1; rc=$?; [ "$rc" = 0 ] || [ "$rc" = 3 ]; }
+
+if [ -f "$BASE" ] && ! img_ok "$BASE"; then
+  echo "   ⚠ 快取 image 損毀（多半上次下載中斷），刪除重抓"
+  rm -f "$BASE"
+fi
+# 下載到 .part、可續傳（-C -），驗過完整才 mv 成正式檔：半截檔永遠不會被當成 base。
 if [ ! -f "$BASE" ]; then
   echo "   下載中（~600MB，第一次較久；斷線可重跑續傳）..."
   curl -fL -C - "$IMG_URL" -o "$BASE.part"
+  img_ok "$BASE.part" || { echo "❌ 下載的 image 仍損毀，請重跑續傳"; exit 1; }
   mv "$BASE.part" "$BASE"
 fi
 
