@@ -102,12 +102,16 @@ services:
   # modern-eBPF / CO-RE：需 privileged 存取 host kernel（BTF 在 /sys）。事件用
   # file_output 寫 JSON 到共享 volume，Alloy tail 後推 Loki。只載自訂 rule（-r），
   # 不載預設數千條，events.json 才乾淨。CI 若 runner 不支援可能起不來——見 #9 註記。
-  # profile "falco"：預設 `docker compose up` **不啟** Falco —— modern-eBPF 需真 kernel
-  # 支援（BTF + eBPF probe），GitHub runner 起不來（scap_init 失敗），一 exit 會拖垮
-  # `up --wait`。故 CI 跑不含 falco 的全棧；大主機用 `docker compose --profile falco up`
-  # 才拉 Falco（2b-① 已證此 kernel 支援 modern-eBPF）。
+  # profile "falco"：預設 `docker compose up` **不啟** Falco。
+  # 已知限制（2026-08-09 大主機實測）：容器 Falco 需驅動吃得下 host kernel。
+  #   - GitHub runner：modern-eBPF scap_init 失敗（環境不支援）。
+  #   - 大主機 kernel 7.0.0-28（前沿/HWE）：modern-eBPF CO-RE relo 對不上（mm_struct.
+  #     rss_stat 版面變更）；kmod 驅動源碼也不支援該 kernel。0.39.2/0.44.1 皆然。
+  # 故容器 Falco 只在 kernel ≤ ~6.11 的 host 可跑。**真 Falco 的可運行部署改由 Slice 4
+  # 的 golden VM（kernel 6.8，apt falco-modern-bpf.service）承載**（2b-① 已證），即
+  # `range-up.sh --with-falco`。此 compose 服務保留給相容 kernel 的 host / CI 用。
   falco:
-    image: falcosecurity/falco:0.39.2
+    image: falcosecurity/falco:0.44.1
     privileged: true
     profiles: ["falco"]
     command:

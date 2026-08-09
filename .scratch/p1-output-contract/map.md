@@ -38,7 +38,7 @@
 | ~~[05 · #6](https://github.com/Graylee0128/cyber/issues/6)~~ **done** | Alert lifecycle | 03 | 共用 event_id、containment≠MTTR |
 | ~~[06 · #7](https://github.com/Graylee0128/cyber/issues/7)~~ **done** | Evidence resolver | 03 | subagent；fake backend 證明可換 |
 | ~~[07 · #8](https://github.com/Graylee0128/cyber/issues/8)~~ **done** | Source Registry 狀態機 | 03 | subagent；stale≠absent |
-| [08 · #9](https://github.com/Graylee0128/cyber/issues/9) **管線 CI 綠/Falco 待大主機** | Falco 作為 sensor | 03, 04 | 真 exec→Falco→Core Event(T1059) + 決定性測試接真 Loki；Falco 本體 CI 起不了，待大主機 `--profile falco` |
+| [08 · #9](https://github.com/Graylee0128/cyber/issues/9) **管線 CI 綠/真 Falco 走 golden VM** | Falco 作為 sensor | 03, 04 | 管線(rule+contract+決定性測試)CI 綠；**容器 Falco 在 host kernel 7.0 起不了**(modern-eBPF CO-RE relo + kmod 皆不支援該 kernel，2026-08-09 實測 0.39.2/0.44.1)；真 Falco 由 Slice 4 golden VM(kernel 6.8) 承載(2b-① 已證) |
 | ~~[09 · #10](https://github.com/Graylee0128/cyber/issues/10)~~ **done** | Response 閉環 agent pull | 03 | expand→contract；agent pull 保單向 |
 | [10 · #11](https://github.com/Graylee0128/cyber/issues/11) **✅ CI 綠** | Prometheus／OTLP 路徑 | 03, 04 | OTLP `:4317` push 取代 scrape；prometheus 移出 z-target，契約 2 首次真成立 |
 | [11 · #12](https://github.com/Graylee0128/cyber/issues/12) **設定+量測done/磁碟待大主機** | raw log 保留時段 | 03 | window+快照純函式綠；loki retention 設定 + 量測腳本；磁碟數字待大主機 |
