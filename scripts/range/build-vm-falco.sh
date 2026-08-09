@@ -46,6 +46,9 @@ echo "▶ 建 overlay disk（不動原 image）"
 qemu-img create -f qcow2 -F qcow2 -b "$BASE" "$DISK" 10G >/dev/null
 
 echo "▶ 產生 cloud-init（開機裝 Falco modern-eBPF + 自驗抓到已知動作）"
+# 關鍵：邏輯放進 write_files 的 /opt/falco-smoke.sh（#!/bin/bash），runcmd 只呼叫它。
+# 不能把邏輯直接寫進 runcmd —— cloud-init 用 /bin/sh(dash) 跑 runcmd，process
+# substitution >(...) 這種 bashism 會 "redirection unexpected" 整段不執行。
 UD="$(mktemp)"; NC="$(mktemp)"
 cat > "$UD" <<'YAML'
 #cloud-config
@@ -61,47 +64,49 @@ write_files:
         output: "PURPLESCOPE-FALCO-HIT proc=%proc.name file=%fd.name"
         priority: WARNING
         tags: [purplescope, test]
-runcmd:
-  - |
-    exec > >(tee /dev/console) 2>&1
-    set -x
-    echo "=== SLICE2B1-BEGIN（真 VM 內裝 Falco 並自驗）==="
-    export DEBIAN_FRONTEND=noninteractive
+  - path: /opt/falco-smoke.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      exec > >(tee /dev/console) 2>&1
+      set -x
+      echo "=== SLICE2B1-BEGIN（真 VM 內裝 Falco 並自驗）==="
+      export DEBIAN_FRONTEND=noninteractive
 
-    echo "--- 加 Falco 官方 apt 來源並安裝 ---"
-    curl -fsSL https://falco.org/repo/falcosecurity-packages.asc \
-      -o /usr/share/keyrings/falcosecurity.asc
-    echo "deb [signed-by=/usr/share/keyrings/falcosecurity.asc] https://download.falco.org/packages/deb stable main" \
-      > /etc/apt/sources.list.d/falcosecurity.list
-    apt-get update -q
-    apt-get install -y -q falco
-    echo "falco 版本：$(falco --version 2>/dev/null | head -1)"
+      echo "--- 加 Falco 官方 apt 來源並安裝 ---"
+      curl -fsSL https://falco.org/repo/falcosecurity-packages.asc -o /usr/share/keyrings/falcosecurity.asc
+      echo "deb [signed-by=/usr/share/keyrings/falcosecurity.asc] https://download.falco.org/packages/deb stable main" > /etc/apt/sources.list.d/falcosecurity.list
+      apt-get update -q
+      apt-get install -y -q falco
+      echo "falco 版本：$(falco --version 2>/dev/null | head -1)"
 
-    echo "--- 起 Falco modern-eBPF service（吃我們的自訂 rule）---"
-    touch /tmp/purplescope-trigger
-    systemctl restart falco-modern-bpf.service
-    sleep 2
-    echo "falco-modern-bpf 狀態：$(systemctl is-active falco-modern-bpf.service)"
+      echo "--- 起 Falco modern-eBPF service（吃我們的自訂 rule）---"
+      touch /tmp/purplescope-trigger
+      systemctl restart falco-modern-bpf.service
+      sleep 2
+      echo "falco-modern-bpf 狀態：$(systemctl is-active falco-modern-bpf.service)"
 
-    echo "--- 邊觸發邊等命中（最多 40 秒；涵蓋 eBPF 掛載時間）---"
-    HIT=0
-    for i in $(seq 1 40); do
-      cat /tmp/purplescope-trigger > /dev/null 2>&1
-      sleep 1
-      if journalctl -u falco-modern-bpf.service --no-pager 2>/dev/null | grep -q PURPLESCOPE-FALCO-HIT; then
-        HIT=1; break
+      echo "--- 邊觸發邊等命中（最多 40 秒；涵蓋 eBPF 掛載時間）---"
+      HIT=0
+      for i in $(seq 1 40); do
+        cat /tmp/purplescope-trigger > /dev/null 2>&1
+        sleep 1
+        if journalctl -u falco-modern-bpf.service --no-pager 2>/dev/null | grep -q PURPLESCOPE-FALCO-HIT; then
+          HIT=1; break
+        fi
+      done
+
+      if [ "$HIT" = 1 ]; then
+        echo "命中證據："
+        journalctl -u falco-modern-bpf.service --no-pager | grep PURPLESCOPE-FALCO-HIT | tail -1
+        echo "=== SLICE2B1-RESULT: PASS ==="
+      else
+        echo "--- 未命中，falco service 最後 25 行 ---"
+        journalctl -u falco-modern-bpf.service --no-pager | tail -25
+        echo "=== SLICE2B1-RESULT: FAIL ==="
       fi
-    done
-
-    if [ "$HIT" = 1 ]; then
-      echo "命中證據："
-      journalctl -u falco-modern-bpf.service --no-pager | grep PURPLESCOPE-FALCO-HIT | tail -1
-      echo "=== SLICE2B1-RESULT: PASS ==="
-    else
-      echo "--- 未命中，falco service 最後 25 行 ---"
-      journalctl -u falco-modern-bpf.service --no-pager | tail -25
-      echo "=== SLICE2B1-RESULT: FAIL ==="
-    fi
+runcmd:
+  - [bash, /opt/falco-smoke.sh]
 YAML
 cat > "$NC" <<'YAML'
 version: 2
