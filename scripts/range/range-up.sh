@@ -14,6 +14,9 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$DIR/../.." && pwd)"
+# shellcheck source=scripts/range/lib-cloudimg.sh
+source "$DIR/lib-cloudimg.sh"
 CACHE="/var/lib/libvirt/images"
 GOLDEN="$CACHE/range-target-golden.qcow2"
 
@@ -33,8 +36,15 @@ echo "▶▶ Range up 開始（with-red=$WITH_RED with-falco=$WITH_FALCO）"
 export SKIP_RED_NETNS="$WITH_RED"
 
 if [ "$WITH_FALCO" = 1 ]; then
+  # 比對內容指紋：不只看 golden 在不在，還要確認它是用**現在這版**來源檔烤的。
+  # 否則改了靶機 app / Alloy 設定卻沿用舊 golden，會得到「檔案在但功能不對」的假象。
+  WANT="$(golden_stamp "$REPO")"
+  HAVE="$(cat "$GOLDEN.stamp" 2>/dev/null || echo none)"
   if [ ! -f "$GOLDEN" ]; then
     echo "▶ golden image 不存在，先烤（build-golden-target.sh，約 4–8 分鐘）"
+    bash "$DIR/build-golden-target.sh"
+  elif [ "$WANT" != "$HAVE" ]; then
+    echo "▶ golden image 已過時（來源檔指紋不符：have=${HAVE:0:12} want=${WANT:0:12}），重烤"
     bash "$DIR/build-golden-target.sh"
   fi
   echo "▶ 靶機用 golden image 起在 VLAN20（Falco/Alloy/app 已在內）"

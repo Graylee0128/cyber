@@ -116,6 +116,8 @@ fi
 
 echo "▶ 把烤好的 disk 轉成獨立 golden image（$GOLDEN）"
 qemu-img convert -O qcow2 "$BUILD" "$GOLDEN"
+# 蓋上內容指紋：來源檔一改，range-up 就知道這顆 golden 過時、自動重烤。
+golden_stamp "$REPO" > "$GOLDEN.stamp"
 virsh undefine "$VM" --nvram 2>/dev/null || true
 rm -f "$BUILD"
 

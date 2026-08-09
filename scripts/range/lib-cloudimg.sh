@@ -3,6 +3,21 @@
 # 抽出來的原因：半截下載的 image 會讓 VM 開機讀到壞區塊 → EXT4 I/O error →
 # kernel panic（症狀像網路問題其實是磁碟），這道把關要在每支建 VM 的腳本都成立。
 
+# golden_stamp <repo>：golden image 的**內容指紋** —— 烤進去的四個來源檔的 sha256。
+#
+# 為什麼需要：golden 是一顆 qcow2，光看檔案在不在無法判斷它是用哪一版來源烤的。
+# 改了靶機 app 或 Alloy 設定卻沿用舊 golden，會得到「檔案存在但功能不對」的假象，
+# 而且症狀出現在很後面（測試打不到 :80、Loki 沒事件），極難回推。
+# 產出時蓋 stamp、使用前比對，指紋不合就自動重烤。
+golden_stamp() {
+  local repo="$1"
+  cat "$repo/deploy/range-target/bake.sh" \
+      "$repo/deploy/range-target/app.py" \
+      "$repo/deploy/range-target/config.alloy" \
+      "$repo/deploy/falco/rules.d/purplescope.yaml" 2>/dev/null \
+    | sha256sum | cut -d' ' -f1
+}
+
 # img_ok <file>：qemu-img check 通過才算完整（0=好、3=只是 leak 也可用）。
 img_ok() { local rc; qemu-img check "$1" >/dev/null 2>&1; rc=$?; [ "$rc" = 0 ] || [ "$rc" = 3 ]; }
 
