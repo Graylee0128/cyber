@@ -25,8 +25,8 @@ for arg in "$@"; do
   esac
 done
 
-PY="$(command -v python3 || command -v python)"
-[ -n "$PY" ] || { echo "❌ 找不到 python3"; exit 1; }
+# shellcheck source=scripts/lib-python.sh
+source "$REPO/scripts/lib-python.sh"
 
 FALCO_MODE="$(bash "$RANGE/falco-mode.sh")"
 export PURPLE_AUTO_COMPOSE=0
@@ -44,10 +44,23 @@ echo "════════════════════════�
 echo " PurpleScope 測試   Falco 模式：$FALCO_MODE   (kernel $(uname -r))"
 echo "════════════════════════════════════════════════════════════"
 
+# 解析 python 要在 banner 之後：第一次可能會就地建 venv（有輸出），夾在標題前很亂。
+# 不能只用 `command -v python3` —— sudo 下那是 root 的直譯器，看不到使用者的 pytest。
+if PY="$(purple_pick_python "$REPO")"; then
+  echo "   python：$PY"
+  HAVE_PY=1
+else
+  echo "❌ 找不到（也建不出）帶 pytest 的 python —— T1/T2/T4 只能略過"
+  echo "   多半是缺 python3-venv：sudo apt-get install -y python3-venv，然後重跑"
+  PY=""; HAVE_PY=0; fails=1
+fi
+
 # --- T1 單元／契約 -----------------------------------------------------------
 echo
 echo "▶▶ T1 單元／契約測試（純函式 + 管路契約；需 Postgres）"
-if "$PY" -m pytest -q -m "not integration"; then
+if [ "$HAVE_PY" = 0 ]; then
+  record "T1 單元／契約：❌ 無可用 pytest（見上）"
+elif "$PY" -m pytest -q -m "not integration"; then
   record "T1 單元／契約：✅"
 else
   record "T1 單元／契約：❌"; fails=1
@@ -56,7 +69,9 @@ fi
 # --- T2 compose 整合 ---------------------------------------------------------
 echo
 echo "▶▶ T2 compose 整合（真 SQLi / OTLP metric / Evidence API / lifecycle）"
-if docker compose -f "$REPO/docker-compose.yml" ps --status running -q 2>/dev/null | grep -q .; then
+if [ "$HAVE_PY" = 0 ]; then
+  record "T2 compose 整合：❌ 無可用 pytest（見上）"
+elif docker compose -f "$REPO/docker-compose.yml" ps --status running -q 2>/dev/null | grep -q .; then
   if [ "$FALCO_MODE" = "container" ]; then
     export PURPLE_FALCO_ENABLED=1
     echo "   （含容器 Falco 管線測試）"
@@ -97,7 +112,9 @@ fi
 # --- T4 真環境全鏈 -----------------------------------------------------------
 echo
 echo "▶▶ T4 真環境全鏈（紅隊 → 靶機 VM → Falco → Alloy → Loki → Core Event）"
-if [ "$FALCO_MODE" != "vm" ]; then
+if [ "$HAVE_PY" = 0 ]; then
+  record "T4 真環境全鏈：❌ 無可用 pytest（見上）"
+elif [ "$FALCO_MODE" != "vm" ]; then
   record "T4 真環境全鏈：⏭ 略過（Falco 走容器模式，該鏈由 T2 涵蓋）"
 elif ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^range-red1$'; then
   record "T4 真環境全鏈：⏭ 略過（無紅隊容器 —— 先 sudo bash deploy.sh）"

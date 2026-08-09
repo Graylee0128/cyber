@@ -69,11 +69,32 @@ else
     LPID=""   # VM 模式：靶機 app 自己會記 source_ip，稍後從它的 log 取
   fi
 
+  # 送**真的 HTTP request**，不是純 TCP connect。
+  # VM 模式的證據來源是靶機 app 的 log，而 app 只在處理完請求時才寫 source_ip；
+  # 連上就斷不會產生任何一行 log（2026-08-09 實測，就是這條讓「六台可分辨」永遠是 0）。
+  # netns 模式的 stub listener 記的是 accept 到的 peer，多送一個 request 也無害。
+  # 探測腳本先落成檔案再跑：heredoc 混 `\` 續行與 `||` 的語意很微妙，寫成檔案才讀得懂。
+  # netns 換的只是網路命名空間，檔案系統共用，所以 /tmp 這支六個 netns 都讀得到。
+  PROBE="$(mktemp)"
+  cat > "$PROBE" <<'PY'
+import socket, sys
+s = socket.socket(); s.settimeout(3)
+s.connect((sys.argv[1], 80))
+# 用 /probe 而非 /healthz：healthz 刻意不寫 log，而 /exec 與 /readsecret 會觸發
+# Falco 規則、污染 T4 的事件計數。未知路徑走 404 分支，**會**寫一行帶 source_ip 的
+# log —— 剛好是這裡唯一需要的證據。
+s.sendall(b"GET /probe HTTP/1.1\r\nHost: range-target\r\nConnection: close\r\n\r\n")
+try:
+    s.recv(256)
+except Exception:
+    pass
+s.close()
+PY
   for i in 1 2 3 4 5 6; do
-    ip netns exec "${RED_NS_PREFIX}$i" python3 -c \
-      "import socket;s=socket.socket();s.settimeout(3);s.connect(('$TARGET',80));s.close()" \
-      2>/dev/null || echo "  red$i 連 target:80 失敗（§12.3 應允許）"
+    ip netns exec "${RED_NS_PREFIX}$i" python3 "$PROBE" "$TARGET" 2>/dev/null \
+      || echo "  red$i 連 target:80 失敗（§12.3 應允許）"
   done
+  rm -f "$PROBE"
   sleep 1
   [ -n "$LPID" ] && { kill "$LPID" 2>/dev/null || true; }
 
@@ -110,6 +131,46 @@ open(rec, "w", encoding="utf-8").write("\n".join(ips) + "\n")
 PY
       sleep 2
     done
+
+    # 撈不到就把「斷在哪一段」講清楚。空陣列本身無法分辨三種完全不同的故障，
+    # 而三者的修法天差地遠（改 range / 修 Alloy / 修靶機 app），不能讓人用猜的。
+    if [ ! -s "$REC" ]; then
+      echo "  ── 診斷：靶機 telemetry 沒進 Loki ──"
+      python3 - "$LOKI_URL" <<'PY'
+import json, sys, time, urllib.parse, urllib.request
+base = sys.argv[1].rstrip("/")
+
+def count(expr):
+    end = time.time(); start = end - 900
+    p = urllib.parse.urlencode({"query": expr, "start": str(int(start * 1e9)),
+                                "end": str(int(end * 1e9)), "limit": "100",
+                                "direction": "backward"})
+    try:
+        with urllib.request.urlopen(f"{base}/loki/api/v1/query_range?{p}", timeout=5) as r:
+            payload = json.load(r)
+    except Exception as exc:
+        return None, f"查詢失敗：{exc}"
+    streams = (payload.get("data") or {}).get("result") or []
+    return sum(len(s.get("values", [])) for s in streams), None
+
+app_n, app_err = count('{app="range-target"}')
+falco_n, falco_err = count('{job="falco"}')
+for label, n, err in (("app=range-target", app_n, app_err), ("job=falco", falco_n, falco_err)):
+    print(f"  · {{{label}}} 近 15 分鐘行數：{n if err is None else err}")
+
+if app_err or falco_err:
+    print("  → Loki 查不動：先確認 compose 的 loki 有在跑（docker compose ps）")
+elif app_n == 0 and falco_n == 0:
+    print("  → 靶機 VM 的 Alloy 沒推上來：契約 1（TARGET→MGMT :3100）實用斷了。")
+    print("    查：VM 內 purplescope-alloy.service 狀態、Loki 是否掛在 VLAN10 10.167.10.20")
+    print("    （scripts/range/attach-mgmt.sh），以及 golden 是否為新版（.stamp）")
+elif app_n == 0:
+    print("  → Alloy 通（falco 進得來），但靶機 app 沒寫 log：")
+    print("    多半是 red→target:80 沒真的打到，或 range-target-app.service 沒起")
+else:
+    print("  → app log 有進來但沒有 source_ip 欄位：只有 startup 那行，請求沒被處理")
+PY
+    fi
   fi
 
   python3 - "$REC" "$REPO/src" <<'PY' || fails=1

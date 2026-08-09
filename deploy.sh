@@ -114,8 +114,26 @@ fi
 
 # 資訊性：本機若是 VM，要靠 nested；是實體機則無所謂。有 kernel BTF 才可能跑容器 Falco。
 NESTED="$(cat /sys/module/kvm_amd/parameters/nested /sys/module/kvm_intel/parameters/nested 2>/dev/null | head -1 || true)"
-[ -n "$NESTED" ] && echo "   · nested 虛擬化：$NESTED（本機若是實體機可忽略）"
+# 同上：實體機沒有 kvm_*/nested 這些檔，`[ -n "" ] && echo` 會回非 0 而讓 set -e 中止。
+[ -n "$NESTED" ] && echo "   · nested 虛擬化：$NESTED（本機若是實體機可忽略）" || true
 [ -e /sys/kernel/btf/vmlinux ] && echo "   · kernel BTF：有" || echo "   · kernel BTF：無（容器 Falco 不可用）"
+
+# python + pytest：測試層要用。在部署階段就把 repo 內的 .venv 準備好，
+# 之後 `sudo bash test.sh` 不會再倒在 root 看不到 pytest 上（實測 2026-08-09）。
+# 這裡失敗不擋部署 —— 部署不需要 pytest，只是先講清楚測試會受影響。
+# shellcheck source=scripts/lib-python.sh
+source "$REPO/scripts/lib-python.sh"
+if PY_FOR_TESTS="$(purple_pick_python "$REPO")"; then
+  echo "   ✓ 測試用 python：$PY_FOR_TESTS"
+else
+  echo "⚠ 備不出帶 pytest 的 python（缺 python3-venv？）—— test.sh 的 T1/T2/T4 會略過"
+  # 結尾一定要 `|| true`：`set -e` 下 `[ ] && { }` 條件不成立會讓整個 else 分支回非 0，
+  # 進而讓整支腳本在這裡無聲中止。
+  if [ "$INSTALL_DEPS" = 1 ]; then
+    apt_install python3-venv
+    purple_pick_python "$REPO" >/dev/null || true
+  fi
+fi
 
 if [ "$CAN_RANGE" = 0 ]; then
   echo "→ 只部署觀測棧（L1）。要完整 range：sudo bash deploy.sh --install-deps"
