@@ -21,6 +21,7 @@ from purple.evidence.backends import BackendUnavailable, LokiBackend
 from purple.evidence.resolver import (
     Caller,
     EvidenceBundle,
+    EvidenceError,
     EvidenceNotFound,
     EvidenceResolver,
     UnknownCaller,
@@ -76,6 +77,13 @@ def handle_evidence(event_id: str, identity: str | None, resolver: Any) -> tuple
         return 404, {"error": str(exc)}
     except BackendUnavailable as exc:
         return 503, {"error": str(exc)}
+    except EvidenceError as exc:
+        # 我們自己的資料完整性錯誤（如 observed_at 壞掉）：訊息可回，無路徑/金鑰。
+        return 500, {"error": str(exc)}
+    except Exception:
+        # 非預期錯誤（如 DB 連線）：**不**把 str(exc) 回給呼叫者，避免洩漏內部細節。
+        log.exception("evidence 解析非預期失敗 event_id=%s", event_id)
+        return 500, {"error": "internal error"}
 
     return 200, render_bundle(bundle)
 

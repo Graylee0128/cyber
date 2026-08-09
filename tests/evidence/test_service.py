@@ -85,6 +85,13 @@ class TestStatusMapping:
         status, _ = handle_evidence("evt-1", "blue", _StubResolver(error=BackendUnavailable("no loki")))
         assert status == 503
 
+    def test_unexpected_error_is_500_without_leaking_details(self):
+        """DB 之類非預期錯誤 → 500，但不得把內部訊息回給呼叫者。"""
+        secret = "connection to db at /secret/path failed"
+        status, body = handle_evidence("evt-1", "blue", _StubResolver(error=RuntimeError(secret)))
+        assert status == 500
+        assert secret not in body["error"]
+
 
 # --- 對真 PG + FakeBackend 的整合（非全棧）--------------------------------
 
