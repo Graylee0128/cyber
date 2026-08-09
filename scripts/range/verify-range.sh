@@ -79,14 +79,17 @@ else
   cat > "$PROBE" <<'PY'
 import socket, sys
 s = socket.socket(); s.settimeout(3)
-s.connect((sys.argv[1], 80))
+s.connect((sys.argv[1], 80))   # 連得上是唯一的硬條件
 # 用 /probe 而非 /healthz：healthz 刻意不寫 log，而 /exec 與 /readsecret 會觸發
 # Falco 規則、污染 T4 的事件計數。未知路徑走 404 分支，**會**寫一行帶 source_ip 的
 # log —— 剛好是這裡唯一需要的證據。
-s.sendall(b"GET /probe HTTP/1.1\r\nHost: range-target\r\nConnection: close\r\n\r\n")
+#
+# 送不出去不算失敗：netns 模式的 stub listener accept 完就 conn.close()，
+# 這個 sendall 可能撞上 RST；但 source IP 在 accept 當下就記下來了。
 try:
+    s.sendall(b"GET /probe HTTP/1.1\r\nHost: range-target\r\nConnection: close\r\n\r\n")
     s.recv(256)
-except Exception:
+except OSError:
     pass
 s.close()
 PY
