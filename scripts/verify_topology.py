@@ -16,10 +16,18 @@
              不需真網段，本機／CI 都能跑。方向性（契約 2）等真防火牆屬 #13。
   --mgmt/--target：對真四區網段 socket 實測四條契約（workstream 6 / #13）。
 
+每條契約要從**對應的區**測（不然會誤判——如契約 2「MGMT→TARGET 不通」在 target
+節點跑會連到自己而假通）。故 --from-zone 一次只驗它那條：
+    target → 契約 1（TARGET→MGMT 三 port 通），需 --mgmt
+    mgmt   → 契約 2（MGMT→TARGET 反向不通），需 --target
+    red    → 契約 3（RED→MGMT deny all），需 --mgmt
+
 用法：
     python scripts/verify_topology.py --compose
-    python scripts/verify_topology.py --from-zone target --mgmt 10.167.10.10 --target 10.167.20.10
-退出碼 0＝可驗部分全通過；1＝有契約不成立；2＝環境未就位。
+    ip netns exec ns-target python scripts/verify_topology.py --from-zone target --mgmt 10.167.10.10
+    ip netns exec ns-mgmt   python scripts/verify_topology.py --from-zone mgmt   --target 10.167.20.10
+    ip netns exec ns-red1   python scripts/verify_topology.py --from-zone red    --mgmt 10.167.10.10
+退出碼 0＝本區契約通過；1＝契約不成立；2＝環境未就位。
 """
 
 from __future__ import annotations
@@ -76,26 +84,29 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--compose", action="store_true", help="驗 docker compose 網段歸屬（票 #15）")
     parser.add_argument("--mgmt", help="Z-MGMT 節點 IP")
     parser.add_argument("--target", help="Z-TARGET 節點 IP")
-    parser.add_argument("--from-zone", choices=["target", "red"], default="target")
+    parser.add_argument("--from-zone", choices=["target", "mgmt", "red"], default="target")
     args = parser.parse_args(argv)
 
     if args.compose:
         return _verify_compose()
 
-    if not args.mgmt or not args.target:
+    #: 每個 zone 驗它那條契約，各自需要的對端 IP。
+    needs = {"target": "mgmt", "mgmt": "target", "red": "mgmt"}
+    required = needs[args.from_zone]
+    if not getattr(args, required):
         print(
-            "環境未就位：需要四區網段與各節點 IP（workstream 6）。\n"
-            "本檢查刻意不在缺環境時回報成功。",
+            f"環境未就位：--from-zone {args.from_zone} 需要 --{required}"
+            f"（四區網段 / workstream 6）。\n本檢查刻意不在缺環境時回報成功。",
             file=sys.stderr,
         )
         return 2
 
-    fails: list[str] = []
     if args.from_zone == "target":
-        fails += check_target_to_mgmt(args.mgmt)
-        fails += check_mgmt_to_target_blocked(args.target)
+        fails = check_target_to_mgmt(args.mgmt)          # 契約 1
+    elif args.from_zone == "mgmt":
+        fails = check_mgmt_to_target_blocked(args.target)  # 契約 2
     else:  # red
-        fails += check_red_to_mgmt_denied(args.mgmt)
+        fails = check_red_to_mgmt_denied(args.mgmt)      # 契約 3
 
     if fails:
         print("拓樸契約未通過：", file=sys.stderr)
@@ -103,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  - {f}", file=sys.stderr)
         return 1
 
-    print("拓樸契約通過（本區可驗部分）。")
+    print(f"拓樸契約通過（from-zone {args.from_zone}）。")
     return 0
 
 

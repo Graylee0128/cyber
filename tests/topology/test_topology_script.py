@@ -40,6 +40,22 @@ def test_script_offers_compose_mode():
     assert "--compose" in text
 
 
+def test_each_zone_fails_without_its_peer():
+    """票 #13：target/mgmt/red 三個 zone 各驗一條契約，缺對端 IP 都必須 exit 2。
+
+    每條契約要從對應區跑（契約 2 在 target 跑會連到自己而假通），所以三個 zone
+    都是獨立入口；缺對端不能 fake pass。"""
+    import subprocess
+    import sys
+
+    for zone in ("target", "mgmt", "red"):
+        r = subprocess.run(
+            [sys.executable, str(SCRIPT), "--from-zone", zone],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 2, f"--from-zone {zone} 缺對端應 exit 2，得 {r.returncode}"
+
+
 def test_missing_environment_does_not_fake_pass():
     """缺 --mgmt/--target 時退出碼必須非 0。"""
     import subprocess

@@ -1,0 +1,47 @@
+name: Range (single-host four-zone)
+
+# 票 #13 / WS6 Slice 1：在 GitHub runner（有 root，免巢狀虛擬化）用 OVS + netns +
+# nftables 建四區 range，實測四條跨世代契約 + 六台 red source IP 可分辨。
+# 真 VM（Slice 2）才需要大主機的 nested KVM，那部分不在此 workflow。
+on:
+  push:
+    branches: [master]
+    paths:
+      - "scripts/range/**"
+      - "scripts/verify_topology.py"
+      - "src/purple/topology_check.py"
+      - ".github/workflows/range.yml"
+  workflow_dispatch:
+
+jobs:
+  range-slice1:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Open vSwitch + nftables
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openvswitch-switch nftables
+          sudo systemctl start openvswitch-switch || sudo /usr/share/openvswitch/scripts/ovs-ctl start
+
+      # build 起的 mgmt listener 是背景行程；build 與 verify 放同一 step，
+      # 確保 listener 在契約 1 驗收時仍存活。
+      - name: Build four-zone range + verify contracts
+        run: |
+          sudo bash scripts/range/build-range.sh
+          sudo bash scripts/range/verify-range.sh
+
+      - name: Show router ruleset + OVS topology (always)
+        if: always()
+        run: |
+          echo "--- nftables ruleset (ns-router) ---"
+          sudo ip netns exec ns-router nft list ruleset || true
+          echo "--- OVS ---"
+          sudo ovs-vsctl show || true
+          echo "--- netns ---"
+          sudo ip netns list || true
+
+      - name: Teardown
+        if: always()
+        run: sudo bash scripts/range/teardown-range.sh
