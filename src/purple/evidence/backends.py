@@ -63,23 +63,72 @@ class EvidenceBackend(Protocol):
 
 @dataclass(frozen=True)
 class LokiBackend:
-    """真正的 Loki 後端 —— 佔位實作。本環境沒有 Loki，呼叫即明確失敗。
+    """真正的 Loki 後端：對 `base_url` 發 LogQL `query_range`，把結果轉成 ContextLine。
 
     它跑在 Z-MGMT，與 Loki 同區，`MGMT → Loki:3100` 是既有合法路徑；
     ticket 禁止的是 `APP → MGMT:3100`，那條在此不新增。
 
-    接線後，`fetch_context` 應以 `base_url` 對 `query.source` ＋ 時間窗發
-    LogQL `query_range`，再把結果轉成 `ContextLine`。在那之前，寧可明確
-    拋出，也不回假資料 —— 假的上下文會讓分析師做出錯誤判讀。
+    連不上 Loki（例如本環境無 Loki、或尚未接線）時 → `BackendUnavailable`，
+    寧可明確炸也不回假資料 —— 假的上下文會讓分析師做出錯誤判讀。
+
+    `label_key`：串流的 label 鍵（Alloy 用 `app` 標 vulnerable-app），
+    `query.source` 是其值，組成 `{app="vulnerable-app"}`。
+    `line_visibility`：raw 遙測預設給藍隊以上看（red 不該看到原始 log）。
     """
 
     base_url: str = "http://loki.z-mgmt:3100"
+    label_key: str = "app"
+    line_visibility: str = "blue"
+    timeout_s: float = 5.0
+    limit: int = 200
 
     def fetch_context(self, query: EvidenceQuery) -> Sequence[ContextLine]:
-        raise BackendUnavailable(
-            "LokiBackend 尚未接上真正的 Loki（本環境無 Loki）。"
-            "接線後在此以 base_url 對 source + 時間窗發 LogQL query_range 並轉成 ContextLine。"
+        import json
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+
+        logql = "{%s=%s}" % (self.label_key, json.dumps(query.source))
+        params = urllib.parse.urlencode(
+            {
+                "query": logql,
+                "start": str(int(query.start.timestamp() * 1e9)),  # ns epoch
+                "end": str(int(query.end.timestamp() * 1e9)),
+                "limit": str(self.limit),
+                "direction": "forward",
+            }
         )
+        url = f"{self.base_url.rstrip('/')}/loki/api/v1/query_range?{params}"
+
+        try:
+            with urllib.request.urlopen(url, timeout=self.timeout_s) as resp:
+                payload = json.loads(resp.read())
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            raise BackendUnavailable(f"Loki 連不上（{self.base_url}）：{exc}") from exc
+        except json.JSONDecodeError as exc:
+            raise BackendUnavailable(f"Loki 回傳非 JSON：{exc}") from exc
+
+        return self._to_lines(payload)
+
+    def _to_lines(self, payload: Mapping) -> tuple[ContextLine, ...]:
+        from datetime import timezone
+
+        results = (payload.get("data") or {}).get("result") or []
+        lines: list[ContextLine] = []
+        for stream in results:
+            source = (stream.get("stream") or {}).get(self.label_key, "unknown")
+            for ts_ns, text in stream.get("values", []):
+                ts = datetime.fromtimestamp(int(ts_ns) / 1e9, tz=timezone.utc)
+                lines.append(
+                    ContextLine(
+                        timestamp=ts,
+                        line=text,
+                        visibility=self.line_visibility,
+                        source=source,
+                    )
+                )
+        lines.sort(key=lambda c: c.timestamp)
+        return tuple(lines)
 
 
 @dataclass(frozen=True)

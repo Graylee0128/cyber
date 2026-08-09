@@ -25,6 +25,7 @@ from purple.store.events import CoreEventStore
 pytestmark = pytest.mark.integration
 
 APP_URL = os.environ.get("PURPLE_APP_URL", "http://localhost:8080")
+ENGINE_URL = os.environ.get("PURPLE_ENGINE_URL", "http://localhost:8001")
 
 E2E_TIMEOUT_S = 90.0
 RESOLVE_TIMEOUT_S = 150.0
@@ -137,6 +138,49 @@ def test_bruteforce_metric_becomes_a_core_event(events):
     assert_core_event(core)
     assert core["technique"] == "T1110"
     _ok("technique = T1110（走 metric 路徑，非 log）")
+
+
+def test_evidence_api_returns_context_from_real_loki(events):
+    """Evaluation Engine v0：SQLi → Core Event → 呼叫 Evidence API 取回上下文窗。
+
+    證明 Z-MGMT 唯一缺席的軟體住戶到位，且 resolver 真的對真 Loki 取證
+    （非 fake）。以 blue 身分呼叫，看得到 raw 遙測行。"""
+    import json
+    import urllib.request
+
+    print("\n=== [Evidence API] SQLi → Core Event → 取回上下文窗（真 Loki）===", flush=True)
+    mark = events.now()
+    _step("注入 5 次 SQLi")
+    for _ in range(5):
+        inject_sqli(APP_URL, path="/login", param="username")
+
+    core = wait_for_event(
+        fetch=lambda: events.since(mark),
+        match=lambda e: e["scenario_id"] == "sqli-01" and e["lifecycle"] == "firing",
+        what="firing（供 Evidence API 查詢）",
+        timeout_s=E2E_TIMEOUT_S,
+        poll_s=2.0,
+    )
+    event_id = core["event_id"]
+    _ok(f"取得 event_id={event_id}")
+
+    _step(f"以 blue 身分呼叫 GET /evidence/{event_id}")
+    req = urllib.request.Request(
+        f"{ENGINE_URL}/evidence/{event_id}", headers={"X-Purple-Identity": "blue"}
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        assert resp.status == 200
+        body = json.loads(resp.read())
+
+    print(
+        f"       ↳ Evidence: rule={body['rule']} line_count={body['line_count']} "
+        f"window={body['window_start']}..{body['window_end']}",
+        flush=True,
+    )
+    assert body["event_id"] == event_id
+    assert body["line_count"] >= 1, "上下文窗應至少有一行（真 Loki 取回）"
+    assert "backend" not in json.dumps(body).lower()
+    _ok(f"取回 {body['line_count']} 行上下文，無 backend 洩漏")
 
 
 def test_sqli_alert_resolves_after_attack_stops(events):

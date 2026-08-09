@@ -24,6 +24,7 @@ from purple.evidence.resolver import (
     clearance,
     filter_by_visibility,
 )
+from purple.evidence.service import handle_evidence, render_bundle
 
 __all__ = [
     "BackendUnavailable",
@@ -41,4 +42,6 @@ __all__ = [
     "build_query",
     "clearance",
     "filter_by_visibility",
+    "handle_evidence",
+    "render_bundle",
 ]
