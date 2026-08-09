@@ -21,9 +21,12 @@ BR="br-range"
 BASE="10.167"  # 10.167.<vlan>.<host>
 
 echo "▶ 清掉可能殘留的舊 range"
-"$DIR/teardown-range.sh" >/dev/null 2>&1 || true
+# 用 bash 呼叫，不依賴檔案 +x（git checkout 未必帶執行權限，否則 teardown 會被
+# permission denied 靜默略過，殘留 br-range 撞下面的 add-br）。
+bash "$DIR/teardown-range.sh" >/dev/null 2>&1 || true
 
 echo "▶ 建 OVS bridge $BR"
+ovs-vsctl --if-exists del-br "$BR"   # 冪等雙保險：即使上次沒清乾淨也強制重建
 ovs-vsctl add-br "$BR"
 
 # add_node <ns> <vlan> <host-octet>
