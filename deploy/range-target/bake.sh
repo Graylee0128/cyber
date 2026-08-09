@@ -80,24 +80,25 @@ echo "=== GOLDEN-APP-STATE: $APP_STATE ==="
 
 # 任一沒起來就把真因印到 console —— 這顆 VM 沒有 SSH，console 是唯一的窗口，
 # 少印一次就要多花一輪 5 分鐘重烤。
+# 每行都加 DIAG| 前綴：關機序列有上百行，host 端才能精準撈出診斷而不是被淹掉。
+diag() { sed 's/^/DIAG| /'; }
 diagnose() {
   local unit="$1"
-  echo "---- 診斷 $unit ----"
-  systemctl status "$unit" --no-pager -l 2>&1 | tail -15
-  journalctl -u "$unit" --no-pager 2>/dev/null | tail -25
+  echo "DIAG| ---- 診斷 $unit ----"
+  systemctl status "$unit" --no-pager -l 2>&1 | tail -15 | diag
+  journalctl -u "$unit" --no-pager 2>/dev/null | tail -25 | diag
 }
 if [ "$FALCO_STATE" != active ]; then
   diagnose falco-modern-bpf.service
-  echo "---- falco 設定與規則 ----"
-  ls -l /etc/falco/config.d/ /etc/falco/rules.d/ 2>&1
-  echo "[設定內容]"; cat /etc/falco/config.d/purplescope.yaml
-  echo "[falco 自我檢查]"; falco --dry-run -c /etc/falco/falco.yaml 2>&1 | tail -15
+  echo "DIAG| ---- falco 設定與規則 ----"
+  { ls -l /etc/falco/config.d/ /etc/falco/rules.d/; cat /etc/falco/config.d/purplescope.yaml; } 2>&1 | diag
 fi
 if [ "$ALLOY_STATE" != active ]; then
   diagnose alloy.service
-  echo "---- alloy 設定 ----"
-  ls -l /etc/alloy/ 2>&1
-  alloy fmt /etc/alloy/config.alloy 2>&1 | tail -15
+  echo "DIAG| ---- alloy 設定與前景實跑（把解析錯誤逼出來）----"
+  { ls -l /etc/alloy/; echo "[config 前 5 行]"; head -5 /etc/alloy/config.alloy; } 2>&1 | diag
+  # 前景跑一次：unit 的 stdout 有時被吞，直接跑最能拿到真正的錯誤訊息。
+  timeout 15 alloy run /etc/alloy/config.alloy --storage.path=/tmp/alloy-probe 2>&1 | tail -25 | diag
 fi
 
 # 就地觸發一次，確認 Falco 真的抓得到我們的兩條 rule（bake 期自證，不必等上線才發現）。
