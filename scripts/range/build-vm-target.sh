@@ -37,9 +37,12 @@ virsh net-start range-ovs 2>/dev/null || true
 virsh net-autostart range-ovs 2>/dev/null || true
 
 echo "▶ 取 Ubuntu cloud image（快取於 $BASE）"
+# 下載到 .part 暫存檔、可續傳（-C -），完成才 mv 成正式檔。這樣中途斷線只會留
+# 半截的 .part（下次續傳），永遠不會有半截的 $BASE 被後面誤當成完整 image。
 if [ ! -f "$BASE" ]; then
-  echo "   下載中（~600MB，第一次較久）..."
-  curl -fL "$IMG_URL" -o "$BASE"
+  echo "   下載中（~600MB，第一次較久；斷線可重跑續傳）..."
+  curl -fL -C - "$IMG_URL" -o "$BASE.part"
+  mv "$BASE.part" "$BASE"
 fi
 
 echo "▶ 清掉舊 VM（冪等）"
