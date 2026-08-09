@@ -1,0 +1,2 @@
+# shell 腳本一律 LF：Windows 開發、Linux（CI/大主機）執行，CRLF 會讓 bash 執行失敗。
+*.sh text eol=lf

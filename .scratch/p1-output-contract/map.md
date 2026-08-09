@@ -134,12 +134,23 @@ agent pull 單向）都已被可執行的斷言證明，不只是文件宣稱。
 - **#13**：真 VLAN10/firewall/deploy＝Z-MGMT **完全完成**，需真 infra
 - 範圍界定：coverage/MTTD 計算與 Console 屬 P2 evaluation，**不在**「完成 Z-MGMT」內
 
-## 環境收尾（Workstream 6）
+## 環境收尾（Workstream 6 / #13）
 
-P1 軟體到位後，剩下的都需要真實執行環境（真網段隔離、真 Falco、真 OTLP collector）。
-**#13 已改寫成 Workstream 6 kickoff 兼環境驗收匯流點**，把 #9（Falco）、#11（OTLP）、
-#12（Loki retention）、#12 本身（拓樸）的「待真 infra 驗收項」彙整成一份 checklist。
-WS6 現況：零實作，只有 SA §12 設計 + `scripts/verify_topology.py` 驗收工具。
+**#13＝WS6 kickoff 兼環境驗收匯流點**。部署形態：**單主機巢狀**（選型：混合
+VM+容器 + Open vSwitch，user 2026-08-09 拍板）。切成 4 個 slice，見
+`scripts/range/README.md`：
+
+- **Slice 1 ✅ CI 綠（2026-08-09）**：OVS 四區 802.1Q VLAN（10/20/30/40）+ netns
+  節點 + router + **nftables 真方向性單向防火牆**。`range.yml` 在 GitHub runner
+  （免 nested virt）實測全綠：契約 1 TARGET→MGMT 通、契約 2 MGMT→TARGET 反向不通、
+  契約 3 RED→MGMT deny、六台 red source IP `10.167.30.11~16` 可分辨（router 不做
+  SNAT）。這是 **#15 委派出來的契約 2 方向性**——membership 做不到、nftables 真做。
+- **Slice 2**（大主機）：靶機/攻擊機 netns → 真 VM（KVM/libvirt）；Falco privileged 接上
+- **Slice 3**：OTLP `:4317` push 取代 scrape；log window/磁碟量測
+- **Slice 4**：Reset + IaC 一鍵起整組 range
+
+仍只能在真環境（大主機）收的：真 VM、Falco eBPF、OTLP push、生產規模數字。
+GitHub runner 不支援巢狀虛擬化，故 Slice 2+ 的真 VM 部分不在 CI。
 
 ## Fog
 
