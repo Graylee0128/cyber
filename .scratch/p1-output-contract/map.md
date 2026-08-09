@@ -40,8 +40,8 @@
 | ~~[07 · #8](https://github.com/Graylee0128/cyber/issues/8)~~ **done** | Source Registry 狀態機 | 03 | subagent；stale≠absent |
 | [08 · #9](https://github.com/Graylee0128/cyber/issues/9) **管線 CI 綠 + 真 Falco golden VM 實跑** | Falco 作為 sensor | 03, 04 | 管線(rule+contract+決定性測試)CI 綠；容器 Falco 於 host kernel 7.0 不支援(CO-RE+kmod 皆倒)；**真 Falco 在 golden VM(6.8) 實測 `falco-modern-bpf active`**(2026-08-09)，即「Falco 在 target 側運行」的可運行證據 |
 | ~~[09 · #10](https://github.com/Graylee0128/cyber/issues/10)~~ **done** | Response 閉環 agent pull | 03 | expand→contract；agent pull 保單向 |
-| [10 · #11](https://github.com/Graylee0128/cyber/issues/11) **✅ CI 綠** | Prometheus／OTLP 路徑 | 03, 04 | OTLP `:4317` push 取代 scrape；prometheus 移出 z-target，契約 2 首次真成立 |
-| [11 · #12](https://github.com/Graylee0128/cyber/issues/12) **設定+量測done/磁碟待大主機** | raw log 保留時段 | 03 | window+快照純函式綠；loki retention 設定 + 量測腳本；磁碟數字待大主機 |
+| ~~[10 · #11](https://github.com/Graylee0128/cyber/issues/11)~~ **done** | Prometheus／OTLP 路徑 | 03, 04 | OTLP `:4317` push 取代 scrape（CI 綠）；prometheus 移出 z-target，契約 2 首次真成立 |
+| ~~[11 · #12](https://github.com/Graylee0128/cyber/issues/12)~~ **done** | raw log 保留時段 | 03 | window+快照綠；retention 168h 生效；**大主機實測 app 33 行 / lokidata 120KB**（2026-08-09） |
 | [12 · #13](https://github.com/Graylee0128/cyber/issues/13) **腳本done/環境open** | 拓樸契約實測 | 03 | 腳本+邏輯綠；四區網段待環境（匯流點）|
 
 ## 三條決定性的測試
