@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # PurpleScope —— 一鍵部署。這是**唯一**你需要記得的部署指令，其餘 .sh 由它呼叫。
 #
-#   sudo bash deploy.sh              # 自動判斷環境，部署到最完整的形態
-#   sudo bash deploy.sh --stack-only # 只起觀測棧（compose），不建 range（免巢狀虛擬化）
-#   sudo bash deploy.sh --reset      # 先拆乾淨再部署（演練之間回到已知狀態）
+#   sudo bash deploy.sh                # 自動判斷環境，部署到最完整的形態
+#   sudo bash deploy.sh --install-deps # 乾淨主機：連依賴一起裝（docker/OVS/libvirt/…）
+#   sudo bash deploy.sh --stack-only   # 只起觀測棧（compose），不建 range
+#   sudo bash deploy.sh --reset        # 先拆乾淨再部署（演練之間回到已知狀態）
 #
 # 它做兩層：
 #   L1 觀測／評估平面（compose）：Postgres / Loki / Prometheus / Grafana / Alloy /
@@ -21,29 +22,104 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RANGE="$REPO/scripts/range"
 STACK_ONLY=0
 RESET=0
+INSTALL_DEPS=0
 
 for arg in "$@"; do
   case "$arg" in
-    --stack-only) STACK_ONLY=1 ;;
-    --reset)      RESET=1 ;;
-    -h|--help)    sed -n '2,20p' "$0"; exit 0 ;;
-    *) echo "未知選項：$arg（--stack-only / --reset）"; exit 2 ;;
+    --stack-only)  STACK_ONLY=1 ;;
+    --reset)       RESET=1 ;;
+    --install-deps) INSTALL_DEPS=1 ;;
+    -h|--help)     sed -n '2,22p' "$0"; exit 0 ;;
+    *) echo "未知選項：$arg（--install-deps / --stack-only / --reset）"; exit 2 ;;
   esac
 done
+
+[ "$(id -u)" = 0 ] || { echo "❌ 需要 root：sudo bash deploy.sh $*"; exit 1; }
 
 FALCO_MODE="$(bash "$RANGE/falco-mode.sh")"
 echo "════════════════════════════════════════════════════════════"
 echo " PurpleScope 部署   Falco 模式：$FALCO_MODE   (kernel $(uname -r))"
 echo "════════════════════════════════════════════════════════════"
 
-# --- 前置：能不能建 range？（缺工具就只起 compose，不假裝成功）----------------
-CAN_RANGE=1
-for tool in ovs-vsctl virsh virt-install qemu-img; do
-  command -v "$tool" >/dev/null 2>&1 || { echo "⚠ 缺 $tool"; CAN_RANGE=0; }
+# --- Preflight：這台機器能做到哪一層？（乾淨主機也能照做）--------------------
+#
+# 分兩級：docker 是 L1 硬依賴（沒有就什麼都跑不了，直接失敗）；
+# 虛擬化/OVS 是 L2 依賴（沒有就退成 --stack-only，說明原因，不假裝成功）。
+# 「指令存在」不等於「服務在跑」—— daemon 沒起照樣會在建 range 時炸，所以一併檢查。
+
+apt_install() {  # apt_install <套件...>
+  echo "   apt-get install: $*"
+  DEBIAN_FRONTEND=noninteractive apt-get update -q
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -q "$@"
+}
+
+ensure_service() {  # ensure_service <unit>；已跑就跳過，沒跑就試著起
+  systemctl is-active --quiet "$1" && return 0
+  echo "   啟動服務 $1"
+  systemctl enable --now "$1" >/dev/null 2>&1 || return 1
+  systemctl is-active --quiet "$1"
+}
+
+echo
+echo "▶▶ Preflight（環境檢查）"
+
+# L1：docker —— 沒有它連觀測棧都起不了。
+if ! command -v docker >/dev/null 2>&1; then
+  if [ "$INSTALL_DEPS" = 1 ]; then
+    echo "⚠ 缺 docker，安裝中"
+    apt_install docker.io docker-compose-v2
+  else
+    echo "❌ 缺 docker（L1 硬依賴）。裝法：sudo bash deploy.sh --install-deps"
+    echo "   或手動：sudo apt-get install -y docker.io docker-compose-v2"
+    exit 1
+  fi
+fi
+ensure_service docker || { echo "❌ docker 服務起不來"; exit 1; }
+docker compose version >/dev/null 2>&1 || {
+  echo "❌ 沒有 docker compose v2 外掛（試 sudo apt-get install -y docker-compose-v2）"; exit 1; }
+echo "   ✓ docker $(docker --version | awk '{print $3}' | tr -d ,)"
+
+# L2：虛擬化 + OVS + nftables —— 建 range 用。
+RANGE_PKGS=(openvswitch-switch libvirt-daemon-system qemu-kvm virtinst nftables cpu-checker)
+MISSING=()
+for tool in ovs-vsctl virsh virt-install qemu-img nft; do
+  command -v "$tool" >/dev/null 2>&1 || MISSING+=("$tool")
 done
-[ -e /dev/kvm ] || { echo "⚠ 無 /dev/kvm（不支援巢狀虛擬化）"; CAN_RANGE=0; }
+if [ ${#MISSING[@]} -gt 0 ] && [ "$INSTALL_DEPS" = 1 ]; then
+  echo "⚠ 缺 ${MISSING[*]}，安裝中（約 1–3 分鐘）"
+  apt_install "${RANGE_PKGS[@]}"
+  MISSING=()
+  for tool in ovs-vsctl virsh virt-install qemu-img nft; do
+    command -v "$tool" >/dev/null 2>&1 || MISSING+=("$tool")
+  done
+fi
+
+CAN_RANGE=1
+if [ ${#MISSING[@]} -gt 0 ]; then
+  echo "⚠ 缺 ${MISSING[*]}"
+  CAN_RANGE=0
+else
+  # 服務要真的在跑（OVS 先於 libvirt —— VM 網路依賴 bridge 先在）。
+  ensure_service openvswitch-switch || { echo "⚠ openvswitch-switch 起不來"; CAN_RANGE=0; }
+  ensure_service libvirtd          || { echo "⚠ libvirtd 起不來"; CAN_RANGE=0; }
+fi
+
+# 硬體虛擬化：靶機是真 VM，沒有 /dev/kvm 就只能軟體模擬（慢到不實用），視為不可建。
+if [ ! -e /dev/kvm ]; then
+  echo "⚠ 無 /dev/kvm —— CPU 虛擬化沒開（BIOS 的 VT-x/AMD-V），或本機是未開 nested 的 VM"
+  CAN_RANGE=0
+else
+  echo "   ✓ /dev/kvm 存在"
+fi
+
+# 資訊性：本機若是 VM，要靠 nested；是實體機則無所謂。有 kernel BTF 才可能跑容器 Falco。
+NESTED="$(cat /sys/module/kvm_amd/parameters/nested /sys/module/kvm_intel/parameters/nested 2>/dev/null | head -1 || true)"
+[ -n "$NESTED" ] && echo "   · nested 虛擬化：$NESTED（本機若是實體機可忽略）"
+[ -e /sys/kernel/btf/vmlinux ] && echo "   · kernel BTF：有" || echo "   · kernel BTF：無（容器 Falco 不可用）"
+
 if [ "$CAN_RANGE" = 0 ]; then
-  echo "→ 只部署觀測棧。要完整 range 請照 scripts/range/HOST-SETUP.md 裝依賴。"
+  echo "→ 只部署觀測棧（L1）。要完整 range：sudo bash deploy.sh --install-deps"
+  echo "   細節見 scripts/range/HOST-SETUP.md"
   STACK_ONLY=1
 fi
 

@@ -18,12 +18,14 @@ sudo bash test.sh        # 測試：單元 → compose 整合 → range 契約 �
 
 | 指令 | 用途 |
 |---|---|
+| `sudo bash deploy.sh --install-deps` | **乾淨主機**：連依賴一起裝（docker / OVS / libvirt / qemu / nftables）後再部署 |
 | `sudo bash deploy.sh --stack-only` | 只起觀測棧，不建 range（沒有 KVM/OVS 的機器） |
 | `sudo bash deploy.sh --reset` | 先拆乾淨再部署（演練之間回到已知狀態） |
 | `bash test.sh --unit-only` | 只跑不需 range 的測試 |
 
-`deploy.sh` 會自己判斷這台機器能做到哪一層：缺 `ovs-vsctl`/`virsh`/`/dev/kvm` 就自動退成
-只起觀測棧並說明原因。`test.sh` 分四層跑，**略過的項目會標明理由，不會把略過講成通過**。
+`deploy.sh` 開頭會跑 **preflight**：docker 是 L1 硬依賴（缺就直接失敗，不是默默半殘）；
+OVS／libvirt／qemu／`/dev/kvm` 是 L2 依賴，缺就自動退成只起觀測棧並說明原因。它也會確認
+**服務真的在跑**（裝了不等於起了），並回報 nested 與 kernel BTF 供判斷 Falco 模式。`test.sh` 分四層跑，**略過的項目會標明理由，不會把略過講成通過**。
 
 首次在新機器上要先裝依賴 → [scripts/range/HOST-SETUP.md](./scripts/range/HOST-SETUP.md)。
 
