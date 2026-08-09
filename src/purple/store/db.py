@@ -70,8 +70,19 @@ def connect(url: str | None = None, connect_timeout: int = CONNECT_TIMEOUT_S) ->
     return psycopg.connect(url or dsn(), autocommit=True, connect_timeout=connect_timeout)
 
 
+#: ensure_schema 的 advisory lock key。任意固定值，同一 DB 上所有建立者共用。
+SCHEMA_LOCK_KEY = 0x50555250  # "PURP"
+
+
 def ensure_schema(conn: psycopg.Connection) -> None:
-    conn.execute(SCHEMA)
+    # `CREATE TABLE IF NOT EXISTS` 在並發下**不是原子的**：兩個建立者會同時通過
+    # 「不存在」檢查、同時建立，撞上 pg_type 的唯一鍵（UniqueViolation）。
+    # receiver / evaluation-engine / 測試會同時建 schema，用 advisory lock 序列化。
+    conn.execute("SELECT pg_advisory_lock(%s)", (SCHEMA_LOCK_KEY,))
+    try:
+        conn.execute(SCHEMA)
+    finally:
+        conn.execute("SELECT pg_advisory_unlock(%s)", (SCHEMA_LOCK_KEY,))
 
 
 def truncate_all(conn: psycopg.Connection) -> None:

@@ -5,6 +5,11 @@ name: Integration (compose deploy test)
 on:
   push:
     branches: [master]
+    # 純文件變更不值得起整個 compose 全棧（~5 分鐘）。程式/部署變更才跑。
+    paths-ignore:
+      - "**.md"
+      - ".scratch/**"
+      - "docs/**"
   workflow_dispatch:
 
 jobs:
