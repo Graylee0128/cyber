@@ -112,7 +112,14 @@ if grep -qE "GOLDEN-RULE-HITS: exec=[1-9]" "$CONSOLE" && grep -qE "GOLDEN-RULE-H
 else
   echo "❌ Falco rule 未命中（看 GOLDEN-RULE-HITS）"; bake_fail=1
 fi
-[ "$bake_fail" = 0 ] || { echo "❌ bake 自證未過，不產 golden"; exit 1; }
+if [ "$bake_fail" != 0 ]; then
+  echo
+  echo "──────── console 尾段（VM 內的真因；本 VM 無 SSH，console 是唯一窗口）────────"
+  tail -120 "$CONSOLE"
+  echo "────────────────────────────────────────────────────────────────────────────"
+  echo "❌ bake 自證未過，不產 golden。完整記錄：sudo cat $CONSOLE"
+  exit 1
+fi
 
 echo "▶ 把烤好的 disk 轉成獨立 golden image（$GOLDEN）"
 qemu-img convert -O qcow2 "$BUILD" "$GOLDEN"

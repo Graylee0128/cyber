@@ -59,16 +59,46 @@ UNIT
 
 echo "--- 4/5 enable 服務（golden 開機後自動就位，無網也能跑）---"
 systemctl daemon-reload
-systemctl enable falco-modern-bpf.service alloy.service range-target-app.service
+# 逐個 enable：一次列多個時只要有一個 unit 名不存在，整條指令失敗、其餘也沒 enable 到。
+echo "[裝好的相關 unit]"
+systemctl list-unit-files 2>/dev/null | grep -iE 'falco|alloy' || echo "(找不到 falco/alloy unit)"
+for u in falco-modern-bpf.service alloy.service range-target-app.service; do
+  systemctl enable "$u" || echo "!! enable $u 失敗"
+done
 
 echo "--- 5/5 就地驗一次（有網、kernel 6.8）---"
-systemctl start falco-modern-bpf.service || true
-systemctl start range-target-app.service || true
-systemctl start alloy.service || true
+for u in falco-modern-bpf.service range-target-app.service alloy.service; do
+  systemctl start "$u" || echo "!! start $u 失敗"
+done
 sleep 10
-echo "=== GOLDEN-FALCO-STATE: $(systemctl is-active falco-modern-bpf.service) ==="
-echo "=== GOLDEN-ALLOY-STATE: $(systemctl is-active alloy.service) ==="
-echo "=== GOLDEN-APP-STATE: $(systemctl is-active range-target-app.service) ==="
+FALCO_STATE=$(systemctl is-active falco-modern-bpf.service)
+ALLOY_STATE=$(systemctl is-active alloy.service)
+APP_STATE=$(systemctl is-active range-target-app.service)
+echo "=== GOLDEN-FALCO-STATE: $FALCO_STATE ==="
+echo "=== GOLDEN-ALLOY-STATE: $ALLOY_STATE ==="
+echo "=== GOLDEN-APP-STATE: $APP_STATE ==="
+
+# 任一沒起來就把真因印到 console —— 這顆 VM 沒有 SSH，console 是唯一的窗口，
+# 少印一次就要多花一輪 5 分鐘重烤。
+diagnose() {
+  local unit="$1"
+  echo "---- 診斷 $unit ----"
+  systemctl status "$unit" --no-pager -l 2>&1 | tail -15
+  journalctl -u "$unit" --no-pager 2>/dev/null | tail -25
+}
+if [ "$FALCO_STATE" != active ]; then
+  diagnose falco-modern-bpf.service
+  echo "---- falco 設定與規則 ----"
+  ls -l /etc/falco/config.d/ /etc/falco/rules.d/ 2>&1
+  echo "[設定內容]"; cat /etc/falco/config.d/purplescope.yaml
+  echo "[falco 自我檢查]"; falco --dry-run -c /etc/falco/falco.yaml 2>&1 | tail -15
+fi
+if [ "$ALLOY_STATE" != active ]; then
+  diagnose alloy.service
+  echo "---- alloy 設定 ----"
+  ls -l /etc/alloy/ 2>&1
+  alloy fmt /etc/alloy/config.alloy 2>&1 | tail -15
+fi
 
 # 就地觸發一次，確認 Falco 真的抓得到我們的兩條 rule（bake 期自證，不必等上線才發現）。
 curl -s -m 5 http://127.0.0.1/exec       >/dev/null || true
