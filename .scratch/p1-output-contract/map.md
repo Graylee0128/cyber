@@ -38,10 +38,10 @@
 | ~~[05 · #6](https://github.com/Graylee0128/cyber/issues/6)~~ **done** | Alert lifecycle | 03 | 共用 event_id、containment≠MTTR |
 | ~~[06 · #7](https://github.com/Graylee0128/cyber/issues/7)~~ **done** | Evidence resolver | 03 | subagent；fake backend 證明可換 |
 | ~~[07 · #8](https://github.com/Graylee0128/cyber/issues/8)~~ **done** | Source Registry 狀態機 | 03 | subagent；stale≠absent |
-| [08 · #9](https://github.com/Graylee0128/cyber/issues/9) **邏輯done/環境open** | Falco 作為 sensor | 03, 04 | 決定性測試綠；真 Falco 待環境 |
+| [08 · #9](https://github.com/Graylee0128/cyber/issues/9) **管線 CI 綠/Falco 待大主機** | Falco 作為 sensor | 03, 04 | 真 exec→Falco→Core Event(T1059) + 決定性測試接真 Loki；Falco 本體 CI 起不了，待大主機 `--profile falco` |
 | ~~[09 · #10](https://github.com/Graylee0128/cyber/issues/10)~~ **done** | Response 閉環 agent pull | 03 | expand→contract；agent pull 保單向 |
-| [10 · #11](https://github.com/Graylee0128/cyber/issues/11) **邏輯done/環境open** | Prometheus／OTLP 路徑 | 03, 04 | metric→core event 綠；OTLP 待環境 |
-| [11 · #12](https://github.com/Graylee0128/cyber/issues/12) **邏輯done/環境open** | raw log 保留時段 | 03 | window+快照綠；Loki 待環境 |
+| [10 · #11](https://github.com/Graylee0128/cyber/issues/11) **✅ CI 綠** | Prometheus／OTLP 路徑 | 03, 04 | OTLP `:4317` push 取代 scrape；prometheus 移出 z-target，契約 2 首次真成立 |
+| [11 · #12](https://github.com/Graylee0128/cyber/issues/12) **設定+量測done/磁碟待大主機** | raw log 保留時段 | 03 | window+快照純函式綠；loki retention 設定 + 量測腳本；磁碟數字待大主機 |
 | [12 · #13](https://github.com/Graylee0128/cyber/issues/13) **腳本done/環境open** | 拓樸契約實測 | 03 | 腳本+邏輯綠；四區網段待環境（匯流點）|
 
 ## 三條決定性的測試
@@ -159,11 +159,22 @@ VM+容器 + Open vSwitch，user 2026-08-09 拍板）。切成 4 個 slice，見
   印 console，host 判定。走 NAT 取 internet 裝 Falco（VLAN20 無對外網是刻意）。
   踩到並記錄的坑：cloud-init `runcmd` 用 `/bin/sh`(dash) 跑，`>(...)` process
   substitution 會 `redirection unexpected` → 邏輯改放 `#!/bin/bash` 腳本、runcmd 只呼叫。
-- **Slice 2b-②**（大主機）：六台 kali 容器接 VLAN30（各自 source IP）；把 Falco 事件走
-  Alloy → Loki → Core Event（#9 真環境驗收完整版，`disabled_rule_shows_detection_gap`
-  對真 Falco 成立）。golden image（Falco 烤進、跑無網 VLAN20）留待 Slice 4
-- **Slice 3**：OTLP `:4317` push 取代 scrape；log window/磁碟量測
-- **Slice 4**：Reset + IaC 一鍵起整組 range
+- **Slice 2b-② ✅ 管線 CI 綠（2026-08-09）**：Falco→Alloy→Loki→Grafana→Core Event(T1059)
+  走 **compose**（非 VM）。Falco 加成 z-target 服務（privileged/modern-eBPF，profile
+  gated——CI 起不了 Falco，`docker compose --profile falco up` 才拉）；靶機 `/exec` 生
+  shell → Falco 抓 execve → 自訂 rule → Grafana FalcoCommandExec → webhook → T1059。
+  契約測試（手餵 webhook）+ 決定性測試**真環境版**（telemetry_present 接真 Loki 查詢）。
+  CI 驗管線本體綠；Falco 本體待大主機 `--profile falco` + `PURPLE_FALCO_ENABLED=1`。
+- **Slice 3-① ✅ CI 綠（2026-08-09）**：OTLP `:4317` push 取代 scrape（#11）。靶機用 OTLP
+  push `ssh_failed_logins` → Alloy `otelcol.receiver.otlp` → `prometheus.remote_write`；
+  Prometheus 開 `--web.enable-remote-write-receiver`、**移出 z-target**——契約 2 那道
+  MGMT→TARGET scrape 疤在 compose 首次真消失（新測試 app 連不到 prometheus 為證）。
+  brute-force metric E2E（T1110）經 OTLP 路徑仍綠。
+- **Slice 3-②（#12）**：loki-config 開 compactor retention（168h）+ 具名 lokidata volume；
+  `measure-log-retention.sh` 量 app/falco 行數 + Loki volume 磁碟 + retention。磁碟數字待大主機。
+- **Slice 4（腳本齊，待大主機驗）**：`range-up.sh` 一鍵 IaC（組 Slice1+2a，`--with-red`
+  六台 kali 接 VLAN30、`--with-falco` 用 golden 靶機）；`build-golden-target.sh` 烤 Falco
+  進 image 跑無網 VLAN20；`range-reset.sh` Reset。**不在 CI**（巢狀虛擬化）。
 
 仍只能在真環境（大主機）收的：真 VM、Falco eBPF、OTLP push、生產規模數字。
 GitHub runner 不支援巢狀虛擬化，故 Slice 2+ 的真 VM 部分不在 CI。
