@@ -145,7 +145,15 @@ VM+容器 + Open vSwitch，user 2026-08-09 拍板）。切成 4 個 slice，見
   （免 nested virt）實測全綠：契約 1 TARGET→MGMT 通、契約 2 MGMT→TARGET 反向不通、
   契約 3 RED→MGMT deny、六台 red source IP `10.167.30.11~16` 可分辨（router 不做
   SNAT）。這是 **#15 委派出來的契約 2 方向性**——membership 做不到、nftables 真做。
-- **Slice 2**（大主機）：靶機/攻擊機 netns → 真 VM（KVM/libvirt）；Falco privileged 接上
+- **Slice 2a ✅ 大主機綠（2026-08-09）**：靶機換成**真 VM**（KVM/libvirt，Ubuntu
+  noble cloud image）接 OVS VLAN20（靜態 IP `10.167.20.10`）。免 SSH 自驗：VM serial
+  console 導檔 + cloud-init 開機跑契約 1。實測 **契約 1 VM→MGMT `:3100/:9090/:4317`
+  通、契約 2 MGMT→VM 反向被 nftables 擋**。這是 netns → 真 VM 的關鍵一躍（混合模式）。
+  腳本兩道跨主機防呆：`curl -C -` 續傳到 `.part`＋`qemu-img check` 完整性把關——
+  半截 image 永遠進不到 VM（否則 overlay 讀壞區塊 → EXT4 I/O error → kernel panic，
+  症狀像網路問題其實是磁碟；此坑已於大主機實遇並修掉）。
+- **Slice 2b**（大主機）：六台 kali 容器接 VLAN30（各自 source IP）；Falco modern-eBPF
+  部署 target 側 → Falco→Alloy→Loki→Core Event（#9 真環境驗收）
 - **Slice 3**：OTLP `:4317` push 取代 scrape；log window/磁碟量測
 - **Slice 4**：Reset + IaC 一鍵起整組 range
 
