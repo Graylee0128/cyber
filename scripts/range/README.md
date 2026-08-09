@@ -13,10 +13,12 @@
 
 | Slice | 內容 | 驗證環境 | 狀態 |
 |---|---|---|---|
-| **1** | OVS 四區 VLAN + netns 節點 + router + **nftables 真方向性防火牆** → 契約 1/2/3 + 六 source IP 可分辨 | GitHub Actions（免 nested virt） | ← 本 slice |
-| 2 | 靶機/攻擊機 netns → 換真 VM（KVM/libvirt）；Falco privileged 接上 | 你的大主機 | 待做 |
-| 3 | OTLP `:4317` push 取代 scrape；log window/磁碟量測 | 大主機/CI | 待做 |
-| 4 | Reset + IaC 一鍵起整組 range | 大主機 | 待做 |
+| **1** | OVS 四區 VLAN + netns 節點 + router + **nftables 真方向性防火牆** → 契約 1/2/3 + 六 source IP 可分辨 | GitHub Actions（免 nested virt） | ✅ CI 綠 |
+| **2a** | 靶機 netns → 真 VM（KVM/libvirt）接 VLAN20 → 契約 1/2 | 大主機 | ✅ 大主機綠 |
+| **2b-①** | Falco（modern-eBPF）在真 VM 內抓到 syscall | 大主機 | ✅ 大主機綠 |
+| **2b-②** | Falco→Alloy→Loki→Grafana→Core Event(T1059) + 決定性測試 | compose（CI 綠除 Falco 本身）/ 大主機 `--profile falco` | ✅ 管線 CI 綠 |
+| **3** | OTLP `:4317` push 取代 scrape（#11）；log window/磁碟量測（#12） | compose CI（OTLP）/ 大主機（量測） | ✅ OTLP CI 綠 |
+| **4** | 六台 kali 接 VLAN30、Falco golden image 跑無網 VLAN20、Reset、一鍵 IaC | 大主機 | 腳本齊，待大主機驗 |
 
 **為什麼 Slice 1 走 CI**：OVS + network namespace + nftables 不需巢狀虛擬化，
 GitHub Actions 標準 runner 就能跑，所以四區骨架（真 VLAN tag + 真方向性防火牆 +
@@ -57,9 +59,14 @@ sudo bash scripts/range/teardown-range.sh  # 拆掉（冪等，Reset 雛形）
 - `verify-range.sh` — 從各區 netns 跑 `verify_topology.py` 驗契約 + source IP 可分辨
 - `build-vm-target.sh` — Slice 2a：靶機真 VM（cloud image）接 OVS VLAN20，驗契約 1/2
 - `build-vm-falco.sh` — Slice 2b-①：真 VM 內裝 Falco（modern-eBPF），驗抓到已知動作
+- `build-golden-target.sh` — Slice 4：產出 Falco 已烤進的 golden 靶機 image
+- `attach-red.sh` — Slice 4：六台紅隊容器接 VLAN30（各自 source IP）
+- `range-up.sh` — Slice 4：一鍵起整組 range（IaC；`--with-red` / `--with-falco`）
+- `range-reset.sh` — Slice 4：Reset（拆乾淨再重起）
+- `measure-log-retention.sh` — Slice 3-②：Loki 行數 + 磁碟用量 + retention 量測（#12）
 - `lib-cloudimg.sh` — 共用：cloud image 下載 + `qemu-img check` 完整性把關（防半截 image）
 - `range-ovs.xml` — libvirt 接 OVS（br-range）的 network 定義，四區 VLAN portgroup
-- `teardown-range.sh` — 拆除 netns / VM / range-ovs（可重複跑）
+- `teardown-range.sh` — 拆除 netns / VM / red 容器 / golden（可重複跑，Reset 基礎）
 - `stub_listener.py` — mgmt 佔三 port；target 聽 :80 記錄 red source IP
 
 契約判定邏輯在 `src/purple/topology_check.py`（已單元測試），CLI 在

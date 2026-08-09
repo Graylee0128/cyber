@@ -149,11 +149,58 @@ sudo bash scripts/range/build-vm-falco.sh
 
 拆除（含這台 smoke VM）：`sudo bash scripts/range/teardown-range.sh`。
 
-## Step 6 — Slice 2b-②（規劃中）
+## Step 6 — Slice 2b-② / Slice 3：Falco 管線 + OTLP（compose，真環境版）
 
-六台 kali 容器接 VLAN30（各自 IP 保 source 可分辨）+ 把 Falco 事件走 Alloy → Loki →
-Core Event（#9 真環境驗收，`disabled_rule_shows_detection_gap` 對真 Falco 成立）。
-腳本定案後補。
+這批是 **compose 全棧**（非 VM）。CI 已驗管線本體（SQLi/OTLP/Evidence/lifecycle 全綠），
+唯 **Falco 本身** CI 起不了（modern-eBPF 需真 kernel），要在大主機補：
+
+```bash
+# 起含 Falco 的全棧（--profile falco 才拉 Falco；預設 up 不含）
+docker compose --profile falco up -d --build --wait --wait-timeout 180
+
+# 跑 Falco 真環境驗收（#9）：需設 PURPLE_FALCO_ENABLED=1 才會跑那兩條
+PURPLE_FALCO_ENABLED=1 PURPLE_AUTO_COMPOSE=0 \
+  PURPLE_PG_DSN=postgresql://purple:purple@localhost:5432/purple \
+  PURPLE_APP_URL=http://localhost:8080 PURPLE_LOKI_URL=http://localhost:3100 \
+  python -m pytest -v -s -m integration tests/integration/test_falco_pipeline.py
+
+# Slice 3-② log window / 磁碟量測（#12）：先打點流量再量
+sudo bash scripts/range/measure-log-retention.sh
+```
+
+**預期**：`test_falco_exec_becomes_core_event_T1059` 綠（真 exec → Falco → Core Event
+T1059）、`test_falco_disabled_rule_is_detection_gap_not_visibility_gap` 綠（telemetry_present
+接真 Loki）。量測腳本印出 app/falco 行數 + Loki volume 磁碟 + retention 設定。
+
+> Falco 起不來時看 `docker compose --profile falco logs falco`；`scap_init` 失敗＝該 kernel
+> 的 modern-eBPF 環境問題（CI runner 即如此），大主機（2b-① 已證）應可。
+
+## Step 7 — Slice 4：一鍵 range + 六台 kali + Falco golden + Reset
+
+單主機把整組 range 起起來（組合 Slice 1 + 2a，選配 golden Falco 靶機與六台紅隊）：
+
+```bash
+# 一鍵起：靶機真 VM(VLAN20) + 四區骨架。加 --with-red 起六台 kali、--with-falco 用 golden
+sudo bash scripts/range/range-up.sh --with-red --with-falco
+
+# 驗四契約 + 六 source IP
+sudo bash scripts/range/verify-range.sh
+
+# 六台 kali 各自 source IP 打靶機 :80（示範）
+for i in $(seq 1 6); do docker exec range-red$i curl -s -m3 http://10.167.20.10/ >/dev/null && echo red$i打了; done
+
+# 演練之間 Reset（拆乾淨再重起，選項原封轉給 range-up）
+sudo bash scripts/range/range-reset.sh --with-red --with-falco
+```
+
+- `--with-falco` 第一次會先 `build-golden-target.sh` 烤 golden（Falco 裝進 image，約
+  3–6 分鐘，走 NAT），之後靶機在**無網 VLAN20** 開機 Falco 自動就位。
+- 六台 kali 用 `RED_IMAGE` 換映像（預設 `nicolaka/netshoot`；真 kali：
+  `RED_IMAGE=kalilinux/kali-rolling sudo bash scripts/range/range-up.sh --with-red`）。
+- 拆除一切：`sudo bash scripts/range/teardown-range.sh`（含 red 容器與 golden build VM）。
+
+> Slice 4 不在 CI（巢狀虛擬化）。golden image 保留在 `/var/lib/libvirt/images/`，
+> Reset 不重烤；要連 golden 一起丟：`range-reset.sh --purge-golden`。
 
 ---
 
