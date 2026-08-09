@@ -29,8 +29,9 @@ r=(d.get('data') or {}).get('result') or [];
 print(int(float(r[0]['value'][1])) if r else 0)" 2>/dev/null || echo 0
 }
 
-APP_LINES="$(count_job '{app=\"vulnerable-app\"}')"
-FALCO_LINES="$(count_job '{job=\"falco\"}')"
+# 選擇器用單引號包住、內含裸雙引號（LogQL 要的是 {app="..."}，不能有反斜線）。
+APP_LINES="$(count_job '{app="vulnerable-app"}')"
+FALCO_LINES="$(count_job '{job="falco"}')"
 echo "   • app 行數（近 ${SINCE_S}s）：$APP_LINES"
 echo "   • falco 行數（近 ${SINCE_S}s）：$FALCO_LINES"
 
