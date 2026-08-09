@@ -56,6 +56,8 @@ sudo bash scripts/range/teardown-range.sh  # 拆掉（冪等，Reset 雛形）
 - `build-range.sh` — OVS bridge + 四 VLAN + router（inter-VLAN + nftables）+ 節點 netns
 - `verify-range.sh` — 從各區 netns 跑 `verify_topology.py` 驗契約 + source IP 可分辨
 - `build-vm-target.sh` — Slice 2a：靶機真 VM（cloud image）接 OVS VLAN20，驗契約 1/2
+- `build-vm-falco.sh` — Slice 2b-①：真 VM 內裝 Falco（modern-eBPF），驗抓到已知動作
+- `lib-cloudimg.sh` — 共用：cloud image 下載 + `qemu-img check` 完整性把關（防半截 image）
 - `range-ovs.xml` — libvirt 接 OVS（br-range）的 network 定義，四區 VLAN portgroup
 - `teardown-range.sh` — 拆除 netns / VM / range-ovs（可重複跑）
 - `stub_listener.py` — mgmt 佔三 port；target 聽 :80 記錄 red source IP

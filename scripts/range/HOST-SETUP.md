@@ -125,10 +125,35 @@ cloud-init 開機時跑契約 1 並把結果印到 console，host 讀該檔判�
 
 拆除（含 VM 與 libvirt network）：`sudo bash scripts/range/teardown-range.sh`。
 
-## Step 5 — Slice 2b（規劃中）
+## Step 5 — Slice 2b-①：Falco（modern-eBPF）在真 VM 內抓到已知動作
 
-六台 kali 容器接 VLAN30（各自 IP 保 source 可分辨）+ Falco modern-eBPF 部署 target 側
-+ Falco 事件走 Alloy → Loki → Core Event（#9 真環境驗收）。腳本定案後補。
+證明 Falco 能在真 VM 內監控靶機自身 syscall 並抓到動作（#9 的真環境能力證明）。
+一支腳本包辦：起 libvirt default(NAT) → 靶機 VM 開機 → cloud-init 裝 Falco
+modern-eBPF、下一條自訂 rule、觸發 sentinel 檔、從 journald 撈命中 → host 讀
+console 判定。
+
+```bash
+sudo bash scripts/range/build-vm-falco.sh
+```
+
+**預期尾段**：
+```
+=== SLICE2B1-RESULT: PASS ===
+✅ Slice 2b-①：Falco（modern-eBPF）在真 VM 內監控靶機 syscall，抓到已知動作
+```
+
+> **為什麼走 NAT 不走 VLAN20**：Slice 1 的 router 刻意不做 SNAT（保六台 kali source
+> IP 可分辨），VLAN20 因此無對外網路、裝不了 apt 來源的 Falco。2b-① 只證「Falco 能力
+> 在此 VM kernel 成立」（你主機 BTF 已在，走 CO-RE modern eBPF 免 kernel module）。
+> isolation 在 Slice 2a 已證；**Slice 4** 再把 Falco 烤成 golden image 跑在無網 VLAN20。
+
+拆除（含這台 smoke VM）：`sudo bash scripts/range/teardown-range.sh`。
+
+## Step 6 — Slice 2b-②（規劃中）
+
+六台 kali 容器接 VLAN30（各自 IP 保 source 可分辨）+ 把 Falco 事件走 Alloy → Loki →
+Core Event（#9 真環境驗收，`disabled_rule_shows_detection_gap` 對真 Falco 成立）。
+腳本定案後補。
 
 ---
 

@@ -4,10 +4,12 @@ set -uo pipefail
 
 pkill -f "scripts/range/stub_listener.py" 2>/dev/null || true
 
-# Slice 2a：先關 VM 與 libvirt network（若有裝 libvirt）。
+# Slice 2a/2b：先關 VM 與 libvirt network（若有裝 libvirt）。
 if command -v virsh >/dev/null 2>&1; then
-  virsh destroy range-target 2>/dev/null || true
-  virsh undefine range-target --nvram 2>/dev/null || true
+  for vm in range-target range-falco-smoke; do
+    virsh destroy "$vm" 2>/dev/null || true
+    virsh undefine "$vm" --nvram 2>/dev/null || true
+  done
   virsh net-destroy range-ovs 2>/dev/null || true
   virsh net-undefine range-ovs 2>/dev/null || true
 fi
