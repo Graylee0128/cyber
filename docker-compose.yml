@@ -63,6 +63,7 @@ services:
     command: ["-config.file=/etc/loki/loki-config.yaml"]
     volumes:
       - ./deploy/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - lokidata:/loki   # 具名 volume：retention 生效 + 磁碟量得到（票 #12）
     ports:
       - "3100:3100"
     networks:
@@ -101,9 +102,14 @@ services:
   # modern-eBPF / CO-RE：需 privileged 存取 host kernel（BTF 在 /sys）。事件用
   # file_output 寫 JSON 到共享 volume，Alloy tail 後推 Loki。只載自訂 rule（-r），
   # 不載預設數千條，events.json 才乾淨。CI 若 runner 不支援可能起不來——見 #9 註記。
+  # profile "falco"：預設 `docker compose up` **不啟** Falco —— modern-eBPF 需真 kernel
+  # 支援（BTF + eBPF probe），GitHub runner 起不來（scap_init 失敗），一 exit 會拖垮
+  # `up --wait`。故 CI 跑不含 falco 的全棧；大主機用 `docker compose --profile falco up`
+  # 才拉 Falco（2b-① 已證此 kernel 支援 modern-eBPF）。
   falco:
     image: falcosecurity/falco:0.39.2
     privileged: true
+    profiles: ["falco"]
     command:
       - falco
       - -o
@@ -123,6 +129,7 @@ services:
     volumes:
       - ./deploy/falco/rules.d/purplescope.yaml:/etc/falco/rules.d/purplescope.yaml:ro
       - falcologs:/var/log/falco
+      - /proc:/host/proc:ro   # 大主機：proc enrichment（container/proc metadata）
     networks:
       - z-target
 
@@ -230,3 +237,4 @@ networks:
 volumes:
   applogs:
   falcologs:   # Falco 寫事件 JSON、Alloy 讀（票 #9）
+  lokidata:    # Loki 資料，retention 與磁碟量測用（票 #12）

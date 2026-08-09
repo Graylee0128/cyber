@@ -28,7 +28,16 @@ from purple.metrics.gaps import MissClass, classify_miss
 from purple.registry.source_registry import SourceState
 from purple.store.events import CoreEventStore
 
-pytestmark = pytest.mark.integration
+# 需要真 Falco（modern-eBPF）在跑 —— 只有大主機用 `docker compose --profile falco up`
+# 起 Falco 時才設 PURPLE_FALCO_ENABLED=1。CI runner 起不了 Falco（scap_init 失敗），
+# 預設 skip，不誤紅也不誤綠。
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        os.environ.get("PURPLE_FALCO_ENABLED") != "1",
+        reason="需真 Falco（大主機 --profile falco + PURPLE_FALCO_ENABLED=1）",
+    ),
+]
 
 APP_URL = os.environ.get("PURPLE_APP_URL", "http://localhost:8080")
 LOKI_URL = os.environ.get("PURPLE_LOKI_URL", "http://localhost:3100")
