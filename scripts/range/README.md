@@ -37,6 +37,9 @@ nftables 在 router 的 forward hook 做真方向性，正是 #15 明白委派�
 
 ## 用法（需 root）
 
+> **全新主機從零到 Slice 1 綠**：照 [HOST-SETUP.md](./HOST-SETUP.md) 的安裝順序做
+> （探測 → 裝依賴 → 驗證 → 建四區 → 驗契約），可在任何 Ubuntu 主機重現。
+
 ```bash
 sudo bash scripts/range/build-range.sh     # 建四區
 sudo bash scripts/range/verify-range.sh    # 驗四契約 + source IP
