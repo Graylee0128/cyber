@@ -70,10 +70,19 @@ write_files:
       echo "deb [signed-by=/usr/share/keyrings/falcosecurity.asc] https://download.falco.org/packages/deb stable main" > /etc/apt/sources.list.d/falcosecurity.list
       apt-get update -q
       apt-get install -y -q falco
+      echo "falco 版本：$(falco --version 2>/dev/null | head -1)"
       # 讓 modern-bpf service 開機自動起（golden 在無網 VLAN20 靠它）。
       systemctl enable falco-modern-bpf.service
-      echo "falco 版本：$(falco --version 2>/dev/null | head -1)"
+      # 趁 bake（有網、kernel 6.8）實際起一次，證明 modern-eBPF 在 target VM 真的能跑
+      # —— 這就是 #9「真 Falco 在 target 側運行」的鐵證，印到 console 給 host 判定。
+      systemctl start falco-modern-bpf.service || true
+      sleep 8
+      echo "=== GOLDEN-FALCO-STATE: $(systemctl is-active falco-modern-bpf.service) ==="
+      journalctl -u falco-modern-bpf.service --no-pager 2>/dev/null | tail -6
       echo "=== GOLDEN-BAKE-DONE ==="
+      # golden image 標準收尾：cloud-init clean，讓下次以此為 base 開機時，
+      # build-vm-target 的靜態 IP + 契約 cloud-init 會**重跑**（否則被當同一 instance 略過）。
+      cloud-init clean --logs
       # 關機：讓 host 知道烤完，之後把 disk 轉 golden。
       poweroff
 runcmd:
@@ -103,7 +112,12 @@ if [ "$ok" != 1 ]; then
   echo "❌ 沒等到烤完+關機。看 console：sudo cat $CONSOLE"
   exit 1
 fi
-grep -E "GOLDEN-BAKE|falco 版本" "$CONSOLE" || true
+grep -E "GOLDEN-BAKE|GOLDEN-FALCO-STATE|falco 版本" "$CONSOLE" || true
+if grep -q "GOLDEN-FALCO-STATE: active" "$CONSOLE"; then
+  echo "   ✅ Falco 在 golden VM(kernel 6.8) 內 modern-eBPF 真的跑起來（#9 鐵證）"
+else
+  echo "   ⚠ 未偵測到 falco-modern-bpf active——看 console：sudo cat $CONSOLE"
+fi
 
 echo "▶ 把烤好的 disk 轉成獨立 golden image（$GOLDEN）"
 # convert 攤平 backing chain → golden 自足，可當新 base。
