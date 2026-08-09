@@ -1,6 +1,10 @@
-// Alloy：讀靶機寫到共享磁碟的 app.log，推進 Loki。
-// collector 在 target 側（部署測試裡即此容器），符合跨世代契約。
+// Alloy = target 側 collector（契約 4）。三條進料，全部經 z-target→z-mgmt 推給觀測平面
+// （契約 1 的 TARGET→MGMT telemetry）：
+//   1. 靶機 app.log      → Loki（log 路徑，SQLi）
+//   2. Falco events.json → Loki（syscall 偵測，票 #9 / T1059）
+//   3. OTLP :4317 metrics → Prometheus remote_write（票 #11，取代 scrape）
 
+// --- 1. 靶機 app log → Loki -------------------------------------------------
 local.file_match "app" {
   path_targets = [{
     __path__ = "/var/log/app/app.log",
@@ -13,8 +17,44 @@ loki.source.file "app" {
   forward_to = [loki.write.default.receiver]
 }
 
+// --- 2. Falco 事件檔 → Loki（票 #9）----------------------------------------
+// Falco 以 file_output 寫 JSON 到共享 volume；標 job="falco"，Grafana rule 靠它計數。
+local.file_match "falco" {
+  path_targets = [{
+    __path__ = "/var/log/falco/events.json",
+    job      = "falco",
+  }]
+}
+
+loki.source.file "falco" {
+  targets    = local.file_match.falco.targets
+  forward_to = [loki.write.default.receiver]
+}
+
 loki.write "default" {
   endpoint {
     url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+// --- 3. OTLP :4317 → Prometheus（票 #11：push 取代 scrape）------------------
+// 靶機把 ssh_failed_logins 用 OTLP push 進來，Alloy 轉 Prometheus remote_write。
+// 這樣 Prometheus 不必再上 z-target scrape 靶機 —— 契約 2（MGMT→TARGET）不再被違反。
+otelcol.receiver.otlp "default" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+  output {
+    metrics = [otelcol.exporter.prometheus.default.input]
+  }
+}
+
+otelcol.exporter.prometheus "default" {
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.remote_write "default" {
+  endpoint {
+    url = "http://prometheus:9090/api/v1/write"
   }
 }

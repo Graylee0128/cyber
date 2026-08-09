@@ -9,7 +9,9 @@ from purple.harness.attacker import (
     AttackResult,
     inject_sqli,
     make_marker,
+    trigger_exec,
 )
+from purple.harness.loki_probe import loki_has, loki_line_count
 from purple.harness.schema import SchemaViolation, assert_core_event
 from purple.harness.waiting import EventNotSeen, wait_for_event
 
@@ -20,6 +22,9 @@ __all__ = [
     "EventNotSeen",
     "inject_sqli",
     "make_marker",
+    "trigger_exec",
+    "loki_has",
+    "loki_line_count",
     "AttackResult",
     "AttackFailed",
 ]

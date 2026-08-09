@@ -39,6 +39,7 @@ jobs:
           PURPLE_PG_DSN: postgresql://purple:purple@localhost:5432/purple
           PURPLE_APP_URL: http://localhost:8080
           PURPLE_ENGINE_URL: http://localhost:8001
+          PURPLE_LOKI_URL: http://localhost:3100
         # -v 逐條顯示測試名與 PASSED；-s 不吃掉 print，讓每階段 echo 即時可見
         run: python -m pytest -v -s -m integration
 

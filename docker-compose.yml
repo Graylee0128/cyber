@@ -44,6 +44,8 @@ services:
       dockerfile: deploy/vulnerable-app/Dockerfile
     environment:
       APP_LOG_PATH: /var/log/app/app.log
+      # 票 #11：失敗登入計數用 OTLP push 到 Alloy:4317（取代 Prometheus scrape）。
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4317
     ports:
       - "8080:8080"
     volumes:
@@ -82,6 +84,10 @@ services:
     volumes:
       - ./deploy/alloy/config.alloy:/etc/alloy/config.alloy:ro
       - applogs:/var/log/app:ro
+      # Falco 事件檔（票 #9）：Falco 寫、Alloy 讀，經共享 volume。
+      - falcologs:/var/log/falco:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC（票 #11）
     networks:
       - z-target
       - z-mgmt
@@ -91,22 +97,49 @@ services:
       vulnerable-app:
         condition: service_healthy
 
+  # Falco = runtime sensor（票 #9），部署在 target 側（z-target，非 z-mgmt）。
+  # modern-eBPF / CO-RE：需 privileged 存取 host kernel（BTF 在 /sys）。事件用
+  # file_output 寫 JSON 到共享 volume，Alloy tail 後推 Loki。只載自訂 rule（-r），
+  # 不載預設數千條，events.json 才乾淨。CI 若 runner 不支援可能起不來——見 #9 註記。
+  falco:
+    image: falcosecurity/falco:0.39.2
+    privileged: true
+    command:
+      - falco
+      - -o
+      - engine.kind=modern_ebpf
+      - -o
+      - json_output=true
+      - -o
+      - file_output.enabled=true
+      - -o
+      - file_output.filename=/var/log/falco/events.json
+      - -o
+      - stdout_output.enabled=true
+      - -o
+      - log_level=warning
+      - -r
+      - /etc/falco/rules.d/purplescope.yaml
+    volumes:
+      - ./deploy/falco/rules.d/purplescope.yaml:/etc/falco/rules.d/purplescope.yaml:ro
+      - falcologs:/var/log/falco
+    networks:
+      - z-target
+
   prometheus:
     image: prom/prometheus:v2.54.1
-    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    # 票 #11：改吃 OTLP remote_write（Alloy 從 :4317 轉來），不再 scrape 靶機。
+    # remote-write receiver 要用 command flag 開。因此 Prometheus 純 z-mgmt 住戶，
+    # **不再上 z-target** —— compose 這下真的沒有 MGMT→TARGET 那條疤了（契約 2）。
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--web.enable-remote-write-receiver"
     volumes:
       - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
       - "9090:9090"
-    # z-mgmt 住戶，但為了 scrape target 上的 app 必須同時上 z-target。
-    # 這條 MGMT→TARGET 正是契約 2 真防火牆會擋的方向；compose 無法擋方向，
-    # 真環境改走 OTLP push（#10/#11）。刻意留這道疤，別假裝 compose 有做到單向。
     networks:
       - z-mgmt
-      - z-target
-    depends_on:
-      vulnerable-app:
-        condition: service_healthy
     # busybox base（quay.io/prometheus/busybox）有 wget。-O /dev/null 比 --spider
     # 在各版 busybox 行為更一致；/-/healthy 非 200 → wget exit 非 0。
     healthcheck:
@@ -196,3 +229,4 @@ networks:
 
 volumes:
   applogs:
+  falcologs:   # Falco 寫事件 JSON、Alloy 讀（票 #9）

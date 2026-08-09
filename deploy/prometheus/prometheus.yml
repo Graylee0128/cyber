@@ -1,9 +1,6 @@
-# 部署測試用 Prometheus：只刮靶機的 /metrics。
+# 部署測試用 Prometheus。票 #11 起改吃 OTLP remote_write（Alloy 從 :4317 轉來），
+# 不再 scrape 靶機 —— 所以沒有 scrape_configs，Prometheus 也不必上 z-target。
+# remote_write receiver 由 command flag `--web.enable-remote-write-receiver` 開啟。
 global:
   scrape_interval: 5s
   evaluation_interval: 5s
-
-scrape_configs:
-  - job_name: vulnerable-app
-    static_configs:
-      - targets: ["vulnerable-app:8080"]

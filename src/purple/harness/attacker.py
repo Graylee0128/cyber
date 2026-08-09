@@ -82,3 +82,26 @@ def inject_sqli(
         elapsed_ms=elapsed_ms,
         marker=marker,
     )
+
+
+def trigger_exec(
+    base_url: str,
+    timeout_s: float = DEFAULT_TIMEOUT_S,
+    opener: urllib.request.OpenerDirector | None = None,
+) -> str:
+    """打靶機 /exec：讓它在容器內生一個帶 PURPLESCOPE_EXEC 標記的 shell 直譯器。
+
+    這是 T1059（Command and Scripting Interpreter）的可觸發代表動作 —— execve 會被
+    target 側的 Falco（modern-eBPF）抓到，寫進 Loki（票 #9 / Slice 2b-②）。
+    回傳 app 的回應（`executed PURPLESCOPE_EXEC_<n>`）。送不出去才拋 AttackFailed。
+    """
+    url = f"{base_url.rstrip('/')}/exec"
+    request = urllib.request.Request(url, method="GET")
+    send = opener.open if opener is not None else urllib.request.urlopen
+    try:
+        with send(request, timeout=timeout_s) as response:
+            return response.read().decode(errors="replace")
+    except urllib.error.HTTPError as exc:
+        raise AttackFailed(f"/exec 回錯 {exc.code}") from exc
+    except (urllib.error.URLError, OSError, TimeoutError) as exc:
+        raise AttackFailed(f"/exec 送不出去 {url!r}: {exc}") from exc

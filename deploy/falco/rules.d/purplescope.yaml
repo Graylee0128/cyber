@@ -1,0 +1,20 @@
+# PurpleScope 自訂 Falco rule（票 #9 / Slice 2b-②）。
+#
+# 條件刻意自足、不引用預設 macro/list —— falco 以 `-r 本檔` 載入時只有這條，
+# 不載預設數千條，events.json 才乾淨、Alloy→Loki 才不被洗版。
+#
+# 語意＝T1059（Command and Scripting Interpreter）：偵測「有人在靶機生出一個
+# shell 直譯器並帶我們的標記」。靶機的 /exec endpoint 會跑
+# `/bin/sh -c "echo PURPLESCOPE_EXEC_<n>; id"`，execve 被 modern-eBPF 抓到。
+#
+# output 內含固定字串 `PurpleScope exec detected`，Grafana rule 就靠它在 Loki 上計數。
+
+- rule: PurpleScope Command Exec
+  desc: T1059 smoke - a scripting interpreter was spawned on the target with the purplescope marker
+  condition: >
+    evt.type=execve and evt.dir=< and
+    proc.name in (sh, bash, dash, ash) and
+    proc.cmdline contains PURPLESCOPE_EXEC
+  output: "PurpleScope exec detected (cmd=%proc.cmdline pid=%proc.pid parent=%proc.pname container=%container.id)"
+  priority: WARNING
+  tags: [purplescope, T1059, execution]

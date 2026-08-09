@@ -122,3 +122,62 @@ groups:
         annotations:
           query: 'sum(increase(ssh_failed_logins_total[1m]))'
           threshold: "> 10 / 1m"
+
+      # Falco：靶機被生出 shell 直譯器（帶 PURPLESCOPE_EXEC 標記）→ T1059。
+      # Falco 只提供事實（syscall 進 Loki），是否構成告警由這條 Grafana rule 決定
+      # （ADR ③：Grafana 是唯一 alert engine，Falco 不直送 Event Service）。
+      - uid: falco-command-exec
+        title: FalcoCommandExec
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 60
+              to: 0
+            datasourceUid: loki
+            model:
+              refId: A
+              datasource:
+                type: loki
+                uid: loki
+              expr: 'sum(count_over_time({job="falco"} |= `PurpleScope exec detected` [1m]))'
+              queryType: range
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+        labels:
+          event_type: attack.detected
+          technique: T1059
+          team: red
+          severity: high
+          scenario_id: falco-exec-01
+          exercise_id: ex-001
+          service: vulnerable-app
+        annotations:
+          query: '{job="falco"} |= `PurpleScope exec detected`'
+          threshold: "> 0 / 1m"
