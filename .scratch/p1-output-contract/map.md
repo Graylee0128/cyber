@@ -152,8 +152,16 @@ VM+容器 + Open vSwitch，user 2026-08-09 拍板）。切成 4 個 slice，見
   腳本兩道跨主機防呆：`curl -C -` 續傳到 `.part`＋`qemu-img check` 完整性把關——
   半截 image 永遠進不到 VM（否則 overlay 讀壞區塊 → EXT4 I/O error → kernel panic，
   症狀像網路問題其實是磁碟；此坑已於大主機實遇並修掉）。
-- **Slice 2b**（大主機）：六台 kali 容器接 VLAN30（各自 source IP）；Falco modern-eBPF
-  部署 target 側 → Falco→Alloy→Loki→Core Event（#9 真環境驗收）
+- **Slice 2b-① ✅ 大主機綠（2026-08-09）**：Falco（modern-eBPF / CO-RE）在真 VM 內裝
+  起並抓到已知動作（讀 sentinel 檔 → 自訂 rule 開火 → journald 撈到 `PURPLESCOPE-
+  FALCO-HIT`）。這把 **#9** 從「決定性測試綠、真 Falco 待環境」推進到**真環境能力已證**：
+  modern eBPF 在此 nested VM kernel 掛得起來、抓得到 syscall。免 SSH：cloud-init 自驗
+  印 console，host 判定。走 NAT 取 internet 裝 Falco（VLAN20 無對外網是刻意）。
+  踩到並記錄的坑：cloud-init `runcmd` 用 `/bin/sh`(dash) 跑，`>(...)` process
+  substitution 會 `redirection unexpected` → 邏輯改放 `#!/bin/bash` 腳本、runcmd 只呼叫。
+- **Slice 2b-②**（大主機）：六台 kali 容器接 VLAN30（各自 source IP）；把 Falco 事件走
+  Alloy → Loki → Core Event（#9 真環境驗收完整版，`disabled_rule_shows_detection_gap`
+  對真 Falco 成立）。golden image（Falco 烤進、跑無網 VLAN20）留待 Slice 4
 - **Slice 3**：OTLP `:4317` push 取代 scrape；log window/磁碟量測
 - **Slice 4**：Reset + IaC 一鍵起整組 range
 
