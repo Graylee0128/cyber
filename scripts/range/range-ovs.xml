@@ -1,0 +1,22 @@
+<!-- 票 #13 Slice 2a — libvirt network，讓 VM 接上 Slice 1 建的 OVS bridge (br-range)。
+     每個 portgroup 對應一區的 802.1Q VLAN；VM 用 --network network=range-ovs,portgroup=z-target
+     即接到 Z-TARGET(VLAN20)。前提：build-range.sh 已建好 br-range。
+     定義：sudo virsh net-define scripts/range/range-ovs.xml && sudo virsh net-start range-ovs -->
+<network>
+  <name>range-ovs</name>
+  <forward mode='bridge'/>
+  <bridge name='br-range'/>
+  <virtualport type='openvswitch'/>
+  <portgroup name='z-mgmt'>
+    <vlan><tag id='10'/></vlan>
+  </portgroup>
+  <portgroup name='z-target' default='yes'>
+    <vlan><tag id='20'/></vlan>
+  </portgroup>
+  <portgroup name='z-red'>
+    <vlan><tag id='30'/></vlan>
+  </portgroup>
+  <portgroup name='z-app'>
+    <vlan><tag id='40'/></vlan>
+  </portgroup>
+</network>
