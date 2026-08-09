@@ -59,7 +59,12 @@ ip netns exec ns-router sysctl -qw net.ipv4.ip_forward=1
 
 echo "▶ 建各區節點"
 add_node ns-mgmt   10 10
-add_node ns-target 20 10
+# 混合模式（Slice 2a）：target 換成真 VM 接 VLAN20，就不建 target netns（IP 會撞）。
+if [ "${SKIP_TARGET_NETNS:-0}" = "1" ]; then
+  echo "   • ns-target 略過（SKIP_TARGET_NETNS=1；由真 VM 接 VLAN20）"
+else
+  add_node ns-target 20 10
+fi
 for i in 1 2 3 4 5 6; do
   add_node "ns-red$i" 30 "1$i"   # 10.167.30.11 .. .16，六台各自 IP
 done

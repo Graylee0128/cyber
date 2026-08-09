@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# 票 #13 Slice 2a —— 靶機真 VM（KVM/libvirt）接 OVS 的 VLAN20，驗契約 1（從真 VM）
+# 與契約 2（從 mgmt netns 連 VM，應不通）。這是 netns → 真 VM 的關鍵跳躍（混合模式）。
+#
+# 自足驗證、免 SSH：VM 的 serial console 導到檔案，cloud-init 開機時跑契約 1 並把
+# 結果印到 console；host 讀該檔判定。契約 2 由 host 從 ns-mgmt 跑 verify_topology。
+#
+# 需 root + Slice 2 依賴（見 scripts/range/HOST-SETUP.md）。此腳本**不在 CI**：
+# GitHub runner 無巢狀虛擬化，真 VM 只能在大主機驗。
+#
+# 覆寫點（環境變數）：OSV（os-variant，預設 ubuntu24.04）、VM_MEM、VM_VCPUS。
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$DIR/../.." && pwd)"
+
+VM="range-target"
+IMG_URL="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
+CACHE="/var/lib/libvirt/images"
+BASE="$CACHE/noble-cloudimg.img"
+DISK="$CACHE/$VM.qcow2"
+CONSOLE="/tmp/range-target-console.log"
+TARGET_IP="10.167.20.10"
+MGMT_IP="10.167.10.10"
+OSV="${OSV:-ubuntu24.04}"
+VM_MEM="${VM_MEM:-2048}"
+VM_VCPUS="${VM_VCPUS:-2}"
+
+echo "▶ 建 OVS 四區骨架（target 留給 VM）"
+SKIP_TARGET_NETNS=1 bash "$DIR/build-range.sh"
+
+echo "▶ 定義 libvirt 接 OVS 的 network（range-ovs，冪等）"
+if ! virsh net-info range-ovs >/dev/null 2>&1; then
+  virsh net-define "$DIR/range-ovs.xml"
+fi
+virsh net-start range-ovs 2>/dev/null || true
+virsh net-autostart range-ovs 2>/dev/null || true
+
+echo "▶ 取 Ubuntu cloud image（快取於 $BASE）"
+if [ ! -f "$BASE" ]; then
+  echo "   下載中（~600MB，第一次較久）..."
+  curl -fL "$IMG_URL" -o "$BASE"
+fi
+
+echo "▶ 清掉舊 VM（冪等）"
+virsh destroy "$VM" 2>/dev/null || true
+virsh undefine "$VM" --nvram 2>/dev/null || true
+rm -f "$DISK" "$CONSOLE"
+
+echo "▶ 建 overlay disk（不動原 image）"
+qemu-img create -f qcow2 -F qcow2 -b "$BASE" "$DISK" 10G >/dev/null
+
+echo "▶ 產生 cloud-init（靜態 IP + 開機自驗契約 1）"
+UD="$(mktemp)"; NC="$(mktemp)"
+cat > "$UD" <<'YAML'
+#cloud-config
+package_update: false
+runcmd:
+  - |
+    python3 - <<'PY' | tee /dev/console
+    import socket
+    MGMT = "10.167.10.10"
+    ports = {3100: "Loki", 9090: "Prometheus", 4317: "OTLP"}
+    print("=== SLICE2A-BEGIN（從真 VM 測契約 1）===")
+    bad = []
+    for p, n in ports.items():
+        s = socket.socket(); s.settimeout(3)
+        try:
+            s.connect((MGMT, p)); print(f"契約1 OK: TARGET(VM) -> MGMT {n}:{p} 通")
+        except OSError as e:
+            bad.append(p); print(f"契約1 破: {n}:{p} 不通 ({e})")
+        finally:
+            s.close()
+    print("=== SLICE2A-RESULT:", "PASS" if not bad else f"FAIL {bad}", "===")
+    PY
+YAML
+cat > "$NC" <<'YAML'
+version: 2
+ethernets:
+  zt:
+    match: {name: "e*"}
+    addresses: [10.167.20.10/24]
+    routes: [{to: default, via: 10.167.20.1}]
+YAML
+
+echo "▶ 建靶機 VM 接 range-ovs / z-target（VLAN20）"
+virt-install --name "$VM" --memory "$VM_MEM" --vcpus "$VM_VCPUS" \
+  --disk path="$DISK",format=qcow2 --import \
+  --os-variant "$OSV" \
+  --network network=range-ovs,portgroup=z-target,model=virtio \
+  --cloud-init user-data="$UD",network-config="$NC" \
+  --serial file,path="$CONSOLE" \
+  --graphics none --noautoconsole
+
+echo "▶ 等 VM 開機 + cloud-init 跑契約 1（60–150s）..."
+ok=0
+for _ in $(seq 1 60); do
+  if grep -q "SLICE2A-RESULT" "$CONSOLE" 2>/dev/null; then ok=1; break; fi
+  sleep 3
+done
+
+echo "--- 契約 1（從真 VM 的 serial console）---"
+if [ "$ok" = "1" ]; then
+  grep "SLICE2A" "$CONSOLE" || true
+else
+  echo "❌ 沒等到 cloud-init 結果。看完整 console：$CONSOLE"
+  exit 1
+fi
+
+echo "--- 契約 2（從 ns-mgmt 連 VM:$TARGET_IP，應不通）---"
+ip netns exec ns-mgmt python3 "$REPO/scripts/verify_topology.py" --from-zone mgmt --target "$TARGET_IP"
+
+if grep -q "SLICE2A-RESULT: PASS" "$CONSOLE"; then
+  echo "✅ Slice 2a：真 VM 靶機接 OVS VLAN20；契約1(VM→MGMT)通、契約2(MGMT→VM)不通"
+else
+  echo "❌ 契約 1 未通過（見上）"
+  exit 1
+fi

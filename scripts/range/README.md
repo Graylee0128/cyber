@@ -51,9 +51,13 @@ sudo bash scripts/range/teardown-range.sh  # 拆掉（冪等，Reset 雛形）
 
 ## 元件
 
+- `HOST-SETUP.md` — 從零安裝順序（探測→依賴→驗證→建置→驗收），可在其他主機重現
+- `probe-host.sh` — 大主機能力探測（nested KVM / libvirt / OVS / Falco BTF / 資源）
 - `build-range.sh` — OVS bridge + 四 VLAN + router（inter-VLAN + nftables）+ 節點 netns
 - `verify-range.sh` — 從各區 netns 跑 `verify_topology.py` 驗契約 + source IP 可分辨
-- `teardown-range.sh` — 拆除（可重複跑）
+- `build-vm-target.sh` — Slice 2a：靶機真 VM（cloud image）接 OVS VLAN20，驗契約 1/2
+- `range-ovs.xml` — libvirt 接 OVS（br-range）的 network 定義，四區 VLAN portgroup
+- `teardown-range.sh` — 拆除 netns / VM / range-ovs（可重複跑）
 - `stub_listener.py` — mgmt 佔三 port；target 聽 :80 記錄 red source IP
 
 契約判定邏輯在 `src/purple/topology_check.py`（已單元測試），CLI 在

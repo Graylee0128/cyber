@@ -95,25 +95,40 @@ sudo bash scripts/range/teardown-range.sh  # 拆掉（冪等，可重複）
 
 ---
 
-## Step 4 — Slice 2：把節點換成真 VM（混合）
+## Step 4 — Slice 2a：靶機換成真 VM（混合模式）
 
-> 腳本開發中（Slice 2a：`build-vm-target.sh`）。定案後本節補完整步驟。順序會是：
+一支腳本包辦：建 OVS 骨架（target 留給 VM）→ 定義 libvirt 接 OVS 的 network →
+下載 cloud image → 起靶機 VM 接 VLAN20（靜態 IP `10.167.20.10`）→ 驗契約 1（從真 VM）
+與契約 2（從 mgmt netns 連 VM，應不通）。
 
 ```bash
-# a) 先建 Slice 1 的 OVS 骨架（VM 要接上 br-range）
-sudo bash scripts/range/build-range.sh
-
-# b) 定義 libvirt 接 OVS 的 network（四區 portgroup 對應 VLAN）
-sudo virsh net-define scripts/range/range-ovs.xml
-sudo virsh net-start range-ovs
-sudo virsh net-autostart range-ovs
-
-# c) 建靶機真 VM 接 z-target（VLAN20），配靜態 IP 10.167.20.10（待 build-vm-target.sh）
-# d) 從 VM 內跑 verify_topology --from-zone target 驗契約 1
+sudo bash scripts/range/build-vm-target.sh
 ```
 
-Slice 2b：六台 kali 容器接 VLAN30 + Falco modern-eBPF 部署 target 側 +
-Falco 事件走 Alloy → Loki → Core Event（#9 真環境驗收）。
+**預期尾段**：
+```
+--- 契約 1（從真 VM 的 serial console）---
+=== SLICE2A-RESULT: PASS ===
+--- 契約 2（從 ns-mgmt 連 VM:10.167.20.10，應不通）---
+拓樸契約通過（from-zone mgmt）。
+✅ Slice 2a：真 VM 靶機接 OVS VLAN20；契約1(VM→MGMT)通、契約2(MGMT→VM)不通
+```
+
+驗證機制（免 SSH）：VM 的 serial console 導到 `/tmp/range-target-console.log`，
+cloud-init 開機時跑契約 1 並把結果印到 console，host 讀該檔判定。看完整開機過程：
+`sudo cat /tmp/range-target-console.log`。
+
+覆寫點（環境變數）：`OSV`（os-variant，預設 `ubuntu24.04`）、`VM_MEM`、`VM_VCPUS`。
+例：`sudo OSV=ubuntu22.04 bash scripts/range/build-vm-target.sh`。
+
+> 這一步**不在 CI**：GitHub runner 無巢狀虛擬化，真 VM 只能在大主機驗。
+
+拆除（含 VM 與 libvirt network）：`sudo bash scripts/range/teardown-range.sh`。
+
+## Step 5 — Slice 2b（規劃中）
+
+六台 kali 容器接 VLAN30（各自 IP 保 source 可分辨）+ Falco modern-eBPF 部署 target 側
++ Falco 事件走 Alloy → Loki → Core Event（#9 真環境驗收）。腳本定案後補。
 
 ---
 
