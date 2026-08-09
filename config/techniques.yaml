@@ -22,3 +22,7 @@ techniques:
   - id: T1059
     name: Command and Scripting Interpreter
     tactic: execution
+  - id: T1005
+    name: Data from Local System
+    tactic: collection
+    note: 僅代表敏感檔被開啟，未證明內容外流；要敘述成外洩需另有傳輸證據

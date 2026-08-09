@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
-# 票 #13 Slice 4 —— 產出「Falco 已烤進」的 golden 靶機 image。
+# 票 #13 Slice 4 / #9 —— 產出 golden 靶機 image：Falco ＋ Alloy ＋ 靶機 app 全烤進去。
 #
-# 為什麼要 golden：VLAN20 刻意無對外網（保六台 kali source IP 可分辨），靶機在
-# VLAN20 上裝不了 apt 來源的 Falco。所以先在**有網的 NAT** 下把 Falco（modern-eBPF）
-# 裝進 image、enable falco-modern-bpf.service，關機，把該 disk 轉成 golden；之後
-# range-up --with-falco 用它當 base 跑在無網 VLAN20，開機 Falco 自動就位。
+# 為什麼要 golden：VLAN20 刻意無對外網（保六台紅隊 source IP 可分辨），靶機在 VLAN20
+# 上裝不了 apt 套件。所以先在**有網的 NAT** 下把東西裝好、enable service，關機，把
+# disk 轉成 golden；之後 range-up --with-falco 用它當 base 跑在無網 VLAN20，開機即就位：
 #
-# 這一步是 2a（真 VM 接 VLAN20）+ 2b-①（Falco 在 VM 內）的合體最終形態。
-# 需 root + Slice 2 依賴。**不在 CI**（無巢狀虛擬化）。
-# 覆寫點：OSV、VM_MEM、VM_VCPUS。
+#   靶機 app(:80) 被紅隊打 → Falco(modern-eBPF) 抓 syscall → Alloy 推 Z-MGMT 的 Loki
+#   （TARGET→MGMT :3100＝契約 1 實用）→ Grafana → webhook → Core Event
+#
+# 烤進去的內容都是 repo 裡的**真檔案**（base64 注入 cloud-init，不在腳本裡埋碼）：
+#   deploy/range-target/{app.py,config.alloy,bake.sh}
+#   deploy/falco/rules.d/purplescope.yaml   ← 與 compose 的 falco 共用同一份，不會漂移
+#
+# 需 root + Slice 2 依賴。**不在 CI**（無巢狀虛擬化）。覆寫點：OSV、VM_MEM、VM_VCPUS。
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$DIR/../.." && pwd)"
 # shellcheck source=scripts/range/lib-cloudimg.sh
 source "$DIR/lib-cloudimg.sh"
 
@@ -26,7 +31,7 @@ OSV="${OSV:-ubuntu24.04}"
 VM_MEM="${VM_MEM:-3072}"
 VM_VCPUS="${VM_VCPUS:-2}"
 
-echo "▶ 確保 libvirt default（NAT）網路已起（烤 Falco 要 internet）"
+echo "▶ 確保 libvirt default（NAT）網路已起（烤東西要 internet）"
 virsh net-start default 2>/dev/null || true
 virsh net-autostart default 2>/dev/null || true
 
@@ -41,55 +46,37 @@ rm -f "$BUILD" "$GOLDEN" "$CONSOLE"
 echo "▶ 建 build overlay（之後轉成獨立 golden）"
 qemu-img create -f qcow2 -F qcow2 -b "$BASE" "$BUILD" 10G >/dev/null
 
-echo "▶ 產生 cloud-init（裝 Falco modern-eBPF、enable service、下 rule，然後關機）"
+echo "▶ 產生 cloud-init（base64 注入 repo 真檔案，免縮排/跳脫地雷）"
+b64() { base64 -w0 "$1"; }
 UD="$(mktemp)"
-cat > "$UD" <<'YAML'
+cat > "$UD" <<YAML
 #cloud-config
 package_update: false
 write_files:
   - path: /etc/falco/rules.d/purplescope.yaml
-    content: |
-      - rule: PurpleScope Command Exec
-        desc: T1059 smoke - a scripting interpreter was spawned with the purplescope marker
-        condition: >
-          evt.type=execve and evt.dir=< and
-          proc.name in (sh, bash, dash, ash) and
-          proc.cmdline contains PURPLESCOPE_EXEC
-        output: "PurpleScope exec detected (cmd=%proc.cmdline pid=%proc.pid parent=%proc.pname)"
-        priority: WARNING
-        tags: [purplescope, T1059, execution]
-  - path: /opt/bake-falco.sh
+    encoding: b64
+    content: $(b64 "$REPO/deploy/falco/rules.d/purplescope.yaml")
+  - path: /etc/alloy/config.alloy
+    encoding: b64
+    content: $(b64 "$REPO/deploy/range-target/config.alloy")
+  - path: /opt/range-target/app.py
+    encoding: b64
+    content: $(b64 "$REPO/deploy/range-target/app.py")
+  - path: /opt/bake.sh
     permissions: '0755'
+    encoding: b64
+    content: $(b64 "$REPO/deploy/range-target/bake.sh")
+  - path: /etc/purplescope/secret.txt
+    permissions: '0600'
     content: |
-      #!/bin/bash
-      exec > >(tee /dev/console) 2>&1
-      set -x
-      echo "=== GOLDEN-BAKE-BEGIN（裝 Falco 進 image）==="
-      export DEBIAN_FRONTEND=noninteractive
-      curl -fsSL https://falco.org/repo/falcosecurity-packages.asc -o /usr/share/keyrings/falcosecurity.asc
-      echo "deb [signed-by=/usr/share/keyrings/falcosecurity.asc] https://download.falco.org/packages/deb stable main" > /etc/apt/sources.list.d/falcosecurity.list
-      apt-get update -q
-      apt-get install -y -q falco
-      echo "falco 版本：$(falco --version 2>/dev/null | head -1)"
-      # 讓 modern-bpf service 開機自動起（golden 在無網 VLAN20 靠它）。
-      systemctl enable falco-modern-bpf.service
-      # 趁 bake（有網、kernel 6.8）實際起一次，證明 modern-eBPF 在 target VM 真的能跑
-      # —— 這就是 #9「真 Falco 在 target 側運行」的鐵證，印到 console 給 host 判定。
-      systemctl start falco-modern-bpf.service || true
-      sleep 8
-      echo "=== GOLDEN-FALCO-STATE: $(systemctl is-active falco-modern-bpf.service) ==="
-      journalctl -u falco-modern-bpf.service --no-pager 2>/dev/null | tail -6
-      echo "=== GOLDEN-BAKE-DONE ==="
-      # golden image 標準收尾：cloud-init clean，讓下次以此為 base 開機時，
-      # build-vm-target 的靜態 IP + 契約 cloud-init 會**重跑**（否則被當同一 instance 略過）。
-      cloud-init clean --logs
-      # 關機：讓 host 知道烤完，之後把 disk 轉 golden。
-      poweroff
+      PURPLESCOPE-RANGE-SECRET
+      這是 SA §7 Scenario 03（敏感檔存取）的標的檔。刻意用專屬路徑而非真的系統憑證檔，
+      讓演練可重現、可清除，且不需要碰 /etc/shadow。
 runcmd:
-  - [bash, /opt/bake-falco.sh]
+  - [bash, /opt/bake.sh]
 YAML
 
-echo "▶ 起 build VM（NAT），跑烤 Falco 後自動關機"
+echo "▶ 起 build VM（NAT），烤完自動關機（裝 Falco+Alloy，約 4–8 分鐘）"
 virt-install --name "$VM" --memory "$VM_MEM" --vcpus "$VM_VCPUS" \
   --disk path="$BUILD",format=qcow2 --import \
   --os-variant "$OSV" \
@@ -98,9 +85,9 @@ virt-install --name "$VM" --memory "$VM_MEM" --vcpus "$VM_VCPUS" \
   --serial file,path="$CONSOLE" \
   --graphics none --noautoconsole
 
-echo "▶ 等烤完 + VM 關機（裝機走 internet，約 3–6 分鐘）..."
+echo "▶ 等烤完 + VM 關機..."
 ok=0
-for _ in $(seq 1 140); do   # 140×3s = 420s
+for _ in $(seq 1 200); do   # 200×3s = 600s
   state="$(virsh domstate "$VM" 2>/dev/null || echo unknown)"
   if grep -q "GOLDEN-BAKE-DONE" "$CONSOLE" 2>/dev/null && [ "$state" = "shut off" ]; then
     ok=1; break
@@ -112,18 +99,26 @@ if [ "$ok" != 1 ]; then
   echo "❌ 沒等到烤完+關機。看 console：sudo cat $CONSOLE"
   exit 1
 fi
-grep -E "GOLDEN-BAKE|GOLDEN-FALCO-STATE|falco 版本" "$CONSOLE" || true
-if grep -q "GOLDEN-FALCO-STATE: active" "$CONSOLE"; then
-  echo "   ✅ Falco 在 golden VM(kernel 6.8) 內 modern-eBPF 真的跑起來（#9 鐵證）"
+grep -E "GOLDEN-(BAKE|FALCO|ALLOY|APP|RULE)" "$CONSOLE" || true
+
+# bake 期自證：三個 service active、兩條 rule 各命中至少一次。任一不成立就別產 golden ——
+# 產出壞 golden 只會把問題推遲到上線後更難查。
+bake_fail=0
+grep -q "GOLDEN-FALCO-STATE: active" "$CONSOLE" || { echo "❌ falco 未 active"; bake_fail=1; }
+grep -q "GOLDEN-ALLOY-STATE: active" "$CONSOLE" || { echo "❌ alloy 未 active"; bake_fail=1; }
+grep -q "GOLDEN-APP-STATE: active"   "$CONSOLE" || { echo "❌ 靶機 app 未 active"; bake_fail=1; }
+if grep -qE "GOLDEN-RULE-HITS: exec=[1-9]" "$CONSOLE" && grep -qE "GOLDEN-RULE-HITS: exec=[0-9]+ secret=[1-9]" "$CONSOLE"; then
+  echo "   ✅ Falco 兩條 rule（T1059 exec / T1005 敏感檔）在 VM 內實際命中"
 else
-  echo "   ⚠ 未偵測到 falco-modern-bpf active——看 console：sudo cat $CONSOLE"
+  echo "❌ Falco rule 未命中（看 GOLDEN-RULE-HITS）"; bake_fail=1
 fi
+[ "$bake_fail" = 0 ] || { echo "❌ bake 自證未過，不產 golden"; exit 1; }
 
 echo "▶ 把烤好的 disk 轉成獨立 golden image（$GOLDEN）"
-# convert 攤平 backing chain → golden 自足，可當新 base。
 qemu-img convert -O qcow2 "$BUILD" "$GOLDEN"
 virsh undefine "$VM" --nvram 2>/dev/null || true
 rm -f "$BUILD"
 
-echo "✅ Golden image 就緒：$GOLDEN（Falco modern-eBPF 已烤進、service 已 enable）"
-echo "   用法：range-up.sh --with-falco （會以此為 base 在無網 VLAN20 起靶機）"
+echo "✅ Golden image 就緒：$GOLDEN"
+echo "   內含：Falco(modern-eBPF) + Alloy(推 10.167.10.20:3100) + 靶機 app(:80)，全部 enable"
+echo "   用法：range-up.sh --with-falco"

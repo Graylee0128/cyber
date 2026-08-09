@@ -1,16 +1,17 @@
-# PurpleScope 自訂 Falco rule（票 #9 / Slice 2b-②）。
+# PurpleScope 自訂 Falco rules（票 #9 / Slice 2b-②、Slice 4）。
 #
-# 條件刻意自足、不引用預設 macro/list —— falco 以 `-r 本檔` 載入時只有這條，
+# 這一份**同時**給兩處吃：
+#   1. compose 的 falco 服務（相容 kernel 的 host）
+#   2. golden 靶機 VM 內的 falco-modern-bpf（build-golden-target.sh 把本檔烤進 image）
+# 只有一份來源，不會漂移。
+#
+# 條件刻意自足、不引用預設 macro/list —— falco 以 `-r 本檔` 載入時只有這些，
 # 不載預設數千條，events.json 才乾淨、Alloy→Loki 才不被洗版。
-#
-# 語意＝T1059（Command and Scripting Interpreter）：偵測「有人在靶機生出一個
-# shell 直譯器並帶我們的標記」。靶機的 /exec endpoint 會跑
-# `/bin/sh -c "echo PURPLESCOPE_EXEC_<n>; id"`，execve 被 modern-eBPF 抓到。
-#
-# output 內含固定字串 `PurpleScope exec detected`，Grafana rule 就靠它在 Loki 上計數。
 
+# SA §7 Scenario 01/02 對應的執行面：T1059（Command and Scripting Interpreter）。
+# 靶機 /exec 會跑 `/bin/sh -c "echo PURPLESCOPE_EXEC_<n>; id"`，execve 被 modern-eBPF 抓到。
 - rule: PurpleScope Command Exec
-  desc: T1059 smoke - a scripting interpreter was spawned on the target with the purplescope marker
+  desc: T1059 - a scripting interpreter was spawned on the target with the purplescope marker
   condition: >
     evt.type=execve and evt.dir=< and
     proc.name in (sh, bash, dash, ash) and
@@ -18,3 +19,15 @@
   output: "PurpleScope exec detected (cmd=%proc.cmdline pid=%proc.pid parent=%proc.pname container=%container.id)"
   priority: WARNING
   tags: [purplescope, T1059, execution]
+
+# SA §7 Scenario 03：Sensitive File Access（Falco → Loki → Grafana → Incident）。
+# 靶機 /readsecret 讀 /etc/purplescope/secret.txt —— 代表「敏感檔存取」這類動作。
+# 用固定路徑而非 /etc/shadow：演練要可重現、可清除，且不需要真的碰系統憑證檔。
+- rule: PurpleScope Sensitive File Access
+  desc: T1005 - the designated sensitive file on the target was opened for read
+  condition: >
+    (evt.type in (open, openat, openat2)) and evt.dir=< and
+    fd.name=/etc/purplescope/secret.txt
+  output: "PurpleScope sensitive file access (file=%fd.name proc=%proc.name cmd=%proc.cmdline pid=%proc.pid)"
+  priority: WARNING
+  tags: [purplescope, T1005, collection]

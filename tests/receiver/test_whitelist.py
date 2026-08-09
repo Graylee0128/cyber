@@ -74,9 +74,14 @@ class TestShippedWhitelist:
         wl = default_whitelist()
         assert isinstance(wl, Whitelist)
 
-    @pytest.mark.parametrize("tid", ["T1190", "T1078", "T1110", "T1059"])
+    # T1005＝SA §7 Scenario 03（敏感檔存取），由靶機 VM 內的 Falco 抓 open 產生。
+    @pytest.mark.parametrize("tid", ["T1190", "T1078", "T1110", "T1059", "T1005"])
     def test_covers_the_p1_techniques(self, tid):
         assert default_whitelist().allows(tid)
+
+    def test_t1005_note_limits_interpretation(self):
+        """敏感檔被開啟 ≠ 內容外流 —— 判讀限制要跟著 technique 走到下游。"""
+        assert default_whitelist().note("T1005")
 
     def test_t1110_note_warns_about_interpretation(self):
         assert default_whitelist().note("T1110")

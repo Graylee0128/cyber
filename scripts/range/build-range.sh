@@ -68,9 +68,15 @@ if [ "${SKIP_TARGET_NETNS:-0}" = "1" ]; then
 else
   add_node ns-target 20 10
 fi
-for i in 1 2 3 4 5 6; do
-  add_node "ns-red$i" 30 "1$i"   # 10.167.30.11 .. .16，六台各自 IP
-done
+# 同理（Slice 4）：紅隊換成真容器接 VLAN30 時，不建 netns red —— 兩者用同一組
+# IP（.11~.16），同時存在會在 VLAN30 上位址衝突（ARP 兩邊都回）。
+if [ "${SKIP_RED_NETNS:-0}" = "1" ]; then
+  echo "   • ns-red1~6 略過（SKIP_RED_NETNS=1；由真容器接 VLAN30）"
+else
+  for i in 1 2 3 4 5 6; do
+    add_node "ns-red$i" 30 "1$i"   # 10.167.30.11 .. .16，六台各自 IP
+  done
+fi
 
 echo "▶ 套 nftables 方向性防火牆（在 router 的 forward hook；policy drop）"
 ip netns exec ns-router nft -f - <<'NFT'
