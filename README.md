@@ -45,6 +45,25 @@ Falco 是 runtime sensor，需要驅動吃得下 host kernel。腳本用
 > 版面在新 kernel 變了），kmod 驅動同樣不支援。這是 Falco 驅動與前沿 kernel 的落差，
 > 不是設定問題 —— 與其撞牆，不如先問 kernel 再決定走哪案。
 
+## 產品全貌與進度
+
+整個產品切成七個 workstream（[SA §4](./資安攻防平台_系統架構設計文件_v0.1.md)）。
+依賴關係與「為什麼是這個順序」見 **SA §4.1**；下表是**目前進度**：
+
+| WS | 工作包 | 內容 | 狀態 |
+|---|---|---|---|
+| **6** | Range Infrastructure | 執行環境、隔離、Reset、網路與部署 | ✅ 四區 VLAN／方向性防火牆／靶機真 VM／六台紅隊／一鍵 IaC 已在單主機實測 |
+| **4-P1** | Purple Platform · Telemetry & Detection | 遙測、偵測、Response、事件 schema | ✅ 管線 CI 綠，真環境四契約實測（[#13](https://github.com/Graylee0128/cyber/issues/13)）|
+| **4-P2** | Purple Platform · Evaluation & Console | coverage／MTTD／MTTR／缺口分類、紫隊 Console | ⬜ 未開始（**可立刻接續** —— 上游 schema 已定版）|
+| **5** | Cyber Range Core | Event、Score、Exercise State、API | ⬜ 未開始（Core Event 的下游消費者）|
+| **1** | Product / Game Design | 遊戲規則、流程、難度、Objective、Hint | ⬜ 未開始（**隱形阻塞**：WS5／WS7 都由它定義）|
+| **2** | Scenario / Target | 靶機、漏洞、攻擊鏈、Flag、Scenario Package | ⬜ 未開始 |
+| **3** | Blue Operations | Incident、Investigation、Response Workflow | ⬜ 未開始 |
+| **7** | Product UI | Player Portal、SOC、Battleboard、Instructor Console | ⬜ 未開始（要顯示的數字由 4-P2／5 產生，不宜早做）|
+
+三條線可平行：**技術線** WS4-P2、**產品線** WS1→WS5→WS7、**內容線** WS2／WS3。
+箭頭方向不可逆 —— 逆向施工的代價是重工，不是延遲（SA §4.1）。
+
 ## 現在在做什麼
 
 **Purple Platform P1（Telemetry & Detection Pipeline）**，以 TDD 進行。

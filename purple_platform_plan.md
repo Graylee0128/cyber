@@ -9,6 +9,34 @@
 
 ---
 
+# 〇、本文件在產品中的位置
+
+本文件談的是 **WS4 · Purple Platform** 一個工作包。它在七個 workstream
+（SA §4）中的上下游如下 —— 完整依賴圖與約束見 **SA §4.1**：
+
+```text
+WS6 Range Infrastructure（環境、隔離、Reset）
+        │  提供執行環境
+        ▼
+WS4-P1 Telemetry & Detection ──── 事實生產（本文件 §二）
+        │  Core Event ＋ Alert Record（schema 已定版）
+        ├──────────────► WS4-P2 Evaluation & Console ── 判讀（本文件 §三）
+        ├──────────────► WS5 Cyber Range Core（Event／Score／Exercise State）
+        └──────────────► WS3 Blue Operations（Incident／Response Workflow）
+```
+
+| 關係 | 對象 | 介面 |
+|---|---|---|
+| 上游依賴 | WS6 | 四區網段、跨世代契約、collector 落點 |
+| 下游消費者 | WS5、WS3、WS4-P2 | **Core Event Schema**（§2.2：P1 唯一對外產出是 schema，不是面板）|
+| 平行不相依 | WS1、WS7 | P2 的數字先存在，WS7 才有東西可畫（SA §4.1）|
+
+**P2 不必等產品線（WS1 → WS5 → WS7）。** 它的輸入是 P1 已定版的 schema，
+與遊戲規則正交，可與產品線平行推進。這也是 §1.1 說「Evaluation 是紫隊唯一獨有產出」
+的實務意義：它不靠別人先定義完遊戲才能開工。
+
+---
+
 # 一、為什麼這樣切
 
 ## 1.1 不用「MGMT ／ UI」切
