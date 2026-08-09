@@ -60,14 +60,25 @@ def _compose_ps() -> list[dict]:
     return [json.loads(line) for line in raw.stdout.splitlines() if line.strip()]
 
 
-def _loki_ready() -> bool:
-    try:
-        with urllib.request.urlopen(f"{LOKI_URL}/ready", timeout=5) as r:
-            return r.status == 200
-    except urllib.error.HTTPError:
-        return False  # 503＝ingester 還沒 ready
-    except urllib.error.URLError:
-        return False
+def _loki_ready(timeout_s: float = 30.0) -> bool:
+    """Loki 就緒＝能回應 LogQL 查詢 API。
+
+    刻意不用 /ready：Loki single-binary 的 /ready 帶 ring 就緒延遲，會在「其實
+    已能查詢」後仍回 503 一段時間，是比實際可用更嚴格且抖動的信號。改探查詢 API
+    /loki/api/v1/labels（就緒後回 200），直接證明它真在服務查詢。加重試窗吸收啟動抖動。
+    """
+    import time
+
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(f"{LOKI_URL}/loki/api/v1/labels", timeout=5) as r:
+                if r.status == 200:
+                    return True
+        except (urllib.error.HTTPError, urllib.error.URLError):
+            pass
+        time.sleep(2)
+    return False
 
 
 def test_all_zmgmt_residents_are_healthy():
@@ -79,9 +90,9 @@ def test_all_zmgmt_residents_are_healthy():
     assert bad == [], f"有 Z-MGMT 住戶未就緒：{bad}"
     _ok("五個有 Docker healthcheck 的住戶全 running+healthy")
 
-    _step("loki 是 distroless，改從 host 探 :3100/ready（補 distroless 的空缺）")
-    assert _loki_ready(), "loki :3100/ready 未回 200 —— Loki 未就緒"
-    _ok("loki /ready = 200 —— 六個 Z-MGMT 住戶全就緒")
+    _step("loki 是 distroless，改從 host 探查詢 API :3100/loki/api/v1/labels（補 distroless 的空缺）")
+    assert _loki_ready(), "loki 查詢 API 未就緒 —— Loki 未在服務查詢"
+    _ok("loki 查詢 API = 200 —— 六個 Z-MGMT 住戶全就緒")
 
 
 def test_p1_to_p2_handoff_within_zmgmt(events):

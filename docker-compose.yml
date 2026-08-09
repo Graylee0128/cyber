@@ -67,8 +67,9 @@ services:
       - z-mgmt
     # 刻意無 healthcheck：loki 3.x 是 distroless（gcr.io/distroless/static:nonroot），
     # 無 shell/wget/curl，結構上做不了容器內 healthcheck（2026-08-09 查證官方 Dockerfile）。
-    # 它的就緒由 #16 的 handoff smoke 從 host 探 :3100/ready 補上——比 process-alive
-    # 更強，證明它真在服務查詢。故 loki 不在 MGMT_HEALTHCHECKED（topology_check.py）。
+    # 它的就緒由 #16 的 smoke 從 host 探查詢 API :3100/loki/api/v1/labels 補上——不用
+    # /ready（single-binary 的 /ready 帶 ring 延遲、與可查詢不一致），改證它真在服務
+    # 查詢。故 loki 不在 MGMT_HEALTHCHECKED（topology_check.py）。
 
   # collector：在 target 側（契約 4）。透過共享 volume 讀 app log，經 z-mgmt push
   # 到 Loki —— 這條 z-target→z-mgmt 就是契約 1 的 TARGET→MGMT telemetry。
