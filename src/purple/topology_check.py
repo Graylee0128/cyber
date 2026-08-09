@@ -118,3 +118,34 @@ def check_zone_assignments(service_networks: dict[str, set[str]]) -> list[str]:
         )
 
     return fails
+
+
+# --- Z-MGMT 住戶部署就緒（票 #16，「Z-MGMT 軟體完成」里程碑）------------------
+#
+# Loki 3.x 是 distroless（gcr.io/distroless/static:nonroot），無 shell/wget/curl，
+# **結構上無法做容器內 Docker healthcheck**（2026-08-09 查證官方 Dockerfile）。
+# 故 Docker healthcheck gate 的住戶集合不含 loki；loki 的就緒改由 smoke test
+# 直接從 host 探 :3100/ready 補上 —— 這比 process-alive 更強，證明它真在服務查詢。
+MGMT_HEALTHCHECKED = MGMT_RESIDENTS - {"loki"}
+
+
+def unhealthy_residents(
+    ps_rows: list[dict], *, expected: frozenset[str] | set[str]
+) -> list[str]:
+    """給 `docker compose ps --format json` 的 rows，回傳未就緒的 expected 住戶。
+
+    就緒＝該住戶出現在 ps、State 為 running、且 Health 為 healthy。
+    找不到（沒起來）、非 running、或 Health 空（沒宣告 healthcheck）都算未就緒。
+    只看 expected 集合 —— 非住戶服務不影響判定。
+    """
+    by_service = {r.get("Service"): r for r in ps_rows}
+    bad: list[str] = []
+    for svc in sorted(expected):
+        row = by_service.get(svc)
+        if row is None:
+            bad.append(f"{svc}（未出現在 compose ps —— 沒起來）")
+        elif row.get("State") != "running":
+            bad.append(f"{svc}（State={row.get('State')}）")
+        elif row.get("Health") != "healthy":
+            bad.append(f"{svc}（Health={row.get('Health') or '無 healthcheck'}）")
+    return bad
