@@ -18,7 +18,7 @@
 | **2b-①** | Falco（modern-eBPF）在真 VM 內抓到 syscall | 大主機 | ✅ 大主機綠 |
 | **2b-②** | Falco→Alloy→Loki→Grafana→Core Event(T1059) + 決定性測試 | compose（CI 綠除 Falco 本身）/ 大主機 `--profile falco` | ✅ 管線 CI 綠 |
 | **3** | OTLP `:4317` push 取代 scrape（#11）；log window/磁碟量測（#12） | compose CI（OTLP）/ 大主機（量測） | ✅ OTLP CI 綠 |
-| **4** | 六台 kali 接 VLAN30、Falco golden image 跑無網 VLAN20、Reset、一鍵 IaC | 大主機 | 腳本齊，待大主機驗 |
+| **4** | 六台 kali 接 VLAN30、Falco golden image 跑無網 VLAN20、Reset、一鍵 IaC | 大主機 | ✅ 大主機綠（2026-08-10，四層測試全通過）|
 
 **為什麼 Slice 1 走 CI**：OVS + network namespace + nftables 不需巢狀虛擬化，
 GitHub Actions 標準 runner 就能跑，所以四區骨架（真 VLAN tag + 真方向性防火牆 +
