@@ -72,7 +72,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 echo "--- 1/5 Falco（runtime sensor）---"
 CURL=(curl -fsSL --retry 5 --retry-all-errors --connect-timeout 15 --max-time 120)
-"${CURL[@]}" https://falco.org/repo/falcosecurity-packages.asc \n  -o /usr/share/keyrings/falcosecurity.asc
+"${CURL[@]}" -o /usr/share/keyrings/falcosecurity.asc https://falco.org/repo/falcosecurity-packages.asc
 echo "deb [signed-by=/usr/share/keyrings/falcosecurity.asc] https://download.falco.org/packages/deb stable main" \
   > /etc/apt/sources.list.d/falcosecurity.list
 apt-get "${APT_OPTS[@]}" update -q

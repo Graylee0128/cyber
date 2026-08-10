@@ -7,6 +7,27 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Shell 是這個專案的一等公民（deploy.sh / test.sh / scripts/range/* / bake.sh 都是），
+  # 但過去只靠 `bash -n` 把關 —— 那只驗語法，驗不了語意。
+  # 2026-08-10 實測：一次折行的跳脫寫錯，讓 bake.sh 出現字面的 `\n` 當成 curl 的第二個
+  # URL，curl exit 6（無法解析主機）。`bash -n` 完全過關，因為那行語法合法、只是參數錯，
+  # 而錯誤要跑到大主機、烤一顆 VM、42 秒後才浮現。
+  # shellcheck 的 SC1012（warning 級）正是為這種情形存在的，訊息就直說
+  # 「那個跳脫只是字面的 n」。已用當時那一行實測過，這道閘門確實會紅。
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: shellcheck
+        run: |
+          shellcheck --version
+          # bake.sh 跑在 VM 內、由 cloud-init 呼叫，不是 sourced，一併檢查。
+          # -x 讓它跟著 source 進去（zones.env / lib-*.sh 的變數才認得出來）。
+          shellcheck -x -S warning \
+            deploy.sh test.sh \
+            scripts/*.sh scripts/range/*.sh \
+            deploy/range-target/bake.sh
+
   test:
     runs-on: ubuntu-latest
 

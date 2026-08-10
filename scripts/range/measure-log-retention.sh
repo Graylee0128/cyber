@@ -14,13 +14,9 @@ SINCE_S="${SINCE_S:-3600}"   # 統計最近多久的行數，預設 1h
 
 echo "▶ Loki 保留量測（$LOKI_URL）"
 
-now_ns() { date +%s%N; }
-END="$(now_ns)"
-START="$(( END - SINCE_S * 1000000000 ))"
-
 count_job() {  # count_job <job-label-selector>
   local sel="$1"
-  local q; q=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "sum(count_over_time($sel[${SINCE_S}s]))")
+  local q; q=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "sum(count_over_time(${sel}[${SINCE_S}s]))")
   # 用 instant query 拿總數；失敗回 0（不讓量測腳本本身炸掉整個報告）
   curl -fsS "$LOKI_URL/loki/api/v1/query?query=$q" 2>/dev/null \
     | python3 -c "import json,sys;
