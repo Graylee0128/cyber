@@ -63,9 +63,16 @@ trap 'on_error $LINENO' ERR
 
 # apt 也要禁得起網路抖動（同 Dockerfile 的 pip --retries，2026-08-10 同一台實測）：
 # 預設不重試，一次連線失敗就 exit 100，整顆 golden 白烤 6 分鐘。
+#
+# 另外兩個 Dpkg::Options 是保險：這顆 VM 沒有 stdin，任何 conffile 互動提示都會讓
+# dpkg 直接失敗（實測過一次，見 2/5 段）。confdef+confold ＝「有預設就用預設，
+# 沒有就保留現有檔案」，永不發問。真正的衝突已在 2/5 段用「裝完才放設定檔」解掉，
+# 這裡只負責讓未來新增的套件不會用同一種方式咬人。
 APT_OPTS=(-o Acquire::Retries=5
           -o Acquire::http::Timeout=60
-          -o Acquire::https::Timeout=60)
+          -o Acquire::https::Timeout=60
+          -o Dpkg::Options::=--force-confdef
+          -o Dpkg::Options::=--force-confold)
 
 echo "=== GOLDEN-BAKE-BEGIN（烤 Falco + Alloy + 靶機 app）==="
 export DEBIAN_FRONTEND=noninteractive
@@ -96,6 +103,23 @@ echo "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stab
   > /etc/apt/sources.list.d/grafana.list
 apt-get "${APT_OPTS[@]}" update -q
 apt-get "${APT_OPTS[@]}" install -y -q alloy
+
+# 設定檔**裝完才放**，不能先放（2026-08-10 找到的真因）。
+#
+# /etc/alloy/config.alloy 是 alloy 套件自己的 conffile。cloud-init 的 write_files 若
+# 先把它寫好，dpkg 在 --configure 階段會發現「這個檔存在但不是我裝的」而跳互動提示：
+#     *** config.alloy (Y/I/N/O/D/Z) [default=N] ?
+# 這顆 VM 的 stdin 是關的 → `end of file on stdin at conffile prompt` → dpkg 失敗
+# → apt exit 100。
+#
+# 這個 bug 一直都在，只是舊版 bake.sh 不檢查 exit code，照樣往下跑；dpkg 的預設又
+# 剛好是「保留現有版本」，所以我們的 config 還在、binary 也解開了 —— 整條流程靠巧合
+# 成立，而 alloy 套件其實從未完成 --configure。幾天前 vendor alloy.service 一直崩到
+# 觸發 systemd 重啟上限，很可能就是這個半配置狀態造成的（當時用自訂 unit 繞過，
+# 繞對了但沒查到根）。
+#
+# 所以改成：先讓套件用它自己的預設 conffile 正常裝完，再覆蓋成我們的設定。
+install -D -m 0644 /opt/purplescope/config.alloy /etc/alloy/config.alloy
 
 # 不用套件附的 alloy.service —— 它在安裝時就自動啟動，且帶一整套 vendor 參數與
 # hardening；實測（2026-08-09）它會連續崩到觸發 systemd 重啟上限

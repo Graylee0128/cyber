@@ -58,7 +58,9 @@ write_files:
   - path: /etc/falco/rules.d/purplescope.yaml
     encoding: b64
     content: $(b64 "$REPO/deploy/falco/rules.d/purplescope.yaml")
-  - path: /etc/alloy/config.alloy
+  # 刻意**不**直接寫到 /etc/alloy/config.alloy —— 那是 alloy 套件自己的 conffile。
+  # 先放這裡當暫存，bake.sh 在 apt 裝完之後才複製過去（原因見 bake.sh 的 2/5 段）。
+  - path: /opt/purplescope/config.alloy
     encoding: b64
     content: $(b64 "$REPO/deploy/range-target/config.alloy")
   - path: /opt/range-target/app.py
