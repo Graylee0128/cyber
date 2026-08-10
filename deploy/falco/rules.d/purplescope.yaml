@@ -7,13 +7,18 @@
 #
 # 條件刻意自足、不引用預設 macro/list —— falco 以 `-r 本檔` 載入時只有這些，
 # 不載預設數千條，events.json 才乾淨、Alloy→Loki 才不被洗版。
+#
+# 三條規則都不再寫 `evt.dir=<`（2026-08-10 移除）。新版 libs 已不再產生 enter 事件，
+# Falco 載入時會對每條帶 evt.dir 的規則發 LOAD_DEPRECATED_ITEM 警告，明說
+# 「'evt.dir = <' always evaluates to true，可以移除」。留著只是每次啟動多噴幾十行
+# 警告 —— 那些警告在 bake 失敗時還會把真正的死因從診斷視窗裡擠出去，實際害過一次。
 
 # SA §7 Scenario 01/02 對應的執行面：T1059（Command and Scripting Interpreter）。
 # 靶機 /exec 會跑 `/bin/sh -c "echo PURPLESCOPE_EXEC_<n>; id"`，execve 被 modern-eBPF 抓到。
 - rule: PurpleScope Command Exec
   desc: T1059 - a scripting interpreter was spawned on the target with the purplescope marker
   condition: >
-    evt.type=execve and evt.dir=< and
+    evt.type=execve and
     proc.name in (sh, bash, dash, ash) and
     proc.cmdline contains PURPLESCOPE_EXEC
   output: "PurpleScope exec detected (cmd=%proc.cmdline pid=%proc.pid parent=%proc.pname container=%container.id)"
@@ -26,7 +31,7 @@
 - rule: PurpleScope Sensitive File Access
   desc: T1005 - the designated sensitive file on the target was opened for read
   condition: >
-    (evt.type in (open, openat, openat2)) and evt.dir=< and
+    (evt.type in (open, openat, openat2)) and
     fd.name=/etc/purplescope/secret.txt
   output: "PurpleScope sensitive file access (file=%fd.name proc=%proc.name cmd=%proc.cmdline pid=%proc.pid)"
   priority: WARNING
@@ -45,7 +50,7 @@
 - rule: PurpleScope Uncovered Action
   desc: deliberately un-alerted - telemetry exists but no detection rule covers it
   condition: >
-    evt.type=execve and evt.dir=< and
+    evt.type=execve and
     proc.name in (sh, bash, dash, ash) and
     proc.cmdline contains PURPLESCOPE_UNCOVERED
   output: "PurpleScope uncovered action (cmd=%proc.cmdline pid=%proc.pid parent=%proc.pname)"

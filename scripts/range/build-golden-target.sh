@@ -124,9 +124,12 @@ if grep -q "GOLDEN-BAKE-ABORT" "$CONSOLE" 2>/dev/null; then
 fi
 if [ "$bake_fail" != 0 ]; then
   echo
+  # 中止原因先單獨印 —— 它是標題，不該和幾十行 DIAG 混在一起被 tail 截掉。
+  grep -a "GOLDEN-BAKE-ABORT" "$CONSOLE" | tail -1 || true
   echo "──────── VM 內診斷（DIAG 標記；本 VM 無 SSH，console 是唯一窗口）────────"
   # 用標記精準撈 —— 關機序列有上百行，tail 會把診斷淹掉。
-  grep -a "DIAG|" "$CONSOLE" | sed 's/.*DIAG| //' | tail -70 || echo "(沒有 DIAG 輸出)"
+  # 120 而非 70：2026-08-10 實測 falco 的 journal 就把 apt 的真正死因擠出視窗了。
+  grep -a "DIAG|" "$CONSOLE" | sed 's/.*DIAG| //' | tail -120 || echo "(沒有 DIAG 輸出)"
   echo "──────────────────────────────────────────────────────────────────────"
   echo "❌ bake 自證未過，不產 golden。完整記錄：sudo cat $CONSOLE"
   exit 1

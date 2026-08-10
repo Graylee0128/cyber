@@ -34,30 +34,49 @@ diagnose() {
 }
 
 # 任何未預期的失敗都走這裡：講清楚死在哪一行，然後**一定要關機**。
+#
+# 只印**死因相關**的東西，不印各 unit 的 journal（2026-08-10 實測教訓）：
+# 那次死在 `apt-get install alloy`，但 handler 順手把 falco 的 journal 也倒出來，
+# 幾十行把 apt 的真正錯誤從 host 端的 `tail` 視窗擠了出去 —— 診斷反而看不到死因。
+# 「指令為什麼死」與「服務為什麼沒起來」是兩個問題，各自有各自的出口：
+# 前者在這裡，後者在第 5 步的 STATE 檢查裡呼叫 diagnose。
 on_error() {
   local rc=$? line=$1
   trap - ERR                 # 防止 handler 內再觸發自己
   set +e
   echo "=== GOLDEN-BAKE-ABORT: bake.sh 第 $line 行失敗（exit $rc）==="
-  echo "DIAG| ---- 失敗前後的系統狀態 ----"
-  { df -h /; free -m; tail -30 /var/log/apt/term.log 2>/dev/null; } 2>&1 | diag
-  for u in "${UNITS[@]}"; do
-    systemctl list-unit-files "$u" >/dev/null 2>&1 && diagnose "$u"
-  done
+  echo "DIAG| ---- 出事的那一行 ----"
+  sed -n "$((line > 3 ? line - 3 : 1)),$((line + 1))p" "$0" 2>/dev/null | diag
+  echo "DIAG| ---- 磁碟／記憶體 ----"
+  { df -h /; free -m; } 2>&1 | diag
+  echo "DIAG| ---- 對外連線（apt/pip 逾時多半是這裡）----"
+  { getent hosts apt.grafana.com download.falco.org archive.ubuntu.com; \
+    timeout 5 curl -sSI -o /dev/null -w 'apt.grafana.com → HTTP %{http_code} in %{time_total}s\n' \
+      https://apt.grafana.com/gpg.key; } 2>&1 | diag
+  # apt 的真正錯誤放**最後**：host 端用 tail 取，最後印的最不會被截掉。
+  echo "DIAG| ---- apt 最後的輸出（死因通常在這裡）----"
+  { tail -40 /var/log/apt/term.log; tail -15 /var/log/apt/history.log; } 2>&1 | diag
   echo "=== GOLDEN-BAKE-DONE（ABORT）==="
   poweroff -f
 }
 trap 'on_error $LINENO' ERR
 
+# apt 也要禁得起網路抖動（同 Dockerfile 的 pip --retries，2026-08-10 同一台實測）：
+# 預設不重試，一次連線失敗就 exit 100，整顆 golden 白烤 6 分鐘。
+APT_OPTS=(-o Acquire::Retries=5
+          -o Acquire::http::Timeout=60
+          -o Acquire::https::Timeout=60)
+
 echo "=== GOLDEN-BAKE-BEGIN（烤 Falco + Alloy + 靶機 app）==="
 export DEBIAN_FRONTEND=noninteractive
 
 echo "--- 1/5 Falco（runtime sensor）---"
-curl -fsSL https://falco.org/repo/falcosecurity-packages.asc -o /usr/share/keyrings/falcosecurity.asc
+CURL=(curl -fsSL --retry 5 --retry-all-errors --connect-timeout 15 --max-time 120)
+"${CURL[@]}" https://falco.org/repo/falcosecurity-packages.asc \n  -o /usr/share/keyrings/falcosecurity.asc
 echo "deb [signed-by=/usr/share/keyrings/falcosecurity.asc] https://download.falco.org/packages/deb stable main" \
   > /etc/apt/sources.list.d/falcosecurity.list
-apt-get update -q
-apt-get install -y -q falco
+apt-get "${APT_OPTS[@]}" update -q
+apt-get "${APT_OPTS[@]}" install -y -q falco
 echo "falco 版本：$(falco --version 2>/dev/null | head -1 || true)"
 
 # Falco 設定：JSON + 寫檔給 Alloy tail。自訂 rule 已放進 /etc/falco/rules.d（預設會載入該目錄）。
@@ -72,11 +91,11 @@ CFG
 
 echo "--- 2/5 Alloy（target 側 collector）---"
 mkdir -p /etc/apt/keyrings
-curl -fsSL https://apt.grafana.com/gpg.key | gpg --dearmor > /etc/apt/keyrings/grafana.gpg
+"${CURL[@]}" https://apt.grafana.com/gpg.key | gpg --dearmor > /etc/apt/keyrings/grafana.gpg
 echo "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main" \
   > /etc/apt/sources.list.d/grafana.list
-apt-get update -q
-apt-get install -y -q alloy
+apt-get "${APT_OPTS[@]}" update -q
+apt-get "${APT_OPTS[@]}" install -y -q alloy
 
 # 不用套件附的 alloy.service —— 它在安裝時就自動啟動，且帶一整套 vendor 參數與
 # hardening；實測（2026-08-09）它會連續崩到觸發 systemd 重啟上限
