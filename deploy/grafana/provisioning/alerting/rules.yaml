@@ -10,7 +10,7 @@ groups:
     rules:
       - uid: sqli-injection-burst
         title: SQLInjectionBurst
-        condition: C
+        condition: A
         for: 0s
         noDataState: OK
         execErrState: Error
@@ -27,33 +27,16 @@ groups:
                 uid: loki
               # 以 source_ip 分 series，Grafana webhook 才會把實際攻擊來源帶進 Core Event；
               # response agent 只執行這個已治理的值，不自行猜測封鎖對象（#17）。
-              expr: 'sum by (source_ip) (count_over_time({app="vulnerable-app"} | json | sqli_suspected=`true` [1m]))'
-              queryType: range
+              # instant query（非 range/matrix）：每個 source_ip 各自一個樣本點，才會
+              # 各自成為一個 alert instance、各自帶自己的 source_ip label——range 查詢
+              # 在多個來源同時 firing 時會把 instance 塌成一個並弄丟這個 label
+              # （#17 在 falco-command-exec 規則上實測到的同一缺陷）。
+              expr: 'sum by (source_ip) (count_over_time({app="vulnerable-app"} | json | sqli_suspected=`true` [1m])) > 0'
+              queryType: instant
+              instant: true
+              range: false
               intervalMs: 1000
               maxDataPoints: 43200
-          - refId: B
-            datasourceUid: __expr__
-            model:
-              refId: B
-              type: reduce
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              reducer: last
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              refId: C
-              type: threshold
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: B
-              conditions:
-                - evaluator:
-                    type: gt
-                    params: [0]
         labels:
           event_type: attack.detected
           technique: T1190
@@ -130,7 +113,7 @@ groups:
       # （ADR ③：Grafana 是唯一 alert engine，Falco 不直送 Event Service）。
       - uid: falco-command-exec
         title: FalcoCommandExec
-        condition: C
+        condition: A
         for: 0s
         noDataState: OK
         execErrState: Error
@@ -146,34 +129,14 @@ groups:
                 type: loki
                 uid: loki
               # range app 把 TCP 對端放進 exec marker；regexp 擷取成 source_ip series label。
-              # 因此每台 red 各自形成 alert instance，不會被 aggregation 塌成一個未知來源。
-              expr: 'sum by (source_ip) (count_over_time({job="falco"} |= `PurpleScope exec detected` | regexp `SOURCE_IP=(?P<source_ip>[0-9.]+)` [1m]))'
-              queryType: range
+              # instant query（非 range/matrix）：每個 source_ip 各自一個樣本點，
+              # 才會各自成為一個 alert instance、各自帶自己的 source_ip label。
+              expr: 'sum by (source_ip) (count_over_time({job="falco"} |= `PurpleScope exec detected` | regexp `SOURCE_IP=(?P<source_ip>[0-9.]+)` [1m])) > 0'
+              queryType: instant
+              instant: true
+              range: false
               intervalMs: 1000
               maxDataPoints: 43200
-          - refId: B
-            datasourceUid: __expr__
-            model:
-              refId: B
-              type: reduce
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              reducer: last
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              refId: C
-              type: threshold
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: B
-              conditions:
-                - evaluator:
-                    type: gt
-                    params: [0]
         labels:
           event_type: attack.detected
           technique: T1059

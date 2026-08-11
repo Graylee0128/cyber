@@ -25,6 +25,7 @@ from __future__ import annotations
 import os
 import subprocess
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -277,7 +278,17 @@ def test_response_pull_blocks_only_attack_source_and_reset_clears(events):
         )
         assert_core_event(response)
         assert response["target"]["source_ip"] == attacker_ip
-        assert response["observed_at"] >= attack["observed_at"]
+        # attack.observed_at 來自 Grafana alert 的 startsAt，只有整秒精度（10s eval
+        # tick 的邊界）；response.observed_at 是 agent 當下的微秒精度 wall clock。
+        # 兩者不同精度來源，真實因果順序已由程式碼保證（receiver 先寫 attack Core
+        # Event、才把命令放進佇列，agent 拉到才會執行）——比較時容許 startsAt 的
+        # 整秒捨入誤差，而非要求逐微秒的嚴格 >=。
+        attack_observed = datetime.fromisoformat(attack["observed_at"])
+        response_observed = datetime.fromisoformat(response["observed_at"])
+        assert response_observed >= attack_observed - timedelta(seconds=1), (
+            f"response({response['observed_at']}) 比 attack({attack['observed_at']}) "
+            "早超過 Grafana startsAt 的整秒捨入容許範圍，因果順序可疑"
+        )
         _ok(f"response Core Event {response['event_id']}：MTTR 終點為 ipset 成功時刻")
 
         _step("確認只封鎖攻擊來源：red4 打 :80 失敗，red5 仍成功")
