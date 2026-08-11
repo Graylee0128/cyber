@@ -59,7 +59,7 @@ Falco 是 runtime sensor，需要驅動吃得下 host kernel。腳本用
 | **1** | Product / Game Design | 遊戲規則、流程、難度、Objective、Hint | ✅ 規則已定案（[spec](./.scratch/ws1-game-design/spec.md)，2026-08-11 grilling，8 題）。無自有程式碼產出（SA §4.2：無基礎設施足跡），決策已內嵌為 [#31](https://github.com/Graylee0128/cyber/issues/31)–[#38](https://github.com/Graylee0128/cyber/issues/38) 的驗收條件 |
 | **2** | Scenario / Target | 靶機、漏洞、攻擊鏈、Flag、Scenario Package | 🟡 內容規則已定案（[spec](./.scratch/ws2-scenario-target/spec.md)，2026-08-11 grilling，17 題）；已切票 [#42](https://github.com/Graylee0128/cyber/issues/42)–[#47](https://github.com/Graylee0128/cyber/issues/47)，**[#42](https://github.com/Graylee0128/cyber/issues/42) 建議優先**（修正已合併的 schema） |
 | **3** | Blue Operations | Incident、Investigation、Response Workflow | 🟡 藍隊工作定義已定案（[spec](./.scratch/ws3-blue-ops/spec.md)，2026-08-11 grilling，9 題）；已切票 [#48](https://github.com/Graylee0128/cyber/issues/48)–[#51](https://github.com/Graylee0128/cyber/issues/51)。**關鍵發現：封鎖原本是全自動的，SA §9 四個 Blue objective 有三個是機器在做** |
-| **7** | Product UI | Player Portal、Blue SOC、Battleboard、Instructor（**Purple Console 屬 4-P2**，SA §4.2）| ⬜ 未開始（要顯示的數字由 4-P2／5 產生，不宜早做）|
+| **7** | Product UI | Player Portal、Blue SOC、Battleboard、Instructor（**Purple Console 屬 4-P2**，SA §4.2）| 🟡 **邊界層**已定案（[spec](./.scratch/ws7-boundary/spec.md)，2026-08-11 grilling，4 題），票 [#52](https://github.com/Graylee0128/cyber/issues/52)／[#53](https://github.com/Graylee0128/cyber/issues/53)；**畫面層**仍未開始（數字由 4-P2／5 產生，不宜早做）|
 
 三條線可平行：**技術線** WS4-P2、**產品線** WS1→WS5→WS7、**內容線** WS2／WS3。
 箭頭方向不可逆 —— 逆向施工的代價是重工，不是延遲（SA §4.1）。
@@ -70,7 +70,7 @@ WS6 與 P1 的主體已完成並在大主機實測（2026-08-10 四層測試全�
 **技術線走 WS4-P2、產品線走 WS5**，兩條可平行（SA §4.1）。
 
 - 對外契約 → [docs/p1-output-contract.md](./docs/p1-output-contract.md)｜執行導覽 → [archive/p1-output-contract-map.md](./archive/p1-output-contract-map.md)（P1 已結，存查）
-- 遊戲規則 → [.scratch/ws1-game-design/spec.md](./.scratch/ws1-game-design/spec.md)｜Range Core 架構 → [.scratch/ws5-range-core/spec.md](./.scratch/ws5-range-core/spec.md)｜Scenario 內容規則 → [.scratch/ws2-scenario-target/spec.md](./.scratch/ws2-scenario-target/spec.md)｜藍隊工作定義 → [.scratch/ws3-blue-ops/spec.md](./.scratch/ws3-blue-ops/spec.md)
+- 遊戲規則 → [.scratch/ws1-game-design/spec.md](./.scratch/ws1-game-design/spec.md)｜Range Core 架構 → [.scratch/ws5-range-core/spec.md](./.scratch/ws5-range-core/spec.md)｜Scenario 內容規則 → [.scratch/ws2-scenario-target/spec.md](./.scratch/ws2-scenario-target/spec.md)｜藍隊工作定義 → [.scratch/ws3-blue-ops/spec.md](./.scratch/ws3-blue-ops/spec.md)｜Console 邊界層 → [.scratch/ws7-boundary/spec.md](./.scratch/ws7-boundary/spec.md)
 - 所有票 → [GitHub Issues](https://github.com/Graylee0128/cyber/issues)
 
 | 現在可動工 | 說明 |
@@ -81,7 +81,8 @@ WS6 與 P1 的主體已完成並在大主機實測（2026-08-10 四層測試全�
 | [#19](https://github.com/Graylee0128/cyber/issues/19) 契約 1 port allowlist | 小而真的缺口：`TARGET→MGMT` 目前整段全開，且「非 telemetry port 應被擋」沒有測試 |
 | [#18](https://github.com/Graylee0128/cyber/issues/18) source registry 生產路徑 | **PR #41 待合併**。在 P2 關鍵路徑上（卡 [#22](https://github.com/Graylee0128/cyber/issues/22)、[#27](https://github.com/Graylee0128/cyber/issues/27)）。[#43](https://github.com/Graylee0128/cyber/issues/43) 動同一批檔案，**應在 #41 合併後再開工** |
 | [#17](https://github.com/Graylee0128/cyber/issues/17) response 鏈最後兩跳 | **PR #39 待合併**。要把 agent 烤進 golden；[#44](https://github.com/Graylee0128/cyber/issues/44) 也要重烤，兩者宜合併成一次。⚠️ [#48](https://github.com/Graylee0128/cyber/issues/48) 會把自動 enqueue 降級 —— 若 T4 靠它驅動，那條測試要改由測試載具觸發 |
-| [#49](https://github.com/Graylee0128/cyber/issues/49) WS3-2 technique 遮蔽 | 無阻塞。Blue SOC Console 還沒開始做，**沒有既有行為要改，只是第一次就規定對** |
+| [#52](https://github.com/Graylee0128/cyber/issues/52) WS7-B1 共用契約套件 | 無阻塞，且**卡住 [#49](https://github.com/Graylee0128/cyber/issues/49)／[#36](https://github.com/Graylee0128/cyber/issues/36)**。遮蔽規則若各自實作，漏遮不會報錯、只會送分 |
+| [#53](https://github.com/Graylee0128/cyber/issues/53) WS7-B2 服務身分 | 無阻塞。沒有它，「呼叫者無法自報 clearance」這條驗收**寫得出來但做不出來** |
 
 P1 驗收的逐項狀態見 [purple_platform_plan.md §2.7](./purple_platform_plan.md#27-p1-驗收) ——
 **9 項中 4 項有實測證據**，其餘都有票在追，不是「差不多做完了」。
