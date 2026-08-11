@@ -39,7 +39,13 @@ def wired(pg_connection):
 
 
 def _ingest(webhook, events, records, fps):
-    return ingest_alert(webhook, events=events, records=records, fingerprints=fps)
+    return ingest_alert(
+        webhook,
+        events=events,
+        records=records,
+        fingerprints=fps,
+        exercise_id="ex-current",
+    )
 
 
 class TestSharedEventId:

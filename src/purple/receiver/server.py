@@ -17,6 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from purple.receiver import ingest_alert
 from purple.harness.schema import assert_core_event
+from purple.receiver.exercise_context import RunningExerciseLookup
 from purple.response.queue import InMemoryCommandQueue
 from purple.store.alerts import AlertRecordStore
 from purple.store.db import connect, ensure_schema
@@ -67,6 +68,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 records=AlertRecordStore(conn),
                 fingerprints=FingerprintIndex(conn),
                 response_queue=self.response_queue,
+                exercise_id=RunningExerciseLookup(conn).require_id(),
             )
         except Exception as exc:  # 收下故障要現形，別讓 Grafana 一直重試打爆
             log.exception("ingest 失敗")

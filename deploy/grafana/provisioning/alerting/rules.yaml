@@ -72,7 +72,6 @@ groups:
           team: red
           severity: high
           scenario_id: sqli-01
-          exercise_id: ex-001
           service: vulnerable-app
         annotations:
           query: '{app="vulnerable-app"} | json | sqli_suspected=`true`'
@@ -131,7 +130,6 @@ groups:
           team: red
           severity: medium
           scenario_id: bruteforce-01
-          exercise_id: ex-001
           service: vulnerable-app
         annotations:
           query: 'sum(increase(ssh_failed_logins_total[1m]))'
@@ -172,7 +170,6 @@ groups:
           team: red
           severity: high
           scenario_id: falco-exec-01
-          exercise_id: ex-001
           service: vulnerable-app
         annotations:
           query: '{job="falco"} |= `PurpleScope exec detected`'
@@ -230,7 +227,6 @@ groups:
           team: red
           severity: high
           scenario_id: falco-secret-03
-          exercise_id: ex-001
           service: range-target
         annotations:
           query: '{job="falco"} |= `PurpleScope sensitive file access`'
