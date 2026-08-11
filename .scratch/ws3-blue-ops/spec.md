@@ -172,7 +172,7 @@ SA §9 該節需標註：四個 objective 的**語意已由本檔重寫**，點�
 
 | 動作 | 對應 objective | 量什麼 |
 |---|---|---|
-| `acknowledge` | `Detect Attack` | 注意到的速度（**反應時間的起點**） |
+| `acknowledge` | `Detect Attack` | 注意到的速度（見 §4.5 —— 起點是 Core Event，不是它） |
 | `classify` | `Identify Technique` | 判讀正確與否（系統自動比對） |
 | `contain` | `Contain < 60 sec` | 處置速度 |
 | `resolve` | `Resolve Incident` | 收尾 |
@@ -220,6 +220,40 @@ SA §9 該節需標註：四個 objective 的**語意已由本檔重寫**，點�
 誤點一次歸零的惡感應該花在確認對話框上，不是花在「再給你一次機會」上 —— 後者會把機制掏空。
 
 > 本節是 §0.1「答案空間決定層級」的來源：同一個問題在紅隊是細節、在藍隊是架構。
+
+## 4.5 時間量測：兩段共用起點，不是接力
+
+**起點永遠是 Core Event 的 `observed_at`**（[WS5 spec §1.1](../ws5-range-core/spec.md) 的定義），
+不同動作是不同的**終點**：
+
+```text
+Core Event ──────► acknowledge     ＝ 注意到的速度   → Detect Attack
+     │
+     └───────────► contain         ＝ 處置速度       → Contain < 60 sec
+```
+
+**不是 `Core Event → acknowledge → contain` 三段接力。** 藍隊跳過 `acknowledge`
+直接 `contain`，`Contain < 60 sec` 仍然成立。
+
+> 本節是全域掃描（2026-08-12）補上的。切票時我一度把 `acknowledge` 寫成「反應時間的起點」，
+> 那與 WS5 §1.1 直接衝突 —— `acknowledge` 是某一段的終點，不是任何東西的起點。
+> `#50` 與 `#37` 已更正。
+
+## 4.6 MTTR 的語意被 §1.1 改變了
+
+ADR ⑦ 的三個終點定義**不變**，變的是 MTTR 中間包含什麼：
+
+| | 人在迴圈之前 | 之後 |
+|---|---|---|
+| MTTR 涵蓋 | 偵測 → agent 輪詢 → ipset | 偵測 → **人注意到 → 人判斷 → 人按下** → agent 輪詢 → ipset |
+| 它回答 | 「這套**系統**處置得多快」 | 「這個**團隊＋系統**合起來多快」 |
+
+**「不得拿 MTTR 計分」的理由因此更強，不是變弱** —— WS5 §1.1 原本的理由是
+「含藍隊控制不了的基礎設施延遲」；現在它**同時**含人與基礎設施，混在一起更不可拆。
+藍隊計分仍走 WS5 自量的反應時間（§4.5）。
+
+**兩種模式的 MTTR 不可混算**：測試載具模式（§1.2，無人工介入）回到純系統延遲，
+與演練模式的數字放在同一張趨勢圖上比較是錯的。`#25` 與 `#28` 已補驗收條件。
 
 ## 4.3 Blue 計分參數是平台級，不進 scenario
 
@@ -365,6 +399,9 @@ Blue clearance = 1，看得到 `public` + `blue` 兩級的證據行；`purple` �
 | `#37` | 三處：門檻改平台級（§4.3）／「誰」恆為 `blue`（§5.1）／契約要含五個動作（§4.1） | — |
 | `#36` | SSE 的 visibility 過濾要加**欄位級**遮蔽（`technique`），現在只有事件級 | §2.3 |
 | `#20` | 優先序上升 —— 從「Console 要用」變成「封鎖路徑要用」 | §5.2 |
+| `#25` | MTTR 標明涵蓋人工決策時間；兩種模式分開統計 | §4.6 |
+| `#28` | 報告的 MTTR 要標明同上；無藍隊介入時顯示 `unknown` 而非 0 | §4.6 |
+| `#50`／`#37` | 更正：`acknowledge` 不是反應時間的起點 | §4.5 |
 | [WS2 spec §8](../ws2-scenario-target/spec.md) | 範圍界線那一格關閉：Blue 門檻**不進** scenario 檔 | §4.3 |
 | SA §5.1 | `Hint` 只適用 Red | §4.4 |
 | SA §5.2 | `Incident Queue` ＝ event queue | §3.1 |
