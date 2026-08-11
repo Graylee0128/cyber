@@ -71,12 +71,11 @@ def ingest_alert(
         adapter.deliver(core)
 
         if core["event_type"] == "attack.detected" and response_queue is not None:
-            response_queue.enqueue(
-                ResponseCommand(
-                    event_id=event_id,
-                    source_ip=core["target"].get("source_ip", core["target"].get("service", "unknown")),
-                )
-            )
+            try:
+                response_queue.enqueue(ResponseCommand.from_core_event(core))
+            except ValueError as exc:
+                # 沒有可信來源 IP 就不封；拿 service 名或猜測值下 ipset 會製造假成功。
+                log.warning("不建立 response command：%s（event_id=%s）", exc, event_id)
 
         emitted.append(event_id)
 

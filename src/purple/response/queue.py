@@ -8,14 +8,58 @@ target 側的 agent 之後**主動拉取**這個佇列 —— 於是全程沒有
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from threading import Lock
+from typing import Any, Protocol
 
 
 @dataclass(frozen=True)
 class ResponseCommand:
+    """Target agent 可執行的命令。
+
+    `source_ip` 與其餘語意一律由已治理的 attack Core Event 複製；agent 不查 Loki、
+    不猜 service 名稱，也不自行判定該封誰。
+    """
+
     event_id: str
     source_ip: str
+    exercise_id: str
+    scenario_id: str
+    severity: str
+    technique: str
+    service: str
     action: str = "block"
+
+    @classmethod
+    def from_core_event(cls, event: dict[str, Any]) -> "ResponseCommand":
+        target = event.get("target") or {}
+        source_ip = target.get("source_ip")
+        if not source_ip:
+            raise ValueError("attack Core Event target.source_ip is required for response")
+        return cls(
+            event_id=event["event_id"],
+            source_ip=source_ip,
+            exercise_id=event["exercise_id"],
+            scenario_id=event["scenario_id"],
+            severity=event["severity"],
+            technique=event["technique"],
+            service=target["service"],
+        )
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "event_id": self.event_id,
+            "source_ip": self.source_ip,
+            "exercise_id": self.exercise_id,
+            "scenario_id": self.scenario_id,
+            "severity": self.severity,
+            "technique": self.technique,
+            "service": self.service,
+            "action": self.action,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> "ResponseCommand":
+        return cls(**{name: raw[name] for name in cls.__dataclass_fields__})
 
 
 class CommandQueue(Protocol):
@@ -30,18 +74,23 @@ class InMemoryCommandQueue:
 
     _pending: list[ResponseCommand] = field(default_factory=list)
     _done: list[ResponseCommand] = field(default_factory=list)
+    _lock: Lock = field(default_factory=Lock, repr=False)
 
     def enqueue(self, command: ResponseCommand) -> None:
-        self._pending.append(command)
+        with self._lock:
+            self._pending.append(command)
 
     def claim(self) -> list[ResponseCommand]:
-        claimed = list(self._pending)
-        self._pending.clear()
-        return claimed
+        with self._lock:
+            claimed = list(self._pending)
+            self._pending.clear()
+            return claimed
 
     def complete(self, command: ResponseCommand) -> None:
-        self._done.append(command)
+        with self._lock:
+            self._done.append(command)
 
     @property
     def done(self) -> list[ResponseCommand]:
-        return list(self._done)
+        with self._lock:
+            return list(self._done)

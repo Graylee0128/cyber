@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 票 #13 Slice 4 / #9 —— 產出 golden 靶機 image：Falco ＋ Alloy ＋ 靶機 app 全烤進去。
+# 票 #13 Slice 4 / #9 / #17 —— Falco、Alloy、靶機 app、response agent 全烤進去。
 #
 # 為什麼要 golden：VLAN20 刻意無對外網（保六台紅隊 source IP 可分辨），靶機在 VLAN20
 # 上裝不了 apt 套件。所以先在**有網的 NAT** 下把東西裝好、enable service，關機，把
@@ -10,6 +10,7 @@
 #
 # 烤進去的內容都是 repo 裡的**真檔案**（base64 注入 cloud-init，不在腳本裡埋碼）：
 #   deploy/range-target/{app.py,config.alloy,bake.sh}
+#   src/purple/response/* ＋ harness/schema.py ← 沿用既有 agent，不在 deploy 複製第二套
 #   deploy/falco/rules.d/purplescope.yaml   ← 與 compose 的 falco 共用同一份，不會漂移
 #
 # 需 root + Slice 2 依賴。**不在 CI**（無巢狀虛擬化）。覆寫點：OSV、VM_MEM、VM_VCPUS。
@@ -66,6 +67,47 @@ write_files:
   - path: /opt/range-target/app.py
     encoding: b64
     content: $(b64 "$REPO/deploy/range-target/app.py")
+  - path: /opt/purplescope/purple/__init__.py
+    encoding: b64
+    content: $(b64 "$REPO/src/purple/__init__.py")
+  - path: /opt/purplescope/purple/response/__init__.py
+    encoding: b64
+    content: $(b64 "$REPO/src/purple/response/__init__.py")
+  - path: /opt/purplescope/purple/response/agent.py
+    encoding: b64
+    content: $(b64 "$REPO/src/purple/response/agent.py")
+  - path: /opt/purplescope/purple/response/queue.py
+    encoding: b64
+    content: $(b64 "$REPO/src/purple/response/queue.py")
+  - path: /opt/purplescope/purple/response/direct_block.py
+    encoding: b64
+    content: $(b64 "$REPO/src/purple/response/direct_block.py")
+  - path: /opt/purplescope/purple/response/http_link.py
+    encoding: b64
+    content: $(b64 "$REPO/src/purple/response/http_link.py")
+  - path: /opt/purplescope/purple/response/service.py
+    encoding: b64
+    content: $(b64 "$REPO/src/purple/response/service.py")
+  - path: /opt/purplescope/purple/harness/__init__.py
+    encoding: b64
+    content: $(b64 "$REPO/src/purple/harness/__init__.py")
+  - path: /opt/purplescope/purple/harness/attacker.py
+    encoding: b64
+    content: $(b64 "$REPO/src/purple/harness/attacker.py")
+  - path: /opt/purplescope/purple/harness/loki_probe.py
+    encoding: b64
+    content: $(b64 "$REPO/src/purple/harness/loki_probe.py")
+  - path: /opt/purplescope/purple/harness/schema.py
+    encoding: b64
+    content: $(b64 "$REPO/src/purple/harness/schema.py")
+  - path: /opt/purplescope/purple/harness/waiting.py
+    encoding: b64
+    content: $(b64 "$REPO/src/purple/harness/waiting.py")
+  - path: /opt/purplescope/response.env
+    permissions: '0600'
+    content: |
+      PURPLE_RESPONSE_URL=http://$MGMT_RECEIVER_IP:8000
+      PURPLE_RESPONSE_POLL_S=2
   - path: /opt/bake.sh
     permissions: '0755'
     encoding: b64
@@ -105,7 +147,7 @@ if [ "$ok" != 1 ]; then
   echo "❌ 沒等到烤完+關機。看 console：sudo cat $CONSOLE"
   exit 1
 fi
-grep -E "GOLDEN-(BAKE|FALCO|ALLOY|APP|RULE)" "$CONSOLE" || true
+grep -E "GOLDEN-(BAKE|FALCO|ALLOY|APP|RESPONSE|RULE)" "$CONSOLE" || true
 
 # bake 期自證：三個 service active、兩條 rule 各命中至少一次。任一不成立就別產 golden ——
 # 產出壞 golden 只會把問題推遲到上線後更難查。
@@ -113,6 +155,7 @@ bake_fail=0
 grep -q "GOLDEN-FALCO-STATE: active" "$CONSOLE" || { echo "❌ falco 未 active"; bake_fail=1; }
 grep -q "GOLDEN-ALLOY-STATE: active" "$CONSOLE" || { echo "❌ alloy 未 active"; bake_fail=1; }
 grep -q "GOLDEN-APP-STATE: active"   "$CONSOLE" || { echo "❌ 靶機 app 未 active"; bake_fail=1; }
+grep -q "GOLDEN-RESPONSE-STATE: active" "$CONSOLE" || { echo "❌ response agent 未 active"; bake_fail=1; }
 if grep -qE "GOLDEN-RULE-HITS: exec=[1-9][0-9]* secret=[1-9][0-9]* uncovered=[1-9][0-9]*" "$CONSOLE"; then
   echo "   ✅ Falco 三條 rule（T1059 exec / T1005 敏感檔 / uncovered）在 VM 內實際命中"
 else
@@ -145,5 +188,5 @@ virsh undefine "$VM" --nvram 2>/dev/null || true
 rm -f "$BUILD"
 
 echo "✅ Golden image 就緒：$GOLDEN"
-echo "   內含：Falco(modern-eBPF) + Alloy(推 $MGMT_LOKI_IP:3100) + 靶機 app(:80)，全部 enable"
+echo "   內含：Falco + Alloy + 靶機 app(:80) + response agent(pull $MGMT_RECEIVER_IP:8000)，全部 enable"
 echo "   用法：range-up.sh --with-falco"

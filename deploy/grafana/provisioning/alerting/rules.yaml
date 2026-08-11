@@ -25,7 +25,9 @@ groups:
               datasource:
                 type: loki
                 uid: loki
-              expr: 'sum(count_over_time({app="vulnerable-app"} | json | sqli_suspected=`true` [1m]))'
+              # 以 source_ip 分 series，Grafana webhook 才會把實際攻擊來源帶進 Core Event；
+              # response agent 只執行這個已治理的值，不自行猜測封鎖對象（#17）。
+              expr: 'sum by (source_ip) (count_over_time({app="vulnerable-app"} | json | sqli_suspected=`true` [1m]))'
               queryType: range
               intervalMs: 1000
               maxDataPoints: 43200
@@ -143,7 +145,9 @@ groups:
               datasource:
                 type: loki
                 uid: loki
-              expr: 'sum(count_over_time({job="falco"} |= `PurpleScope exec detected` [1m]))'
+              # range app 把 TCP 對端放進 exec marker；regexp 擷取成 source_ip series label。
+              # 因此每台 red 各自形成 alert instance，不會被 aggregation 塌成一個未知來源。
+              expr: 'sum by (source_ip) (count_over_time({job="falco"} |= `PurpleScope exec detected` | regexp `SOURCE_IP=(?P<source_ip>[0-9.]+)` [1m]))'
               queryType: range
               intervalMs: 1000
               maxDataPoints: 43200

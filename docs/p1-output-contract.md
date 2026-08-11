@@ -54,7 +54,7 @@ Grafana `eval interval` = **10s**。
   "source":       "grafana",
   "team":         "red",
   "technique":    "T1190",
-  "target":       { "service": "vulnerable-app" },
+  "target":       { "service": "vulnerable-app", "source_ip": "10.167.30.11" },
   "observed_at":  "2026-08-08T14:30:00+08:00",
   "visibility":   "purple"
 }
@@ -67,6 +67,10 @@ Grafana `eval interval` = **10s**。
 - ❌ raw payload、rule threshold、internal IP mapping
 
 判準：**Core 不該帶自己永遠不讀的欄位。** 換掉 Loki 時本 schema 一個字都不動。
+
+`target.source_ip` 是需要依攻擊來源採取回應時的選填遊戲語意。它必須由感測到的
+攻擊來源一路保留，response agent 只執行，不得自行猜測或以 service 名稱代替。
+這不是內部位址對照表；不需來源導向回應的 Core Event 可以省略它。
 
 ## 2.2 `lifecycle`（ADR ⑥）
 
@@ -115,6 +119,15 @@ Grafana `eval interval` = **10s**。
 ```
 
 join key 只有一個產生來源，兩邊不會各自生 id。
+
+## 2.6 `response.*` 因果關係與 MTTR
+
+`response.executed`／`response.failed` 是獨立的 Core Event，因此由 response agent
+鑄造新的 `event_id`，並在 `target.attack_event_id` 保存觸發它的 attack event ID。
+`target.source_ip` 必須原樣沿用觸發事件的值。
+
+`response.executed.observed_at` 只能在封鎖操作實際成功後取值；這個時刻才是 MTTR
+終點。Grafana Resolved 只代表告警 lifecycle，不得拿來代替 response 生效時間。
 
 ---
 

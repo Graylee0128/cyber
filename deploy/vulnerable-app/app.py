@@ -98,13 +98,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/exec":
             # T1059：在靶機內生一個 shell 直譯器並帶標記，Falco 抓 execve。
+            source_ip = self.headers.get("X-Forwarded-For", self.client_address[0])
             with _lock:
                 _exec_seq += 1
                 seq = _exec_seq
             marker = f"PURPLESCOPE_EXEC_{seq}"
             try:
                 subprocess.run(
-                    ["/bin/sh", "-c", f"echo {marker}; id"],
+                    ["/bin/sh", "-c", f"echo {marker} SOURCE_IP={source_ip}; id"],
                     capture_output=True,
                     timeout=5,
                     check=False,
@@ -112,7 +113,10 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 self._text(500, f"exec error: {exc}")
                 return
-            _write_log({"ts": _now(), "app": "vulnerable-app", "event": "exec", "marker": marker})
+            _write_log({
+                "ts": _now(), "app": "vulnerable-app", "event": "exec",
+                "marker": marker, "source_ip": source_ip,
+            })
             self._text(200, f"executed {marker}")
             return
 

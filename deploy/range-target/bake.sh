@@ -1,6 +1,7 @@
 #!/bin/bash
 # 在 golden build VM 內執行（由 cloud-init runcmd 呼叫）—— 把靶機該有的東西烤進 image：
 #   Falco（modern-eBPF，runtime sensor）＋ Alloy（target 側 collector）＋ 靶機 app(:80)
+#   ＋ response agent（outbound-only pull → ipset）
 #   ＋ 敏感檔（SA §7 Scenario 03 的標的）
 # 最後 cloud-init clean + poweroff，host 再把 disk 轉成 golden。
 #
@@ -16,9 +17,8 @@ set -Eeuo pipefail
 exec > >(tee /dev/console) 2>&1
 set -x
 
-# 這顆 VM 要跑的三個 service —— 一處定義，enable / start / 檢查 / 收尾都用它，
-# 免得日後加第四個（例如票 #17 的 response agent）要改四個地方。
-UNITS=(falco-modern-bpf.service purplescope-alloy.service range-target-app.service)
+# 這顆 VM 要跑的四個 service —— 一處定義，enable / start / 檢查 / 收尾都用它。
+UNITS=(falco-modern-bpf.service purplescope-alloy.service range-target-app.service purplescope-response-agent.service)
 
 # 診斷本身不該因為「被診斷的東西是壞的」而中止腳本，所以整段關掉 errexit。
 # 每行都加 DIAG| 前綴：關機序列有上百行，host 端才能精準撈出診斷而不是被淹掉。
@@ -74,7 +74,7 @@ APT_OPTS=(-o Acquire::Retries=5
           -o Dpkg::Options::=--force-confdef
           -o Dpkg::Options::=--force-confold)
 
-echo "=== GOLDEN-BAKE-BEGIN（烤 Falco + Alloy + 靶機 app）==="
+echo "=== GOLDEN-BAKE-BEGIN（烤 Falco + Alloy + 靶機 app + response agent）==="
 export DEBIAN_FRONTEND=noninteractive
 
 echo "--- 1/5 Falco（runtime sensor）---"
@@ -165,18 +165,39 @@ RestartSec=2
 WantedBy=multi-user.target
 UNIT
 
-echo "--- 4/5 enable 服務（golden 開機後自動就位，無網也能跑）---"
+echo "--- 4/6 response agent（target 主動 pull；不開 inbound socket）---"
+apt-get "${APT_OPTS[@]}" install -y -q ipset iptables
+cat > /etc/systemd/system/purplescope-response-agent.service <<'UNIT'
+[Unit]
+Description=PurpleScope response agent (outbound pull only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=root
+Group=root
+Environment=PYTHONPATH=/opt/purplescope
+EnvironmentFile=/opt/purplescope/response.env
+ExecStart=/usr/bin/python3 -m purple.response.service
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+echo "--- 5/6 enable 服務（golden 開機後自動就位，無網也能跑）---"
 systemctl daemon-reload
 # 逐個 enable：一次列多個時只要有一個 unit 名不存在，整條指令失敗、其餘也沒 enable 到。
 # 這裡刻意不讓 enable/start 失敗直接中止 —— 下面的 STATE 檢查會逐個判並印診斷，
 # 那比死在第一個失敗的 unit 上更有資訊量。
 echo "[裝好的相關 unit]"
-systemctl list-unit-files 2>/dev/null | grep -iE 'falco|alloy' || echo "(找不到 falco/alloy unit)"
+systemctl list-unit-files 2>/dev/null | grep -iE 'falco|alloy|response' || echo "(找不到 falco/alloy/response unit)"
 for u in "${UNITS[@]}"; do
   systemctl enable "$u" || echo "!! enable $u 失敗"
 done
 
-echo "--- 5/5 就地驗一次（有網、kernel 6.8）---"
+echo "--- 6/6 就地驗一次（有網、kernel 6.8）---"
 for u in "${UNITS[@]}"; do
   systemctl start "$u" || echo "!! start $u 失敗"
 done
@@ -187,11 +208,12 @@ sleep 10
 bake_fail=0
 for u in "${UNITS[@]}"; do
   state="$(systemctl is-active "$u" || true)"
-  # unit 名 → 標籤：falco-modern-bpf → FALCO、purplescope-alloy → ALLOY、range-target-app → APP
+  # unit 名 → 標籤，供 host 端 build-golden-target.sh 精準驗收。
   case "$u" in
     falco*)       label=FALCO ;;
     *alloy*)      label=ALLOY ;;
     *target-app*) label=APP ;;
+    *response-agent*) label=RESPONSE ;;
     *)            label="${u%%.*}" ;;
   esac
   echo "=== GOLDEN-$label-STATE: $state ==="

@@ -56,6 +56,11 @@ def build_core_event(
     # 白名單治理：不合法的 technique 在離開 core 前就被擋，且是可觀察的例外。
     check_technique(labels["technique"], whitelist)
 
+    target = {"service": labels["service"]}
+    if labels.get("source_ip"):
+        # response 封鎖對象的唯一來源。agent 只執行，不從 service 或網路狀態猜 IP。
+        target["source_ip"] = labels["source_ip"]
+
     event = {
         "event_id": event_id,
         "exercise_id": labels["exercise_id"],
@@ -66,7 +71,7 @@ def build_core_event(
         "source": "grafana",
         "team": labels["team"],
         "technique": labels["technique"],
-        "target": {"service": labels["service"]},
+        "target": target,
         "observed_at": alert["startsAt"],
         # 由對照表推導，不讀 labels["visibility"]
         "visibility": expected_visibility(event_type),

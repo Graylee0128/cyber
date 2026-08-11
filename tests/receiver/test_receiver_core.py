@@ -47,6 +47,17 @@ class TestBuildCoreEvent:
     def test_target_is_the_service(self):
         assert build_core_event(ALERT, "evt-1", "firing")["target"] == {"service": "vulnerable-app"}
 
+    def test_response_source_ip_is_carried_from_governed_alert_label(self):
+        with_source = {
+            **ALERT,
+            "labels": {**ALERT["labels"], "source_ip": "10.167.30.11"},
+        }
+
+        assert build_core_event(with_source, "evt-1", "firing")["target"] == {
+            "service": "vulnerable-app",
+            "source_ip": "10.167.30.11",
+        }
+
     def test_invalid_event_is_rejected_before_leaving_core(self):
         bad = {**ALERT, "labels": {**ALERT["labels"], "event_type": "attack.maybe"}}
         with pytest.raises(SchemaViolation):

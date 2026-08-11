@@ -24,6 +24,7 @@ FIRING = {
                 "scenario_id": "sqli-01",
                 "exercise_id": "ex-001",
                 "service": "vulnerable-app",
+                "source_ip": "10.167.30.11",
             },
             "annotations": {"query": '{app="x"} |= "OR 1=1"', "threshold": "> 4 / 1m"},
             "values": {"A": 12},
@@ -85,6 +86,7 @@ class TestIngest:
         commands = queue.claim()
         assert len(commands) == 1
         assert commands[0].action == "block"
+        assert commands[0].source_ip == "10.167.30.11"
 
     def test_pending_produces_nothing(self, wired):
         events, records, adapter, queue = wired

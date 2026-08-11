@@ -6,8 +6,9 @@
 
 from datetime import datetime, timezone
 
+from purple.harness.schema import assert_core_event
 from purple.response.agent import ResponseAgent
-from purple.response.direct_block import RecordingBlocker
+from purple.response.direct_block import DirectIpsetBlocker, RecordingBlocker
 from purple.response.queue import InMemoryCommandQueue, ResponseCommand
 
 
@@ -31,11 +32,29 @@ class RecordingLink:
 
 
 FIXED_NOW = datetime(2026, 8, 8, 14, 30, 5, tzinfo=timezone.utc)
+ATTACK_CORE_EVENT = {
+    "event_id": "evt-attack-1",
+    "exercise_id": "ex-001",
+    "scenario_id": "falco-exec-01",
+    "event_type": "attack.detected",
+    "lifecycle": "firing",
+    "severity": "high",
+    "source": "grafana",
+    "team": "red",
+    "technique": "T1059",
+    "target": {"service": "range-target", "source_ip": "10.167.30.11"},
+    "observed_at": "2026-08-08T14:30:00+00:00",
+    "visibility": "public",
+}
+
+
+def response_command() -> ResponseCommand:
+    return ResponseCommand.from_core_event(ATTACK_CORE_EVENT)
 
 
 class TestAgentPullsNoInboundToTarget:
     def test_all_interactions_are_outbound(self):
-        link = RecordingLink([ResponseCommand("evt-1", "10.167.223.5")])
+        link = RecordingLink([response_command()])
         agent = ResponseAgent(link=link, blocker=RecordingBlocker(), now=lambda: FIXED_NOW)
         agent.run_once()
         assert link.directions, "agent 應該有網路互動"
@@ -50,7 +69,7 @@ class TestAgentPullsNoInboundToTarget:
 class TestBlockAndResponseEvent:
     def test_attack_leads_to_block_and_response_executed(self):
         blocker = RecordingBlocker()
-        link = RecordingLink([ResponseCommand("evt-1", "10.167.223.5")])
+        link = RecordingLink([response_command()])
         agent = ResponseAgent(link=link, blocker=blocker, now=lambda: FIXED_NOW)
 
         events = agent.run_once()
@@ -58,8 +77,12 @@ class TestBlockAndResponseEvent:
         assert len(blocker.blocked) == 1                       # 真的封了
         assert events[0]["event_type"] == "response.executed"  # 產生事件
         assert events[0]["visibility"] == "blue"
+        assert events[0]["target"]["source_ip"] == "10.167.30.11"
+        assert events[0]["target"]["attack_event_id"] == "evt-attack-1"
+        assert events[0]["event_id"] != "evt-attack-1"
+        assert_core_event(events[0])
         # MTTR 終點＝ipset 寫入成功的時刻
-        assert events[0]["executed_at"] == FIXED_NOW.isoformat()
+        assert events[0]["observed_at"] == FIXED_NOW.isoformat()
         assert link.reported == events                         # 且回報回 MGMT
 
     def test_block_failure_produces_response_failed_purple(self):
@@ -67,29 +90,80 @@ class TestBlockAndResponseEvent:
             def block(self, core_event):
                 return "failed: ipset returned 1"
 
-        link = RecordingLink([ResponseCommand("evt-1", "10.167.223.5")])
+        link = RecordingLink([response_command()])
         agent = ResponseAgent(link=link, blocker=FailingBlocker(), now=lambda: FIXED_NOW)
         [event] = agent.run_once()
         assert event["event_type"] == "response.failed"
         assert event["visibility"] == "purple"
+        assert "ipset returned 1" in event["target"]["response"]["detail"]
+        assert_core_event(event)
 
     def test_blocker_exception_is_surfaced_not_swallowed(self):
         class ThrowingBlocker:
             def block(self, core_event):
                 raise RuntimeError("boom")
 
-        link = RecordingLink([ResponseCommand("evt-1", "10.167.223.5")])
+        link = RecordingLink([response_command()])
         agent = ResponseAgent(link=link, blocker=ThrowingBlocker(), now=lambda: FIXED_NOW)
         [event] = agent.run_once()
         assert event["event_type"] == "response.failed"
-        assert "boom" in event["detail"]
+        assert "boom" in event["target"]["response"]["detail"]
+        assert_core_event(event)
+
+
+class TestDirectIpsetBlocker:
+    def test_missing_ipset_is_failure_not_fake_executed(self, monkeypatch):
+        monkeypatch.setattr("purple.response.direct_block.shutil.which", lambda _: None)
+
+        detail = DirectIpsetBlocker().block(ATTACK_CORE_EVENT)
+
+        assert detail.startswith("failed:")
+        assert "ipset" in detail
+
+    def test_installs_drop_rule_then_blocks_exact_core_event_source(self, monkeypatch):
+        commands: list[list[str]] = []
+
+        class Result:
+            def __init__(self, returncode=0, stderr=""):
+                self.returncode = returncode
+                self.stderr = stderr
+
+        def run(command, **_kwargs):
+            commands.append(command)
+            if command[:4] == ["iptables", "-w", "-C", "INPUT"]:
+                return Result(returncode=1)
+            return Result()
+
+        monkeypatch.setattr("purple.response.direct_block.shutil.which", lambda name: name)
+        monkeypatch.setattr("purple.response.direct_block.subprocess.run", run)
+
+        detail = DirectIpsetBlocker().block(ATTACK_CORE_EVENT)
+
+        assert detail == "blocked: 10.167.30.11 via ipset purple_blocklist"
+        assert ["ipset", "create", "purple_blocklist", "hash:ip", "-exist"] in commands
+        assert ["ipset", "add", "purple_blocklist", "10.167.30.11", "-exist"] in commands
+        assert any(command[:4] == ["iptables", "-w", "-I", "INPUT"] for command in commands)
 
 
 class TestQueueIsPullNotPush:
     def test_receiver_side_only_enqueues_agent_side_claims(self):
         """佇列本身：enqueue（MGMT 內）與 claim（agent 拉）是分開的兩端。"""
         q = InMemoryCommandQueue()
-        q.enqueue(ResponseCommand("evt-1", "10.167.223.5"))
+        q.enqueue(response_command())
         claimed = q.claim()
         assert len(claimed) == 1
+        assert claimed[0].source_ip == ATTACK_CORE_EVENT["target"]["source_ip"]
         assert q.claim() == []  # claim 後不重複
+
+    def test_command_rejects_core_event_without_source_ip(self):
+        event_without_source_ip = {
+            **ATTACK_CORE_EVENT,
+            "target": {"service": "range-target"},
+        }
+
+        try:
+            ResponseCommand.from_core_event(event_without_source_ip)
+        except ValueError as exc:
+            assert "source_ip" in str(exc)
+        else:
+            raise AssertionError("缺 source_ip 的 Core Event 不得產生封鎖命令")

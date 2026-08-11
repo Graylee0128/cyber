@@ -11,10 +11,10 @@ if command -v docker >/dev/null 2>&1; then
     rm -f "/var/run/netns/range-red$i" 2>/dev/null || true
   done
 fi
-# Loki 掛在 VLAN10 的那條 veth（attach-mgmt）。容器本身不動 —— 它屬於 compose，
-# 由 docker compose down 管；這裡只收回 range 這側的接線與 netns 連結。
+# Loki / receiver 掛在 VLAN10 的 veth（attach-mgmt）。容器本身不動。
 ip link del hlokimgmt 2>/dev/null || true
-rm -f /var/run/netns/range-loki 2>/dev/null || true
+ip link del hrecvmgmt 2>/dev/null || true
+rm -f /var/run/netns/range-loki /var/run/netns/range-receiver 2>/dev/null || true
 
 # Slice 2a/2b/4：關 VM 與 libvirt network（若有裝 libvirt）。
 if command -v virsh >/dev/null 2>&1; then
