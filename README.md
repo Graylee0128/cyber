@@ -54,7 +54,7 @@ Falco 是 runtime sensor，需要驅動吃得下 host kernel。腳本用
 |---|---|---|---|
 | **6** | Range Infrastructure | 執行環境、隔離、Reset、網路與部署 | ✅ 四區 VLAN／方向性防火牆／靶機真 VM／六台紅隊／一鍵 IaC 已在單主機實測 |
 | **4-P1** | Purple Platform · Telemetry & Detection | 遙測、偵測、Response、事件 schema | 🟡 四契約與全鏈已真環境實測；[驗收 9 項中 4 項有證據](./purple_platform_plan.md#27-p1-驗收)，餘 [#17](https://github.com/Graylee0128/cyber/issues/17) [#18](https://github.com/Graylee0128/cyber/issues/18) [#29](https://github.com/Graylee0128/cyber/issues/29) [#30](https://github.com/Graylee0128/cyber/issues/30) 在追 |
-| **4-P2** | Purple Platform · Evaluation & Console | coverage／MTTD／MTTR／缺口分類、**Purple Console** | 🟡 已切票 [#21](https://github.com/Graylee0128/cyber/issues/21)–[#28](https://github.com/Graylee0128/cyber/issues/28)；#21 可立即開工，Console 兩張卡 [#20](https://github.com/Graylee0128/cyber/issues/20) |
+| **4-P2** | Purple Platform · Evaluation & Console | coverage／MTTD／MTTR／缺口分類、**Purple Console** | 🟡 已切票 [#21](https://github.com/Graylee0128/cyber/issues/21)–[#28](https://github.com/Graylee0128/cyber/issues/28)；#21 可立即開工，Console 兩張卡 [#26](https://github.com/Graylee0128/cyber/issues/26)／[#27](https://github.com/Graylee0128/cyber/issues/27) |
 | **5** | Cyber Range Core | Event、Score、Exercise State、API | ⬜ 未開始（Core Event 的下游消費者）|
 | **1** | Product / Game Design | 遊戲規則、流程、難度、Objective、Hint | ⬜ 未開始（**隱形阻塞**：WS5／WS7 都由它定義）|
 | **2** | Scenario / Target | 靶機、漏洞、攻擊鏈、Flag、Scenario Package | ⬜ 未開始 |
@@ -68,7 +68,7 @@ Falco 是 runtime sensor，需要驅動吃得下 host kernel。腳本用
 
 WS6 與 P1 的主體已完成並在大主機實測（2026-08-10 四層測試全綠）。**下一步是 WS4-P2**。
 
-- 對外契約 → [.scratch/p1-output-contract/spec.md](./.scratch/p1-output-contract/spec.md)｜執行導覽 → [map.md](./.scratch/p1-output-contract/map.md)
+- 對外契約 → [docs/p1-output-contract.md](./docs/p1-output-contract.md)｜執行導覽 → [archive/p1-output-contract-map.md](./archive/p1-output-contract-map.md)（P1 已結，存查）
 - 所有票 → [GitHub Issues](https://github.com/Graylee0128/cyber/issues)
 
 | 現在可動工 | 說明 |

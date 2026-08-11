@@ -6,7 +6,16 @@
 
 ### Issue tracker
 
-Issue 在 **GitHub Issues**（`Graylee0128/cyber`，`gh` CLI 操作）。**spec 與 map 仍留在 `.scratch/<feature>/`** —— 契約要跟程式碼一起版控。見 `docs/agents/issue-tracker.md`。
+Issue 在 **GitHub Issues**（`Graylee0128/cyber`，`gh` CLI 操作）。見 `docs/agents/issue-tracker.md`。
+
+資料夾約定：
+
+| 東西 | 位置 |
+|---|---|
+| ticket | GitHub Issues |
+| 活契約 | `docs/` |
+| 進行中的 map／草稿 | `.scratch/<feature>/` |
+| 做完的 | `archive/` |
 
 ### Triage labels
 

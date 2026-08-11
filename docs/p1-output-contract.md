@@ -1,8 +1,8 @@
 # Spec — P1 對外契約
 
 - **Status**: ready-for-agent
-- **決策依據**：[ADR 0001](../../docs/adr/0001-p1-output-contract.md)
-- **上位計畫**：[purple_platform_plan.md](../../purple_platform_plan.md) Step 0
+- **決策依據**：[ADR 0001](./adr/0001-p1-output-contract.md)
+- **上位計畫**：[purple_platform_plan.md](../purple_platform_plan.md) Step 0
 
 P1 的對外交付**不是 Grafana dashboard**，是三份契約：
 

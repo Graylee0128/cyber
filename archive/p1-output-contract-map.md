@@ -1,13 +1,13 @@
 # P1 Output Contract — 執行導覽
 
-- **規格**：[spec.md](./spec.md)
-- **決策與 trade-off**：[ADR 0001](../../docs/adr/0001-p1-output-contract.md)
-- **上位計畫**：[purple_platform_plan.md](../../purple_platform_plan.md)
+- **規格**：[docs/p1-output-contract.md](../docs/p1-output-contract.md)
+- **決策與 trade-off**：[ADR 0001](../docs/adr/0001-p1-output-contract.md)
+- **上位計畫**：[purple_platform_plan.md](../purple_platform_plan.md)
 - **開發方式**：TDD
 - **票**：[GitHub Issues](https://github.com/Graylee0128/cyber/issues)（2026-08-08 自本地 markdown 遷入）
 
-> 本檔與 [spec.md](./spec.md) **刻意留在檔案裡** —— 契約與依賴敘事要能被 diff、
-> 跟程式碼一起版控。只有票搬去 GitHub。
+> **P1 已結，本檔存查。** 規格本體（[docs/p1-output-contract.md](../docs/p1-output-contract.md)）
+> 是仍在被 #21–#28 消費的活契約，已遷出 scratch；本檔是執行導覽的歷史記錄，遷入 archive/。
 
 ## 依賴圖
 
@@ -95,7 +95,7 @@ agent pull 單向）都已被可執行的斷言證明，不只是文件宣稱。
 
 ## Decisions so far
 
-- **2026-08-08** —— 三份契約定版（Core Event Schema／Source Registry／Evidence API），見 [spec.md](./spec.md)
+- **2026-08-08** —— 三份契約定版（Core Event Schema／Source Registry／Evidence API），見 [docs/p1-output-contract.md](../docs/p1-output-contract.md)
 - **2026-08-08** —— Falco 定位為 runtime sensor 而非 alert engine；Grafana Alerting 為唯一 alert engine（ADR ③）
 - **2026-08-08** —— Core Event 移除 `evidence_ref`；改為 Core Event ＋ P1 Alert Record 兩份紀錄，用 `event_id` 對接（ADR ④）
 - **2026-08-08** —— MTTR 終點＝response 生效；Grafana Resolved 另名 `containment duration`（ADR ⑦）

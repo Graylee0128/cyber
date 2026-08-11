@@ -5,7 +5,7 @@
 - **決策者**：gray
 - **產生方式**：grilling session（靶：`evidence_ref` 抽象層級 ＋ alert engine 是否單一）
 - **影響範圍**：[SA v0.1](../../資安攻防平台_系統架構設計文件_v0.1.md) §6.1／§8.3／§8.4、[purple_platform_plan.md](../../purple_platform_plan.md) Q1–Q8
-- **實作規格**：`cyber/.scratch/p1-output-contract/spec.md`
+- **實作規格**：`cyber/docs/p1-output-contract.md`
 
 ---
 

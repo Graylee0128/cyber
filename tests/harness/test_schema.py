@@ -1,6 +1,6 @@
 """Core Event schema 斷言 —— 純函數，真 TDD。
 
-契約在 .scratch/p1-output-contract/spec.md §2。這裡把它變成可執行的斷言，
+契約在 docs/p1-output-contract.md §2。這裡把它變成可執行的斷言，
 否則「符合契約」只是一句話。
 """
 

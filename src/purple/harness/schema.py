@@ -1,6 +1,6 @@
 """Core Event 契約的可執行版本。
 
-契約在 `.scratch/p1-output-contract/spec.md` §2。散文會被繞過，斷言不會 ——
+契約在 `docs/p1-output-contract.md` §2。散文會被繞過，斷言不會 ——
 `evidence_ref` 之所以不會在某次 PR 裡悄悄長回來，靠的是這裡。
 """
 

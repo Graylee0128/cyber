@@ -5,7 +5,7 @@
 - **拓樸依據**：[demo_network_topology_v0_2_1.svg](./demo_network_topology_v0_2_1.svg)
 - **架構依據**：[cyber_range_platform_layered_architecture.svg](./cyber_range_platform_layered_architecture.svg)
 - **UI 構想來源**：[discuss.md](./discuss.md)（見文末附錄）
-- **契約決策**：[ADR 0001](./docs/adr/0001-p1-output-contract.md) ／ 規格 `cyber/.scratch/p1-output-contract/spec.md`
+- **契約決策**：[ADR 0001](./docs/adr/0001-p1-output-contract.md) ／ 規格 `cyber/docs/p1-output-contract.md`
 
 ---
 
@@ -447,7 +447,7 @@ Step 5  Response agent pull 閉環驗證     ← 需要 Z-APP 就位
 ```
 
 **Step 0 是硬阻塞，現已解除。** 三份契約（Core Event Schema、Source Registry、Evidence API）
-定版於 `cyber/.scratch/p1-output-contract/spec.md`，決策理由見
+定版於 `cyber/docs/p1-output-contract.md`，決策理由見
 [ADR 0001](./docs/adr/0001-p1-output-contract.md)。
 
 事實證明 schema 不能由 P1 單方決定：本次十二項決策裡，**⑦ MTTR 終點、⑧ source registry
@@ -487,7 +487,7 @@ B 的角色前後期性質差很多，這是刻意的：**同一個人做引擎�
 | — | source registry 產生方式 | **期望清單 ＋ heartbeat**，不可單靠部署推導（掉線會被洗成「未部署」） |
 | — | `unknown` 誰判 | Engine 依 heartbeat 缺口自動判，原因欄自動填 |
 
-實作規格：`cyber/.scratch/p1-output-contract/spec.md`。
+實作規格：`cyber/docs/p1-output-contract.md`。
 
 ## 7.2 仍未解
 

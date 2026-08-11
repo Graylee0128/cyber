@@ -8,13 +8,18 @@ This is a directory-scoped tracker. It is separate from the workspace-level trac
 
 ## 仍留在檔案裡的東西
 
-Issue 搬走了，**spec 與 map 沒有**：
+Issue 搬走了，**spec 與 map 沒有**（契約與依賴敘事要能被 diff、被 PR review、跟程式碼一起版控）：
 
-| 東西 | 位置 | 為什麼不搬 |
+| 東西 | 位置 | 什麼時候搬 |
 |---|---|---|
-| Spec | `.scratch/<feature>/spec.md` | 契約要能被 diff、被 PR review、跟程式碼一起版控 |
-| Map | `.scratch/<feature>/map.md` | 依賴圖與 Decisions-so-far 是一份敘事，拆成 issue 會散掉 |
-| ADR | `docs/adr/` | 同上 |
+| Spec（活契約） | `docs/` | 一旦定版、開始被票消費，就從 `.scratch/` 遷出 |
+| Map（進行中） | `.scratch/<feature>/` | 執行導覽在功能開發期間持續更新 |
+| Map（做完） | `archive/` | 功能收工後遷入，存查用，不再更新 |
+| ADR | `docs/adr/` | 一開始就在，不移動 |
+
+範例：P1 的 spec 已定版遷至 [docs/p1-output-contract.md](../p1-output-contract.md)；
+P1 已結，map 遷至 [archive/p1-output-contract-map.md](../../archive/p1-output-contract-map.md)；
+P2 仍在進行，map 在 [.scratch/p2-evaluation/map.md](../../.scratch/p2-evaluation/map.md)。
 
 Map 以 issue 編號（`#N`）指向 GitHub，不再指向本地檔案。
 
