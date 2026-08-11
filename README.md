@@ -55,9 +55,9 @@ Falco 是 runtime sensor，需要驅動吃得下 host kernel。腳本用
 | **6** | Range Infrastructure | 執行環境、隔離、Reset、網路與部署 | ✅ 四區 VLAN／方向性防火牆／靶機真 VM／六台紅隊／一鍵 IaC 已在單主機實測 |
 | **4-P1** | Purple Platform · Telemetry & Detection | 遙測、偵測、Response、事件 schema | 🟡 四契約與全鏈已真環境實測；[驗收 9 項中 4 項有證據](./purple_platform_plan.md#27-p1-驗收)，餘 [#17](https://github.com/Graylee0128/cyber/issues/17) [#18](https://github.com/Graylee0128/cyber/issues/18) [#29](https://github.com/Graylee0128/cyber/issues/29) [#30](https://github.com/Graylee0128/cyber/issues/30) 在追 |
 | **4-P2** | Purple Platform · Evaluation & Console | coverage／MTTD／MTTR／缺口分類、**Purple Console** | 🟡 已切票 [#21](https://github.com/Graylee0128/cyber/issues/21)–[#28](https://github.com/Graylee0128/cyber/issues/28)；#21 可立即開工，Console 兩張卡 [#26](https://github.com/Graylee0128/cyber/issues/26)／[#27](https://github.com/Graylee0128/cyber/issues/27) |
-| **5** | Cyber Range Core | Event、Score、Exercise State、API | 🟡 架構已定案（[spec](./.scratch/ws5-range-core/spec.md)，2026-08-11 grilling，5 題）；已切票 [#31](https://github.com/Graylee0128/cyber/issues/31)–[#38](https://github.com/Graylee0128/cyber/issues/38)，#31 可立即開工 |
+| **5** | Cyber Range Core | Event、Score、Exercise State、API | 🟡 架構已定案（[spec](./.scratch/ws5-range-core/spec.md)，2026-08-11 grilling，5 題）；已切票 [#31](https://github.com/Graylee0128/cyber/issues/31)–[#38](https://github.com/Graylee0128/cyber/issues/38)。**#31 已由 PR #40 合併，但交付格式與 WS2 決策有六處衝突** —— 遷移票 [#42](https://github.com/Graylee0128/cyber/issues/42) 應先於 #32 起的其餘票 |
 | **1** | Product / Game Design | 遊戲規則、流程、難度、Objective、Hint | ✅ 規則已定案（[spec](./.scratch/ws1-game-design/spec.md)，2026-08-11 grilling，8 題）。無自有程式碼產出（SA §4.2：無基礎設施足跡），決策已內嵌為 [#31](https://github.com/Graylee0128/cyber/issues/31)–[#38](https://github.com/Graylee0128/cyber/issues/38) 的驗收條件 |
-| **2** | Scenario / Target | 靶機、漏洞、攻擊鏈、Flag、Scenario Package | ⬜ 未開始 |
+| **2** | Scenario / Target | 靶機、漏洞、攻擊鏈、Flag、Scenario Package | 🟡 內容規則已定案（[spec](./.scratch/ws2-scenario-target/spec.md)，2026-08-11 grilling，17 題）；已切票 [#42](https://github.com/Graylee0128/cyber/issues/42)–[#47](https://github.com/Graylee0128/cyber/issues/47)，**[#42](https://github.com/Graylee0128/cyber/issues/42) 建議優先**（修正已合併的 schema） |
 | **3** | Blue Operations | Incident、Investigation、Response Workflow | ⬜ 未開始 |
 | **7** | Product UI | Player Portal、Blue SOC、Battleboard、Instructor（**Purple Console 屬 4-P2**，SA §4.2）| ⬜ 未開始（要顯示的數字由 4-P2／5 產生，不宜早做）|
 
@@ -70,16 +70,17 @@ WS6 與 P1 的主體已完成並在大主機實測（2026-08-10 四層測試全�
 **技術線走 WS4-P2、產品線走 WS5**，兩條可平行（SA §4.1）。
 
 - 對外契約 → [docs/p1-output-contract.md](./docs/p1-output-contract.md)｜執行導覽 → [archive/p1-output-contract-map.md](./archive/p1-output-contract-map.md)（P1 已結，存查）
-- 遊戲規則 → [.scratch/ws1-game-design/spec.md](./.scratch/ws1-game-design/spec.md)｜Range Core 架構 → [.scratch/ws5-range-core/spec.md](./.scratch/ws5-range-core/spec.md)
+- 遊戲規則 → [.scratch/ws1-game-design/spec.md](./.scratch/ws1-game-design/spec.md)｜Range Core 架構 → [.scratch/ws5-range-core/spec.md](./.scratch/ws5-range-core/spec.md)｜Scenario 內容規則 → [.scratch/ws2-scenario-target/spec.md](./.scratch/ws2-scenario-target/spec.md)
 - 所有票 → [GitHub Issues](https://github.com/Graylee0128/cyber/issues)
 
 | 現在可動工 | 說明 |
 |---|---|
-| [#21](https://github.com/Graylee0128/cyber/issues/21) P2-1 Action Registry | P2 的第一張，無阻塞。分母開演前固定，後面每個數字都靠它 |
-| [#31](https://github.com/Graylee0128/cyber/issues/31) WS5-1 Scenario 定義與載入 | WS5 的第一張，無阻塞。沒有 scenario 就沒有 exercise 可跑；WS1 的 objective／hint／difficulty 三個決策在這裡落地 |
+| [#42](https://github.com/Graylee0128/cyber/issues/42) WS2-1 Scenario schema 遷移 | **建議最優先**。`#31` 已由 PR #40 合併，但同日 WS2 grilling 與已交付格式有六處衝突（[spec §7](./.scratch/ws2-scenario-target/spec.md)）。現在只有一份 scenario 檔、一支 loader、一組新測試 —— 等 `#32`–`#38` 照現行 schema 開工，遷移就變成連鎖成本 |
+| [#21](https://github.com/Graylee0128/cyber/issues/21) P2-1 Action Registry | P2 的第一張，無阻塞。分母開演前固定，後面每個數字都靠它。清單來源由 [WS2 spec §2.3](./.scratch/ws2-scenario-target/spec.md) 定為 scenario 檔（檔案是來源、DB 是凍結後的實例）|
+| [#43](https://github.com/Graylee0128/cyber/issues/43) WS2-2 scenario-sources 重整 | 現有五個 scenario id **沒有一個是 scenario**（compose only 或測試 fixture）。字串不動，改的是它們住哪個區塊 |
 | [#19](https://github.com/Graylee0128/cyber/issues/19) 契約 1 port allowlist | 小而真的缺口：`TARGET→MGMT` 目前整段全開，且「非 telemetry port 應被擋」沒有測試 |
-| [#18](https://github.com/Graylee0128/cyber/issues/18) source registry 生產路徑 | 在 P2 關鍵路徑上（卡 [#22](https://github.com/Graylee0128/cyber/issues/22)、[#27](https://github.com/Graylee0128/cyber/issues/27)），且不需重烤 golden |
-| [#17](https://github.com/Graylee0128/cyber/issues/17) response 鏈最後兩跳 | 要把 agent 烤進 golden，留給有整段時間的時候 |
+| [#18](https://github.com/Graylee0128/cyber/issues/18) source registry 生產路徑 | **PR #41 待合併**。在 P2 關鍵路徑上（卡 [#22](https://github.com/Graylee0128/cyber/issues/22)、[#27](https://github.com/Graylee0128/cyber/issues/27)）。[#43](https://github.com/Graylee0128/cyber/issues/43) 動同一批檔案，**應在 #41 合併後再開工** |
+| [#17](https://github.com/Graylee0128/cyber/issues/17) response 鏈最後兩跳 | **PR #39 待合併**。要把 agent 烤進 golden；[#44](https://github.com/Graylee0128/cyber/issues/44) 也要重烤，兩者宜合併成一次 |
 
 P1 驗收的逐項狀態見 [purple_platform_plan.md §2.7](./purple_platform_plan.md#27-p1-驗收) ——
 **9 項中 4 項有實測證據**，其餘都有票在追，不是「差不多做完了」。
