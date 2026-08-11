@@ -55,7 +55,7 @@ Falco 是 runtime sensor，需要驅動吃得下 host kernel。腳本用
 | **6** | Range Infrastructure | 執行環境、隔離、Reset、網路與部署 | ✅ 四區 VLAN／方向性防火牆／靶機真 VM／六台紅隊／一鍵 IaC 已在單主機實測 |
 | **4-P1** | Purple Platform · Telemetry & Detection | 遙測、偵測、Response、事件 schema | 🟡 四契約與全鏈已真環境實測；[驗收 9 項中 4 項有證據](./purple_platform_plan.md#27-p1-驗收)，餘 [#17](https://github.com/Graylee0128/cyber/issues/17) [#18](https://github.com/Graylee0128/cyber/issues/18) [#29](https://github.com/Graylee0128/cyber/issues/29) [#30](https://github.com/Graylee0128/cyber/issues/30) 在追 |
 | **4-P2** | Purple Platform · Evaluation & Console | coverage／MTTD／MTTR／缺口分類、**Purple Console** | 🟡 已切票 [#21](https://github.com/Graylee0128/cyber/issues/21)–[#28](https://github.com/Graylee0128/cyber/issues/28)；#21 可立即開工，Console 兩張卡 [#26](https://github.com/Graylee0128/cyber/issues/26)／[#27](https://github.com/Graylee0128/cyber/issues/27) |
-| **5** | Cyber Range Core | Event、Score、Exercise State、API | ⬜ 未開始（Core Event 的下游消費者）|
+| **5** | Cyber Range Core | Event、Score、Exercise State、API | 🟡 架構已定案（[spec](./.scratch/ws5-range-core/spec.md)，2026-08-11 grilling，5 題）；尚未切票（Core Event 的下游消費者）|
 | **1** | Product / Game Design | 遊戲規則、流程、難度、Objective、Hint | 🟡 規則已定案（[spec](./.scratch/ws1-game-design/spec.md)，2026-08-11 grilling，8 題）；尚未切票（**隱形阻塞**：WS5／WS7 都由它定義）|
 | **2** | Scenario / Target | 靶機、漏洞、攻擊鏈、Flag、Scenario Package | ⬜ 未開始 |
 | **3** | Blue Operations | Incident、Investigation、Response Workflow | ⬜ 未開始 |
