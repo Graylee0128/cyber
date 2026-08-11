@@ -4,12 +4,15 @@ version = "0.1.0"
 description = "Purple Platform P1 — Telemetry & Detection Pipeline"
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi>=0.139",
+    "pydantic>=2.7",
     "PyYAML>=6.0",
     "psycopg[binary]>=3.1",
 ]
 
 [project.optional-dependencies]
 dev = [
+    "httpx2>=2.10",
     "pytest>=8.0",
 ]
 
