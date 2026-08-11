@@ -94,6 +94,14 @@ file_output:
   enabled: true
   keep_alive: false
   filename: /var/log/falco/events.json
+# Falco 閒置時也必須每 30s 產生可觀測 liveness；output_rule 沿用同一個 file_output，
+# Alloy 仍只需要既有 Loki transport，不開 Falco metrics port。
+metrics:
+  enabled: true
+  interval: 30s
+  output_rule: true
+  state_counters_enabled: true
+  include_empty_values: true
 CFG
 
 echo "--- 2/5 Alloy（target 側 collector）---"

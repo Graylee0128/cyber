@@ -6,7 +6,7 @@ import logging
 import os
 import time
 
-from purple.response.agent import ResponseAgent
+from purple.response.agent import JsonlHeartbeat, ResponseAgent
 from purple.response.http_link import HttpLink
 
 log = logging.getLogger("purple.response.service")
@@ -16,7 +16,11 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     base_url = os.environ["PURPLE_RESPONSE_URL"]
     poll_s = float(os.environ.get("PURPLE_RESPONSE_POLL_S", "2"))
-    agent = ResponseAgent(link=HttpLink(base_url))
+    heartbeat_path = os.environ.get(
+        "PURPLE_RESPONSE_HEARTBEAT_PATH",
+        "/var/log/purplescope/response-agent.jsonl",
+    )
+    agent = ResponseAgent(link=HttpLink(base_url), heartbeat=JsonlHeartbeat(heartbeat_path))
     log.info("response agent 就緒；只主動 pull %s", base_url)
 
     while True:
