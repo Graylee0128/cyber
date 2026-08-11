@@ -489,7 +489,7 @@ schema 是真的契約，不是鬆散的 dict。遷移時保持這個性質。
 | 項目 | 為什麼不在本檔決定 |
 |---|---|
 | briefing 具體寫什麼 | 內容創作，非架構。但 `metadata.yaml` / `briefing.md` 的切分已隱含答案：**攻擊鏈不給玩家看** |
-| Blue 計分門檻（`Contain < 60 sec`）放哪個欄位 | `#37` 假設「門檻由 scenario 宣告」，但本檔列的欄位裡沒有它。**這是真缺口，屬新決策**，留給 WS3 grilling —— 因為它與藍隊動作分類法是同一組問題 |
+| ~~Blue 計分門檻（`Contain < 60 sec`）放哪個欄位~~ | **已由 [WS3 spec §4.3](../ws3-blue-ops/spec.md) 關閉（2026-08-11）：不放進 scenario 檔**，平台級固定。裁決依據正是本檔 §0.1「藍方的東西 scenario 只引用不擁有」—— 該原則反過來否決了 `#37` 的既有假設 |
 | flag 格式與防暴力猜測 rate limit | WS1 spec §6 已判為實作層細節 |
 | objective 的遙測判定查詢怎麼寫 | `#33` 的事。WS2 只負責宣告判定型別 |
 | Blue 側在 scenario 裡看到什麼 | WS3 未開始 |
