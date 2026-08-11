@@ -88,6 +88,18 @@ class TestIngest:
         assert commands[0].action == "block"
         assert commands[0].source_ip == "10.167.30.11"
 
+    def test_repeat_notification_of_the_same_firing_alert_does_not_reenqueue(self, wired):
+        """policies.yaml 的 repeat_interval 讓 Grafana 對同一個持續 firing 的 alert
+        反覆重送 webhook（同一個 fingerprint／同一個 event_id）。重送不該讓同一次
+        攻擊被重複封鎖、重複產生 response.executed（#17 real-range 上實測到
+        15s 一次的重送會不斷 enqueue，直到我們把 enqueue 綁到「這次是不是真的
+        新事件」為止）。"""
+        events, records, adapter, queue = wired
+        ingest_alert(FIRING, events=events, records=records, adapter=adapter, response_queue=queue)
+        ingest_alert(FIRING, events=events, records=records, adapter=adapter, response_queue=queue)
+        commands = queue.claim()
+        assert len(commands) == 1
+
     def test_pending_produces_nothing(self, wired):
         events, records, adapter, queue = wired
         ids = ingest_alert(PENDING, events=events, records=records, adapter=adapter, response_queue=queue)

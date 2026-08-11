@@ -61,6 +61,13 @@ class TestLifecyclePair:
         store.append(FIRING)
         assert store.count() == 1
 
+    def test_append_reports_whether_it_was_a_new_insert(self, store):
+        """呼叫端（ingest_alert）靠這個值決定要不要 enqueue response 命令 ——
+        repeat_interval 重送的 webhook 不該讓同一次攻擊被重複封鎖（#17）。"""
+        assert store.append(FIRING) is True
+        assert store.append(FIRING) is False
+        assert store.append(RESOLVED) is True
+
 
 class TestSince:
     def test_only_events_after_the_mark_are_returned(self, store):

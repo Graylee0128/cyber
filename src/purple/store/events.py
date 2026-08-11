@@ -18,6 +18,7 @@ INSERT INTO core_events
     (event_id, lifecycle, event_type, exercise_id, scenario_id, observed_at, event)
 VALUES (%s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (event_id, lifecycle) DO NOTHING
+RETURNING event_id
 """
 
 
@@ -25,10 +26,16 @@ ON CONFLICT (event_id, lifecycle) DO NOTHING
 class CoreEventStore:
     conn: psycopg.Connection
 
-    def append(self, event: dict[str, Any]) -> None:
+    def append(self, event: dict[str, Any]) -> bool:
         """寫入一筆事件。同 event_id ＋ lifecycle 重送不會產生第二筆 ——
-        Grafana webhook 會重試，重試不該讓 coverage 分子灌水。"""
-        self.conn.execute(
+        Grafana webhook 會重試，重試不該讓 coverage 分子灌水。
+
+        回傳這次是不是真的新插入（而非被 ON CONFLICT DO NOTHING 吃掉的重複）。
+        呼叫端（ingest_alert）靠這個值決定要不要把 response 命令放進佇列 ——
+        `repeat_interval` 讓 Grafana 對同一個持續 firing 的 alert 反覆重送 webhook
+        （見 deploy/grafana/provisioning/alerting/policies.yaml），若每次重送都
+        enqueue，同一次攻擊會被重複封鎖、重複產生 response.executed。"""
+        row = self.conn.execute(
             INSERT,
             (
                 event["event_id"],
@@ -39,7 +46,8 @@ class CoreEventStore:
                 event["observed_at"],
                 Jsonb(event),
             ),
-        )
+        ).fetchone()
+        return row is not None
 
     def since(self, moment: datetime) -> list[dict[str, Any]]:
         rows = self.conn.execute(
