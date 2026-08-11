@@ -10,7 +10,7 @@ groups:
     rules:
       - uid: sqli-injection-burst
         title: SQLInjectionBurst
-        condition: A
+        condition: C
         for: 0s
         noDataState: OK
         execErrState: Error
@@ -27,16 +27,45 @@ groups:
                 uid: loki
               # 以 source_ip 分 series，Grafana webhook 才會把實際攻擊來源帶進 Core Event；
               # response agent 只執行這個已治理的值，不自行猜測封鎖對象（#17）。
-              # instant query（非 range/matrix）：每個 source_ip 各自一個樣本點，才會
-              # 各自成為一個 alert instance、各自帶自己的 source_ip label——range 查詢
-              # 在多個來源同時 firing 時會把 instance 塌成一個並弄丟這個 label
-              # （#17 在 falco-command-exec 規則上實測到的同一缺陷）。
-              expr: 'sum by (source_ip) (count_over_time({app="vulnerable-app"} | json | sqli_suspected=`true` [1m])) > 0'
-              queryType: instant
-              instant: true
-              range: false
+              #
+              # 注意：falco-command-exec 有同款 by(source_ip) 分組，實測改成
+              # queryType: instant 才能讓多來源同時 firing 時各自形成獨立 alert
+              # instance（見 #17 commit bea5f2c）。這條規則刻意**沒有**跟著改──
+              # 改了會讓這條規則在攻擊停止後於 60s 老化窗內反覆 firing/resolved
+              # 閃動，每次閃動都重新 enqueue 一次封鎖指令（ingest_alert 的 enqueue
+              # 不看 CoreEventStore 是否去重），T2 的
+              # test_sqli_alert_resolves_after_attack_stops 因此觀察到 5 次
+              # response.executed 而非 1 次、resolved 事件也對不上原本的 firing
+              # event_id。目前沒有測試要求 SQLi 場景要撐多來源同時攻擊，維持原本
+              # range+reduce+threshold 寫法，把 instant 的修法留給真的需要它、且
+              # 一併處理閃動問題的後續票。
+              expr: 'sum by (source_ip) (count_over_time({app="vulnerable-app"} | json | sqli_suspected=`true` [1m]))'
+              queryType: range
               intervalMs: 1000
               maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
         labels:
           event_type: attack.detected
           technique: T1190
