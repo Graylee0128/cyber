@@ -25,13 +25,14 @@ from __future__ import annotations
 import os
 import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from purple.harness import assert_core_event, loki_line_count, wait_for_event
-from purple.metrics.gaps import MissClass, classify_miss
-from purple.registry.source_registry import SourceState
+from purple.metrics.gaps import MissClass, classify_from_registry
+from purple.registry.production import registry_for_scenario
 from purple.store.events import CoreEventStore
 
 pytestmark = [
@@ -200,10 +201,14 @@ def test_uncovered_action_is_detection_gap_not_visibility_gap(events):
     )
     _ok(f"真 Loki 查到 {uncovered_lines} 行 → telemetry_present=True")
 
-    _step("實採③：source_state ← Falco 是否還在產出事件（活著才算 HEALTHY）")
-    falco_alive = loki_line_count(LOKI_URL, FALCO_SELECTOR, since_s=600) > 0
-    source_state = SourceState.HEALTHY if falco_alive else SourceState.STALE
-    assert source_state is SourceState.HEALTHY, (
+    _step("實採③：source_state ← production registry 查 Falco heartbeat")
+    registry = registry_for_scenario(
+        "falco-uncovered-01",
+        loki_url=LOKI_URL,
+        now=lambda: datetime.now(timezone.utc),
+    )
+    source_state = registry.get("falco").state
+    assert source_state.value == "healthy", (
         "Falco 沒在產出事件 —— 這是可見性缺口的情形，不是本測試要證明的偵測缺口"
     )
     _ok(f"Falco 事件持續進 Loki → source_state={source_state}")
@@ -220,9 +225,10 @@ def test_uncovered_action_is_detection_gap_not_visibility_gap(events):
     assert not detected, f"不該有 uncovered 的 Core Event，卻查到：{uncovered_events}"
     _ok(f"45s 內 {len(new_events)} 筆新事件中，無一屬於 uncovered → detected=False")
 
-    result = classify_miss(
+    result = classify_from_registry(
+        registry=registry,
+        source_id="falco",
         detected=detected,                    # ← 真的查過 Core Event 儲存
-        source_state=source_state,            # ← 真的看過 Falco 還活著
         telemetry_present=telemetry_present,  # ← 真 Loki 查詢結果
     )
     assert result is MissClass.DETECTION_GAP

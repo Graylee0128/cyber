@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from purple.registry.source_registry import SourceState
+from purple.registry.source_registry import Registry, SourceState
 
 
 class MissClass(StrEnum):
@@ -61,6 +61,24 @@ def classify_miss(
     if telemetry_present:
         return MissClass.DETECTION_GAP
     return MissClass.VISIBILITY_GAP
+
+
+def classify_from_registry(
+    *,
+    registry: Registry,
+    source_id: str,
+    detected: bool,
+    telemetry_present: bool,
+) -> MissClass:
+    """Production connector：source_state 必須取自 Registry，不接受呼叫端字面值。"""
+    source = registry.get(source_id)
+    if source is None:
+        raise ValueError(f"registry {registry.scenario_id!r} 沒有 source {source_id!r}")
+    return classify_miss(
+        detected=detected,
+        source_state=source.state,
+        telemetry_present=telemetry_present,
+    )
 
 
 def counts_towards_coverage(miss: MissClass) -> bool:
