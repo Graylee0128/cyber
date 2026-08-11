@@ -19,7 +19,8 @@ Issue 搬走了，**spec 與 map 沒有**（契約與依賴敘事要能被 diff�
 
 範例：P1 的 spec 已定版遷至 [docs/p1-output-contract.md](../p1-output-contract.md)；
 P1 已結，map 遷至 [archive/p1-output-contract-map.md](../../archive/p1-output-contract-map.md)；
-P2 仍在進行，map 在 [.scratch/p2-evaluation/map.md](../../.scratch/p2-evaluation/map.md)。
+P2 仍在進行，map 在 [.scratch/p2-evaluation/map.md](../../.scratch/p2-evaluation/map.md)；
+WS1 的 spec 已定案但尚未被票消費，仍在 [.scratch/ws1-game-design/spec.md](../../.scratch/ws1-game-design/spec.md)。
 
 Map 以 issue 編號（`#N`）指向 GitHub，不再指向本地檔案。
 
