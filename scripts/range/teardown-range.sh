@@ -36,7 +36,7 @@ if command -v iptables >/dev/null 2>&1; then
     -m comment --comment purplescope-red-isolation -j DROP 2>/dev/null; do :; done
 fi
 
-for ns in ns-mgmt ns-receiver ns-engine ns-app ns-edge ns-blue ns-internet ns-target ns-red1 ns-red2 ns-red3 ns-red4 ns-red5 ns-red6 ns-router; do
+for ns in ns-mgmt ns-receiver ns-engine ns-app ns-edge ns-blue ns-blue2 ns-internet ns-target ns-red1 ns-red2 ns-red3 ns-red4 ns-red5 ns-red6 ns-router; do
   ip netns del "$ns" 2>/dev/null || true
 done
 

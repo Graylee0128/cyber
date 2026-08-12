@@ -5,6 +5,7 @@
 """
 
 import importlib.util
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -353,6 +354,22 @@ def test_blue_seat_isolation_is_actually_verified():
     """規則存在但沒有斷言＝沒有保護。verify-range 必須真的從一段打另一段。"""
     text = (BUILD_RANGE.parent / "verify-range.sh").read_text(encoding="utf-8")
     assert '--from-zone blue-seat' in text
+
+
+def test_teardown_covers_every_namespace_build_range_creates():
+    """teardown 的 namespace 清單是手寫的 —— 漏一個，第二次 build 就炸在半路。
+
+    2026-08-12 實際發生過：新增 ns-blue2 但沒補進 teardown，CI 的 mutation 步驟
+    第二次跑 build-range.sh 時 `Cannot create namespace: File exists`。
+    症狀出現在下一次執行、錯誤訊息也不指向 teardown，很難回推 —— 交給機器守。
+    """
+    build = BUILD_RANGE.read_text(encoding="utf-8")
+    teardown = (BUILD_RANGE.parent / "teardown-range.sh").read_text(encoding="utf-8")
+
+    created = set(re.findall(r"^\s*(?:ip netns add|add_node)\s+(ns-[\w-]+)", build, re.M))
+    torn_down = set(re.findall(r"\b(ns-[\w-]+)", teardown))
+    missing = sorted(created - torn_down)
+    assert not missing, f"build-range 建了這些 namespace 但 teardown 沒清：{missing}"
 
 
 def test_red_to_blue_absence_is_documented_not_silent():
