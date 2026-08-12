@@ -20,12 +20,13 @@ from __future__ import annotations
 
 import os
 import time
+from datetime import datetime, timezone
 
 import pytest
 
 from purple.harness import assert_core_event, loki_line_count, trigger_exec, wait_for_event
-from purple.metrics.gaps import MissClass, classify_miss
-from purple.registry.source_registry import SourceState
+from purple.metrics.gaps import MissClass, classify_from_registry
+from purple.registry.production import registry_for_scenario
 from purple.store.events import CoreEventStore
 
 # 需要真 Falco（modern-eBPF）在跑 —— 只有大主機用 `docker compose --profile falco up`
@@ -111,10 +112,17 @@ def test_falco_disabled_rule_is_detection_gap_not_visibility_gap(events):
     telemetry_present = count > 0
     _ok(f"Loki 有 {count} 行 Falco 遙測 → telemetry_present={telemetry_present}（真查詢）")
 
-    # 關鍵：telemetry_present 是真 Loki 查來的。規則沒開火時，這必須是偵測缺口。
-    result = classify_miss(
+    # 關鍵：source_state 與 telemetry_present 都由真 Loki 進入 production seam。
+    registry = registry_for_scenario(
+        "falco-exec-01",
+        loki_url=LOKI_URL,
+        now=lambda: datetime.now(timezone.utc),
+    )
+    assert registry.get("falco").state.value == "healthy"
+    result = classify_from_registry(
+        registry=registry,
+        source_id="falco",
         detected=False,                       # 假設這條 Grafana rule 被停用 → 沒告警
-        source_state=SourceState.HEALTHY,     # Falco 活著（能寫進 Loki 即證）
         telemetry_present=telemetry_present,   # ← 來自真 Loki，不是字面 True
     )
     assert result is MissClass.DETECTION_GAP
