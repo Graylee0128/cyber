@@ -123,6 +123,8 @@ else
       echo "  ✗ 找不到 boot nonce（$NONCE_FILE）—— 無法確認開機自驗屬於這顆 VM"; fails=1
     elif ! grep -q "nonce=$want_nonce" "$CONSOLE" 2>/dev/null; then
       echo "  ✗ console log 的 boot nonce 對不上 —— 那份自驗是舊 VM 留下的，不採信"; fails=1
+    elif ! grep -q "非 telemetry :22 不通" "$CONSOLE" 2>/dev/null; then
+      echo "  ✗ console 沒有 :22 反向斷言 —— 舊版探測腳本的 PASS 不採信，請重建 VM"; fails=1
     elif grep -q "SLICE2A-RESULT: PASS" "$CONSOLE" 2>/dev/null; then
       echo "  ✓ :9090 / :4317 通且 :22 不通，由本顆 VM 開機自驗通過（nonce 相符；非現場探測）"
     else

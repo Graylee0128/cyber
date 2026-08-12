@@ -5,7 +5,7 @@
 **絕不 fake pass** —— 永遠綠的拓樸檢查等於沒有檢查。邏輯在 purple.topology_check。
 
 四條契約（SA §12.2）：
-  1. TARGET → MGMT 只有 :3100 / :9090 / :4317 通，非 telemetry :22 不通
+  1. TARGET → MGMT 只有 TCP :3100 / :9090 / :4317 通，非 telemetry :22 不通
   2. MGMT → TARGET 反向不通（response 走 agent pull 的整個理由）
   3. RED → MGMT deny all
   4. collector（Alloy / Falco / response agent）全部在 target 側

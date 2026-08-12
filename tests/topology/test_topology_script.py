@@ -6,6 +6,7 @@
 
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 
 from purple.topology_check import (  # 由腳本邏輯抽出的可測部分
     EXPECTED_KALI,
@@ -19,6 +20,9 @@ SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "verify_topology.py"
 MODULE = Path(__file__).resolve().parents[2] / "src" / "purple" / "topology_check.py"
 BUILD_RANGE = (
     Path(__file__).resolve().parents[2] / "scripts" / "range" / "build-range.sh"
+)
+VERIFY_RANGE = (
+    Path(__file__).resolve().parents[2] / "scripts" / "range" / "verify-range.sh"
 )
 CONTRACT1_PROBE = (
     Path(__file__).resolve().parents[2] / "scripts" / "range" / "contract1_probe.py"
@@ -101,6 +105,9 @@ def test_missing_environment_does_not_fake_pass():
 
 def test_the_three_cross_generation_ports_are_named():
     assert set(MGMT_PORTS) == {3100, 9090, 4317}
+    probe = _load_contract1_probe()
+    assert probe.PORTS == MGMT_PORTS
+    assert probe.DENIED_PORT == MGMT_DENIED_PORT
 
 
 def test_contract1_accepts_only_telemetry_ports(monkeypatch):
@@ -120,7 +127,9 @@ def test_contract1_flags_reachable_non_telemetry_port(monkeypatch):
 def test_vm_contract1_probe_passes_three_ports_and_blocked_canary(monkeypatch, capsys):
     probe = _load_contract1_probe()
     monkeypatch.setattr(
-        probe.socket, "socket", lambda: _ProbeSocket(block_denied=True)
+        probe,
+        "socket",
+        SimpleNamespace(socket=lambda: _ProbeSocket(block_denied=True)),
     )
     monkeypatch.setattr(probe.sys, "argv", ["contract1_probe.py", "mgmt", "nonce"])
     probe.main()
@@ -134,13 +143,23 @@ def test_vm_contract1_probe_passes_three_ports_and_blocked_canary(monkeypatch, c
 def test_vm_contract1_probe_fails_when_deny_canary_is_reachable(monkeypatch, capsys):
     probe = _load_contract1_probe()
     monkeypatch.setattr(
-        probe.socket, "socket", lambda: _ProbeSocket(block_denied=False)
+        probe,
+        "socket",
+        SimpleNamespace(socket=lambda: _ProbeSocket(block_denied=False)),
     )
     monkeypatch.setattr(probe.sys, "argv", ["contract1_probe.py", "mgmt", "nonce"])
     probe.main()
     output = capsys.readouterr().out
     assert f":{MGMT_DENIED_PORT} 竟然通了" in output
     assert f"SLICE2A-RESULT: FAIL [{MGMT_DENIED_PORT}]" in output
+
+
+def test_vm_verifier_rejects_old_probe_without_deny_evidence():
+    text = VERIFY_RANGE.read_text(encoding="utf-8")
+    missing_deny_evidence = 'elif ! grep -q "非 telemetry :22 不通"'
+    accepts_pass = 'elif grep -q "SLICE2A-RESULT: PASS"'
+    assert missing_deny_evidence in text
+    assert text.index(missing_deny_evidence) < text.index(accepts_pass)
 
 
 def test_build_range_enforces_contract1_allowlist_and_runs_deny_canary():

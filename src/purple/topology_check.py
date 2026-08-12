@@ -52,7 +52,8 @@ def check_mgmt_to_target_blocked(target: str) -> list[str]:
 
 def check_red_to_mgmt_denied(mgmt: str) -> list[str]:
     """契約3：RED→MGMT deny all。"""
-    reachable_ports = [p for p in MGMT_PORTS if reachable(mgmt, p, timeout=2.0)]
+    probe_ports = (*MGMT_PORTS, MGMT_DENIED_PORT)
+    reachable_ports = [p for p in probe_ports if reachable(mgmt, p, timeout=2.0)]
     if reachable_ports:
         return [f"契約3 破：RED→MGMT 應 deny all，卻連得上 {reachable_ports}"]
     return []
