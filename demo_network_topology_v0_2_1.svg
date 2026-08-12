@@ -100,7 +100,7 @@
   <rect x="390" y="330" width="280" height="48" rx="6"/>
   <text class="th" x="404" y="348" dominant-baseline="central">Prometheus + Loki</text>
   <text class="ts" x="404" y="366" dominant-baseline="central">:9090 · :3100 · OTLP :4317</text>
-  <text class="ts" x="656" y="348" text-anchor="end" dominant-baseline="central">.13</text>
+  <text class="ts" x="656" y="348" text-anchor="end" dominant-baseline="central">Loki .20</text>
 </g>
 <g class="n-teal">
   <rect x="390" y="396" width="280" height="48" rx="6"/>
@@ -133,7 +133,7 @@
   <rect x="730" y="330" width="280" height="48" rx="6"/>
   <text class="th" x="744" y="348" dominant-baseline="central">web-target</text>
   <text class="ts" x="744" y="366" dominant-baseline="central">vulnerable-app :80 · db :3306</text>
-  <text class="ts" x="996" y="348" text-anchor="end" dominant-baseline="central">.11</text>
+  <text class="ts" x="996" y="348" text-anchor="end" dominant-baseline="central">.10</text>
 </g>
 <g class="n-blue">
   <rect x="730" y="396" width="280" height="48" rx="6"/>
@@ -155,24 +155,24 @@
 
 <rect class="zone" x="1050" y="270" width="320" height="394" rx="12"/>
 <text class="tz" x="1070" y="296">Z-RED — attackers</text>
-<text class="tzs" x="1070" y="316">VLAN 30 · 10.167.223.0/24</text>
+<text class="tzs" x="1070" y="316">VLAN 30 · 10.167.30.0/24</text>
 
 <rect class="sub" x="1070" y="330" width="280" height="104" rx="8"/>
 <text class="tl" x="1082" y="350" dominant-baseline="central">host-a · eth1 macvlan parent</text>
 <g class="n-red">
   <rect x="1076" y="366" width="84" height="52" rx="6"/>
   <text class="th" x="1118" y="385" text-anchor="middle" dominant-baseline="central">kali-01</text>
-  <text class="ts" x="1118" y="403" text-anchor="middle" dominant-baseline="central">.101</text>
+  <text class="ts" x="1118" y="403" text-anchor="middle" dominant-baseline="central">.11</text>
 </g>
 <g class="n-red">
   <rect x="1168" y="366" width="84" height="52" rx="6"/>
   <text class="th" x="1210" y="385" text-anchor="middle" dominant-baseline="central">kali-02</text>
-  <text class="ts" x="1210" y="403" text-anchor="middle" dominant-baseline="central">.102</text>
+  <text class="ts" x="1210" y="403" text-anchor="middle" dominant-baseline="central">.12</text>
 </g>
 <g class="n-red">
   <rect x="1260" y="366" width="84" height="52" rx="6"/>
   <text class="th" x="1302" y="385" text-anchor="middle" dominant-baseline="central">kali-03</text>
-  <text class="ts" x="1302" y="403" text-anchor="middle" dominant-baseline="central">.103</text>
+  <text class="ts" x="1302" y="403" text-anchor="middle" dominant-baseline="central">.13</text>
 </g>
 
 <rect class="sub" x="1070" y="454" width="280" height="104" rx="8"/>
@@ -180,17 +180,17 @@
 <g class="n-red">
   <rect x="1076" y="490" width="84" height="52" rx="6"/>
   <text class="th" x="1118" y="509" text-anchor="middle" dominant-baseline="central">kali-04</text>
-  <text class="ts" x="1118" y="527" text-anchor="middle" dominant-baseline="central">.111</text>
+  <text class="ts" x="1118" y="527" text-anchor="middle" dominant-baseline="central">.14</text>
 </g>
 <g class="n-red">
   <rect x="1168" y="490" width="84" height="52" rx="6"/>
   <text class="th" x="1210" y="509" text-anchor="middle" dominant-baseline="central">kali-05</text>
-  <text class="ts" x="1210" y="527" text-anchor="middle" dominant-baseline="central">.112</text>
+  <text class="ts" x="1210" y="527" text-anchor="middle" dominant-baseline="central">.15</text>
 </g>
 <g class="n-red">
   <rect x="1260" y="490" width="84" height="52" rx="6"/>
   <text class="th" x="1302" y="509" text-anchor="middle" dominant-baseline="central">kali-06</text>
-  <text class="ts" x="1302" y="527" text-anchor="middle" dominant-baseline="central">.113</text>
+  <text class="ts" x="1302" y="527" text-anchor="middle" dominant-baseline="central">.16</text>
 </g>
 
 <rect class="sub" x="1070" y="594" width="280" height="48" rx="6"/>

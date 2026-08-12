@@ -8,7 +8,9 @@
 - **草案拓樸圖**：[topology-v0_3-draft.svg](./topology-v0_3-draft.svg)
 - **中控畫面 demo**：[demo.html](./demo.html)（零依賴單檔、資料寫死；視覺提案，不代表 WS8 開工）
 - **玩家旅程圖**：[player-journey-v0_1-draft.svg](./player-journey-v0_1-draft.svg)
-  —— 七階段 × 六泳道，本檔 §2／§3／§4 的時間軸版本。**這是全 repo 第一張流程圖**（既有六張 SVG 全是拓樸／分層，畫的是空間不是時間）
+  —— 七階段 × 六泳道，本檔 §2／§3／§4 的時間軸版本。流程圖 A。
+  姊妹圖 B（單次攻防的跨元件時序）在 [attack_chain_sequence_v0_1.svg](../../attack_chain_sequence_v0_1.svg)，
+  屬 WS4／P1 已實作範圍，不在本 workstream
 
 ---
 

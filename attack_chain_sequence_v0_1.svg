@@ -1,0 +1,246 @@
+<svg width="2160" height="1450" viewBox="0 0 2160 1450" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>單次攻防事件的跨元件時序 v0.1 — 從一次 GET /exec 到封鎖生效與圍堵結束</title>
+<desc>時間由上往下，縱線為元件生命線。紅隊容器打靶機 :80 起算，經 Falco 觀察 execve、Alloy 推 Loki 與 Prometheus、Grafana（唯一 alert engine，eval 10s）轉 Firing、webhook 進 Receiver 鑄造 event_id、命令入佇列、target 側 agent 每 2 秒主動 pull 並寫 ipset，最後回報 response.executed。三個延遲指標終點不同：MTTD 終於 Firing、MTTR 終於 ipset 寫入成功、containment duration 終於 Resolved。整條鏈由 T4 全鏈測試守著。</desc>
+<style>
+  text { font-family: "Noto Sans CJK TC", "PingFang TC", "Microsoft JhengHei", "Helvetica Neue", Arial, sans-serif; }
+  .ttl   { font-size: 19px;   font-weight: 700; fill: #2C2C2A; }
+  .sub   { font-size: 12px;   font-weight: 400; fill: #5F5E5A; }
+  .zt    { font-size: 12px;   font-weight: 700; fill: #5F5E5A; }
+  .th    { font-size: 12.5px; font-weight: 600; }
+  .ts    { font-size: 10px;   font-weight: 400; }
+  .step  { font-size: 10.5px; font-weight: 600; fill: #185FA5; }
+  .stepx { font-size: 10.5px; font-weight: 600; fill: #0F6E56; }
+  .stepr { font-size: 10.5px; font-weight: 600; fill: #A32D2D; }
+  .stepa { font-size: 10.5px; font-weight: 600; fill: #854F0B; }
+  .axis  { font-size: 10.5px; font-weight: 600; fill: #5F5E5A; }
+  .tnote { font-size: 11px;   font-weight: 400; fill: #2C2C2A; }
+  .tnk   { font-size: 12px;   font-weight: 700; fill: #2C2C2A; }
+  .bg    { fill: #FFFFFF; }
+  .zband { fill: #F1EFE8; stroke: #B4B2A9; stroke-width: 1; }
+  .life  { stroke: #B4B2A9; stroke-width: 1; stroke-dasharray: 3 4; }
+  .rowalt{ fill: #FBFAF6; }
+  .link  { stroke: #185FA5; stroke-width: 1.6; fill: none; }
+  .link.tel  { stroke: #0F6E56; }
+  .link.back { stroke: #854F0B; stroke-dasharray: 6 4; }
+  .link.red  { stroke: #A32D2D; }
+  .tsub  { font-size: 10px; font-weight: 400; fill: #5F5E5A; }
+  .bar { stroke-width: 1; }
+  .bar.bd  { fill: #E6F1FB; stroke: #185FA5; }
+  .bar.bm  { fill: #FAEEDA; stroke: #854F0B; }
+  .bar.bc  { fill: #F1EFE8; stroke: #5F5E5A; }
+  .mttd rect { fill: #E6F1FB; stroke: #185FA5; stroke-width: 1; }
+  .mttd .th { fill: #042C53; } .mttd .ts { fill: #185FA5; }
+  .mttr rect { fill: #FAEEDA; stroke: #854F0B; stroke-width: 1; }
+  .mttr .th { fill: #412402; } .mttr .ts { fill: #854F0B; }
+  .n-gray  rect { fill: #F1EFE8; stroke: #5F5E5A; stroke-width: 1; }
+  .n-gray  .th { fill: #2C2C2A; } .n-gray  .ts { fill: #5F5E5A; }
+  .n-teal  rect { fill: #E1F5EE; stroke: #0F6E56; stroke-width: 1.6; }
+  .n-teal  .th { fill: #04342C; } .n-teal  .ts { fill: #0F6E56; }
+  .n-blue  rect { fill: #E6F1FB; stroke: #185FA5; stroke-width: 1; }
+  .n-blue  .th { fill: #042C53; } .n-blue  .ts { fill: #185FA5; }
+  .n-red   rect { fill: #FCEBEB; stroke: #A32D2D; stroke-width: 1; }
+  .n-red   .th { fill: #501313; } .n-red   .ts { fill: #A32D2D; }
+  .n-amber rect { fill: #FAEEDA; stroke: #854F0B; stroke-width: 1; }
+  .n-amber .th { fill: #412402; } .n-amber .ts { fill: #854F0B; }
+  .notebox { fill: #FBFAF6; stroke: #B4B2A9; stroke-width: 1; }
+  .notebox.hi { fill: #E1F5EE; stroke: #0F6E56; stroke-width: 1.6; }
+  @media (prefers-color-scheme: dark) {
+    .bg { fill: #10161C; }
+    .ttl, .tnote, .tnk { fill: #E7EDF4; }
+    .sub, .zt, .axis { fill: #93A1B1; }
+    .zband { fill: #1D2833; stroke: #41546A; }
+    .life { stroke: #41546A; }
+    .rowalt { fill: #141C25; }
+    .link { stroke: #6CB0EC; } .link.tel { stroke: #5FC7A5; }
+    .link.back { stroke: #D9A441; } .link.red { stroke: #F06A80; }
+    .step { fill: #6CB0EC; } .stepx { fill: #5FC7A5; }
+    .stepr { fill: #F06A80; } .stepa { fill: #D9A441; }
+    .tsub { fill: #93A1B1; }
+    .bar.bd { fill: #12243A; stroke: #6CB0EC; }
+    .bar.bm { fill: #2C2010; stroke: #D9A441; }
+    .bar.bc { fill: #1E2831; stroke: #93A1B1; }
+    .mttd rect { fill: #12243A; stroke: #6CB0EC; }
+    .mttd .th { fill: #CFE5FA; } .mttd .ts { fill: #6CB0EC; }
+    .mttr rect { fill: #2C2010; stroke: #D9A441; }
+    .mttr .th { fill: #F6E2BC; } .mttr .ts { fill: #D9A441; }
+    .n-gray  rect { fill: #1E2831; stroke: #93A1B1; } .n-gray  .th { fill: #E7EDF4; } .n-gray  .ts { fill: #93A1B1; }
+    .n-teal  rect { fill: #142A24; stroke: #2E8C70; } .n-teal  .th { fill: #A8E8D2; } .n-teal  .ts { fill: #5FC7A5; }
+    .n-blue  rect { fill: #12243A; stroke: #6CB0EC; } .n-blue  .th { fill: #CFE5FA; } .n-blue  .ts { fill: #6CB0EC; }
+    .n-red   rect { fill: #2E1618; stroke: #F06A80; } .n-red   .th { fill: #FBD0D6; } .n-red   .ts { fill: #F06A80; }
+    .n-amber rect { fill: #2C2010; stroke: #D9A441; } .n-amber .th { fill: #F6E2BC; } .n-amber .ts { fill: #D9A441; }
+    .notebox { fill: #18222D; stroke: #41546A; }
+    .notebox.hi { fill: #142A24; stroke: #2E8C70; }
+  }
+</style>
+<defs>
+  <marker id="b"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#185FA5"/></marker>
+  <marker id="bt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0F6E56"/></marker>
+  <marker id="bb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#854F0B"/></marker>
+  <marker id="br" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#A32D2D"/></marker>
+</defs>
+
+<rect class="bg" x="0" y="0" width="2160" height="1450"/>
+
+<text class="ttl" x="24" y="34">單次攻防事件的跨元件時序 v0.1 —— 從一次 GET /exec 到封鎖生效</text>
+<text class="sub" x="24" y="56">流程圖 B。時間由上往下。與 A（玩家旅程）相反：<tspan font-weight="700">這整條鏈是實線的</tspan> —— 每一步都由 T4 全鏈測試 tests/integration/test_falco_range_chain.py 守著。</text>
+
+<!-- ── 區帶 ─────────────────────────────────────────────── -->
+<rect class="zband" x="302" y="86" width="156"  height="30"/>
+<rect class="zband" x="468" y="86" width="654"  height="30"/>
+<rect class="zband" x="1132" y="86" width="820" height="30"/>
+<rect class="zband" x="1962" y="86" width="156" height="30"/>
+<text class="zt" x="380"  y="106" text-anchor="middle">Z-RED　VLAN 30</text>
+<text class="zt" x="795"  y="106" text-anchor="middle">Z-TARGET　VLAN 20　（靶機 VM 內，四個 systemd unit）</text>
+<text class="zt" x="1542" y="106" text-anchor="middle">Z-MGMT　VLAN 10</text>
+<text class="zt" x="2040" y="106" text-anchor="middle">Z-APP　VLAN 40</text>
+
+<!-- ── 生命線頭 ─────────────────────────────────────────── -->
+<g class="n-red">  <rect x="302"  y="126" width="156" height="52" rx="4"/>
+  <text class="th" x="380"  y="148" text-anchor="middle">紅隊容器</text>
+  <text class="ts" x="380"  y="165" text-anchor="middle">10.167.30.14</text></g>
+<g class="n-gray"> <rect x="468"  y="126" width="156" height="52" rx="4"/>
+  <text class="th" x="546"  y="148" text-anchor="middle">靶機 app :80</text>
+  <text class="ts" x="546"  y="165" text-anchor="middle">10.167.20.10</text></g>
+<g class="n-teal"> <rect x="634"  y="126" width="156" height="52" rx="4"/>
+  <text class="th" x="712"  y="148" text-anchor="middle">Falco</text>
+  <text class="ts" x="712"  y="165" text-anchor="middle">sensor，非 engine</text></g>
+<g class="n-teal"> <rect x="800"  y="126" width="156" height="52" rx="4"/>
+  <text class="th" x="878"  y="148" text-anchor="middle">Alloy</text>
+  <text class="ts" x="878"  y="165" text-anchor="middle">collector（契約 4）</text></g>
+<g class="n-amber"><rect x="966"  y="126" width="156" height="52" rx="4"/>
+  <text class="th" x="1044" y="148" text-anchor="middle">response agent</text>
+  <text class="ts" x="1044" y="165" text-anchor="middle">outbound only</text></g>
+<g class="n-teal"> <rect x="1132" y="126" width="156" height="52" rx="4"/>
+  <text class="th" x="1210" y="148" text-anchor="middle">Loki :3100</text>
+  <text class="ts" x="1210" y="165" text-anchor="middle">10.167.10.20</text></g>
+<g class="n-teal"> <rect x="1298" y="126" width="156" height="52" rx="4"/>
+  <text class="th" x="1376" y="148" text-anchor="middle">Prometheus :9090</text>
+  <text class="ts" x="1376" y="165" text-anchor="middle">OTLP :4317 進</text></g>
+<g class="n-blue"> <rect x="1464" y="126" width="156" height="52" rx="4"/>
+  <text class="th" x="1542" y="148" text-anchor="middle">Grafana</text>
+  <text class="ts" x="1542" y="165" text-anchor="middle">唯一 alert engine</text></g>
+<g class="n-blue"> <rect x="1630" y="126" width="156" height="52" rx="4"/>
+  <text class="th" x="1708" y="148" text-anchor="middle">Receiver</text>
+  <text class="ts" x="1708" y="165" text-anchor="middle">鑄造 event_id</text></g>
+<g class="n-amber"><rect x="1796" y="126" width="156" height="52" rx="4"/>
+  <text class="th" x="1874" y="148" text-anchor="middle">Response Queue</text>
+  <text class="ts" x="1874" y="165" text-anchor="middle">不連入 target</text></g>
+<g class="n-gray"> <rect x="1962" y="126" width="156" height="52" rx="4"/>
+  <text class="th" x="2040" y="148" text-anchor="middle">消費者</text>
+  <text class="ts" x="2040" y="165" text-anchor="middle">Core／Board／SOC</text></g>
+
+<!-- ── 生命線 ───────────────────────────────────────────── -->
+<line class="life" x1="380"  y1="178" x2="380"  y2="1170"/>
+<line class="life" x1="546"  y1="178" x2="546"  y2="1170"/>
+<line class="life" x1="712"  y1="178" x2="712"  y2="1170"/>
+<line class="life" x1="878"  y1="178" x2="878"  y2="1170"/>
+<line class="life" x1="1044" y1="178" x2="1044" y2="1170"/>
+<line class="life" x1="1210" y1="178" x2="1210" y2="1170"/>
+<line class="life" x1="1376" y1="178" x2="1376" y2="1170"/>
+<line class="life" x1="1542" y1="178" x2="1542" y2="1170"/>
+<line class="life" x1="1708" y1="178" x2="1708" y2="1170"/>
+<line class="life" x1="1874" y1="178" x2="1874" y2="1170"/>
+<line class="life" x1="2040" y1="178" x2="2040" y2="1170"/>
+
+<!-- ── 左側延遲量測軸 ───────────────────────────────────── -->
+<text class="axis" x="24" y="200">延遲量測（三個終點不同，不得互相代替）</text>
+<rect class="bar bd" x="60"  y="220" width="14" height="388" rx="3"/>
+<rect class="bar bm" x="130" y="220" width="14" height="698" rx="3"/>
+<rect class="bar bc" x="200" y="220" width="14" height="860" rx="3"/>
+<circle cx="67"  cy="220" r="4" fill="#185FA5"/><circle cx="137" cy="220" r="4" fill="#854F0B"/><circle cx="207" cy="220" r="4" fill="#5F5E5A"/>
+<text class="axis" x="67"  y="626"  text-anchor="middle">MTTD</text>
+<text class="axis" x="137" y="936"  text-anchor="middle">MTTR</text>
+<text class="axis" x="207" y="1098" text-anchor="middle">containment</text>
+<text class="tsub"   x="24"  y="240">t0 ＝ 攻擊發生</text>
+
+<!-- ── 步驟 ─────────────────────────────────────────────── -->
+<text class="step" x="463" y="212" text-anchor="middle">① GET /exec</text>
+<text class="tsub"   x="463" y="226" text-anchor="middle">VLAN30 → VLAN20:80</text>
+<path class="link" marker-end="url(#b)" d="M 380 234 H 540"/>
+
+<text class="stepx" x="629" y="272" text-anchor="middle">② execve syscall</text>
+<text class="tsub"    x="629" y="286" text-anchor="middle">Falco 被動觀察 kernel，非 app 上報</text>
+<path class="link tel" marker-end="url(#bt)" d="M 546 294 H 706"/>
+
+<text class="stepx" x="795" y="332" text-anchor="middle">③ Falco 事件（rules.d/purplescope.yaml）</text>
+<path class="link tel" marker-end="url(#bt)" d="M 712 344 H 872"/>
+
+<text class="stepx" x="1044" y="382" text-anchor="middle">④a log 路徑：push :3100（契約 1）</text>
+<path class="link tel" marker-end="url(#bt)" d="M 878 394 H 1204"/>
+
+<text class="stepx" x="1127" y="432" text-anchor="middle">④b metric 路徑：OTLP :4317 → remote_write</text>
+<path class="link tel" marker-end="url(#bt)" d="M 878 444 H 1370"/>
+
+<text class="step" x="1376" y="482" text-anchor="middle">⑤a LogQL 查詢（每 10s eval）</text>
+<path class="link" marker-end="url(#b)" d="M 1210 494 H 1536"/>
+<text class="step" x="1459" y="524" text-anchor="middle">⑤b PromQL 查詢</text>
+<path class="link" marker-end="url(#b)" d="M 1376 536 H 1536"/>
+
+<g class="mttd"><rect x="1444" y="558" width="196" height="50" rx="4"/>
+  <text class="th" x="1542" y="579" text-anchor="middle">for: 0s → Firing</text>
+  <text class="ts" x="1542" y="595" text-anchor="middle">★ MTTD 終點　~10s 地板</text></g>
+
+<text class="step" x="1625" y="638" text-anchor="middle">⑥ webhook</text>
+<text class="tsub"   x="1625" y="652" text-anchor="middle">group 10s／repeat 15s</text>
+<path class="link" marker-end="url(#b)" d="M 1542 660 H 1702"/>
+
+<g class="n-blue"><rect x="1606" y="678" width="204" height="66" rx="4"/>
+  <text class="th" x="1708" y="699" text-anchor="middle">⑦ 順序不可顛倒</text>
+  <text class="ts" x="1708" y="715" text-anchor="middle">鑄造 event_id → 寫 Alert Record</text>
+  <text class="ts" x="1708" y="731" text-anchor="middle">→ 發 Core Event（attack.detected）</text></g>
+
+<text class="stepa" x="1791" y="770" text-anchor="middle">⑧ enqueue 封鎖命令</text>
+<text class="tsub"    x="1791" y="784" text-anchor="middle">receiver 不直寫 ipset</text>
+<path class="link back" marker-end="url(#bb)" d="M 1708 792 H 1868"/>
+
+<text class="stepa" x="1459" y="822" text-anchor="middle">⑨ GET /response/commands —— 每 2s 主動 pull，全程 outbound</text>
+<path class="link back" marker-end="url(#bb)" d="M 1044 834 H 1868"/>
+<path class="link back" marker-end="url(#bb)" d="M 1874 860 H 1050"/>
+
+<g class="mttr"><rect x="946" y="878" width="196" height="66" rx="4"/>
+  <text class="th" x="1044" y="899" text-anchor="middle">⑩ ipset ＋ iptables DROP</text>
+  <text class="ts" x="1044" y="915" text-anchor="middle">兩者都成功才算生效</text>
+  <text class="ts" x="1044" y="931" text-anchor="middle">★ MTTR 終點</text></g>
+
+<text class="stepa" x="1376" y="974" text-anchor="middle">⑪ POST report → response.executed（帶 target.attack_event_id）</text>
+<path class="link back" marker-end="url(#bb)" d="M 1044 986 H 1702"/>
+
+<g class="n-red"><rect x="302" y="1006" width="322" height="50" rx="4"/>
+  <text class="th" x="463" y="1027" text-anchor="middle">⑫ red4 打 :80 被擋，red5 仍通</text>
+  <text class="ts" x="463" y="1043" text-anchor="middle">只封來源 IP，不是整段 —— T4 兩邊都斷言</text></g>
+<path class="link red" marker-end="url(#br)" d="M 380 1064 H 540"/>
+<text class="stepr" x="463" y="1082" text-anchor="middle">被 DROP</text>
+
+<text class="step" x="1625" y="1102" text-anchor="middle">⑬ 攻擊停止 → Resolved（共用同一 event_id）</text>
+<text class="tsub"   x="1625" y="1116" text-anchor="middle">★ containment duration 終點</text>
+<path class="link" marker-end="url(#b)" d="M 1542 1124 H 1702"/>
+
+<text class="step" x="1874" y="1152" text-anchor="middle">⑭ Core Event → Range Core／Battleboard／Blue SOC</text>
+<path class="link" marker-end="url(#b)" d="M 1708 1164 H 2034"/>
+
+<!-- ── 註記 ─────────────────────────────────────────────── -->
+<rect class="notebox hi" x="24" y="1198" width="1032" height="106" rx="5"/>
+<text class="tnk"   x="44" y="1224">★ 三個終點不同，混用會讓數字說謊</text>
+<text class="tnote" x="44" y="1245">MTTD 終於 <tspan font-weight="700">Firing</tspan>（偵測到）；MTTR 終於 <tspan font-weight="700">ipset 寫入成功</tspan>（處置完成）；</text>
+<text class="tnote" x="44" y="1264">containment duration 終於 <tspan font-weight="700">Resolved</tspan>（攻擊停了）。</text>
+<text class="tnote" x="44" y="1283">最後一項<tspan font-weight="700">與藍隊做了什麼無關</tspan> —— 攻擊者自己收手也會 Resolved，不得當 MTTR 呈現。</text>
+
+<rect class="notebox" x="1104" y="1198" width="1032" height="106" rx="5"/>
+<text class="tnk"   x="1124" y="1224">為什麼中間非得有 Grafana 這一跳</text>
+<text class="tnote" x="1124" y="1245">Falco 是 <tspan font-weight="700">sensor，不是 alert engine</tspan>：它的事件一律寫進 Loki，由 Grafana rule 決定構不構成告警。</text>
+<text class="tnote" x="1124" y="1264">這樣才存在「telemetry 有、detection 沒有」的中間狀態，偵測缺口才可觀測（T4 的 /uncovered 就在測這個）。</text>
+<text class="tnote" x="1124" y="1283">代價誠實寫在圖上：Grafana 成為單點，且 MTTD 有 ~10s 地板（ADR ③）。</text>
+
+<rect class="notebox" x="24" y="1320" width="1032" height="106" rx="5"/>
+<text class="tnk"   x="44" y="1346">⑧⑨ 為什麼 receiver 不自己去寫 ipset</text>
+<text class="tnote" x="44" y="1367">直寫要從 Z-MGMT 連入 Z-TARGET，<tspan font-weight="700">當場破壞契約 2（TARGET → MGMT 單向）</tspan>。</text>
+<text class="tnote" x="44" y="1386">所以 receiver 只把命令放進佇列，target 側 agent 每 2 秒自己來拿 —— 全程沒有任何連入 target 的 socket。</text>
+<text class="tnote" x="44" y="1405">代價是最多 2 秒的 pull 延遲。與 A 圖 ④ 的 provisioner 是同一條邏輯：延遲換單向性。</text>
+
+<rect class="notebox" x="1104" y="1320" width="1032" height="106" rx="5"/>
+<text class="tnk"   x="1124" y="1346">Core Event 刻意不帶的東西</text>
+<text class="tnote" x="1124" y="1367">⑦ 發出的 Core Event <tspan font-weight="700">沒有 evidence_ref</tspan>，也沒有任何 loki／logql／promql 字樣或 raw payload。</text>
+<text class="tnote" x="1124" y="1386">遙測細節留在 Z-MGMT 的 Alert Record，兩份用同一個 event_id 對接；Console 要下鑽走 Evidence API。</text>
+<text class="tnote" x="1124" y="1405">判準：<tspan font-weight="700">Core 不該帶自己永遠不讀的欄位</tspan> —— 換掉 Loki 時這份 schema 一個字都不用動。</text>
+
+</svg>
