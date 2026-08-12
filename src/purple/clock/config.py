@@ -10,7 +10,7 @@ import yaml
 
 from purple.clock.skew import MAX_SKEW_MS
 
-PROBE_TYPES = ("local", "docker")
+PROBE_TYPES = ("local", "docker", "loki_ingest_delta")
 
 
 class ConfigError(Exception):
@@ -22,6 +22,8 @@ class NodeConfig:
     name: str
     probe: str
     container: str | None = None
+    selector: str | None = None
+    timestamp_field: str | None = None
 
 
 @dataclass(frozen=True)
@@ -54,7 +56,27 @@ def parse_config(raw: dict[str, Any]) -> ClockConfig:
         if probe == "docker" and not container:
             raise ConfigError(f"node {name!r} uses the docker probe but names no container")
 
-        nodes.append(NodeConfig(name=name, probe=probe, container=container))
+        selector = entry.get("selector")
+        timestamp_field = entry.get("timestamp_field")
+        if probe == "loki_ingest_delta":
+            for field, value in (
+                ("selector", selector),
+                ("timestamp_field", timestamp_field),
+            ):
+                if value is None:
+                    raise ConfigError(
+                        f"node {name!r} uses loki_ingest_delta but has no {field}"
+                    )
+
+        nodes.append(
+            NodeConfig(
+                name=name,
+                probe=probe,
+                container=container,
+                selector=selector,
+                timestamp_field=timestamp_field,
+            )
+        )
 
     reference = raw.get("reference")
     if reference not in seen:

@@ -34,6 +34,23 @@ class TestParsing:
         assert alloy.probe == "docker"
         assert alloy.container == "alloy"
 
+    def test_loki_delta_node_keeps_query_contract(self):
+        raw = {
+            "reference": "mgmt-host",
+            "nodes": [
+                {"name": "mgmt-host", "probe": "local"},
+                {
+                    "name": "target-app",
+                    "probe": "loki_ingest_delta",
+                    "selector": '{app="range-target"}',
+                    "timestamp_field": "ts",
+                },
+            ],
+        }
+        node = parse_config(raw).nodes[1]
+        assert node.selector == '{app="range-target"}'
+        assert node.timestamp_field == "ts"
+
 
 class TestBadConfigIsLoud:
     def test_empty_node_list_is_rejected(self):
@@ -53,6 +70,22 @@ class TestBadConfigIsLoud:
     def test_docker_node_without_container_is_rejected(self):
         bad = {"reference": "a", "nodes": [{"name": "a", "probe": "docker"}]}
         with pytest.raises(ConfigError, match="container"):
+            parse_config(bad)
+
+    @pytest.mark.parametrize("missing", ["selector", "timestamp_field"])
+    def test_loki_delta_node_requires_complete_contract(self, missing):
+        entry = {
+            "name": "target-app",
+            "probe": "loki_ingest_delta",
+            "selector": '{app="range-target"}',
+            "timestamp_field": "ts",
+        }
+        entry.pop(missing)
+        bad = {
+            "reference": "mgmt-host",
+            "nodes": [{"name": "mgmt-host", "probe": "local"}, entry],
+        }
+        with pytest.raises(ConfigError, match=missing):
             parse_config(bad)
 
     def test_duplicate_node_names_are_rejected(self):

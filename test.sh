@@ -80,7 +80,12 @@ elif docker compose -f "$REPO/docker-compose.yml" ps --status running -q 2>/dev/
   fi
   if "$PY" -m pytest -q -s -m integration \
       --ignore="$REPO/tests/integration/test_falco_range_chain.py"; then
-    record "T2 compose 整合：✅"
+    if "$PY" "$RANGE/verify-p1-fields.py" --app vulnerable-app \
+        && "$PY" -m purple.clock.cli --config "$REPO/config/clock-nodes-compose.yaml"; then
+      record "T2 compose 整合：✅（含 P1 四欄 + 全來源 clock）"
+    else
+      record "T2 compose 整合：❌ P1 四欄／clock"; fails=1
+    fi
   else
     record "T2 compose 整合：❌"; fails=1
   fi
@@ -122,8 +127,10 @@ elif ! virsh domstate range-target 2>/dev/null | grep -q running; then
   record "T4 真環境全鏈：⏭ 略過（靶機 VM 沒在跑）"
 else
   export PURPLE_RANGE_CHAIN=1
-  if "$PY" -m pytest -q -s -m integration "$REPO/tests/integration/test_falco_range_chain.py"; then
-    record "T4 真環境全鏈：✅"
+  if "$PY" -m pytest -q -s -m integration "$REPO/tests/integration/test_falco_range_chain.py" \
+      && "$PY" "$RANGE/verify-p1-fields.py" --app range-target --falco \
+      && "$PY" -m purple.clock.cli --config "$REPO/config/clock-nodes-vm.yaml"; then
+    record "T4 真環境全鏈：✅（含 P1 四欄 + VM clock）"
   else
     record "T4 真環境全鏈：❌"; fails=1
   fi

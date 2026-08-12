@@ -153,8 +153,16 @@ T4 是整條鏈最真的一段（`tests/integration/test_falco_range_chain.py`�
 | `/readsecret` → Core Event T1005 | SA §7 **Scenario 03** 敏感檔存取，同一條鏈 |
 | `/uncovered` → 偵測缺口 | 決定性測試的真環境版：Falco 抓得到但**刻意沒有 Grafana 規則覆蓋**，`detected`／`source_state`／`telemetry_present` 三個輸入全部從真環境實採 |
 
-節點清單在 [config/clock-nodes.yaml](./config/clock-nodes.yaml)。**每加一個遙測來源就要加一個節點** ——
+節點清單分三個環境：CI host 用 [config/clock-nodes.yaml](./config/clock-nodes.yaml)，
+T2 容器用 `clock-nodes-compose.yaml`（直接讀秒、100ms），T4 VM 用
+`clock-nodes-vm.yaml`（來源時間對 Loki ingestion time、5s 上界且不需 VM 憑證）。
+**每加一個遙測來源就要加一個節點** ——
 沒列進來的節點不會被檢查，而不被檢查的時鐘遲早會漂。
+
+P1 四欄的正規名稱為 `source_ip / destination / time / action_result`。App 對應
+`source_ip / path / ts / outcome`；Falco 對應 command source IP、process command line、
+event time、matched rule。Prometheus OTLP 路徑是取樣 counter，不是離散 action log，
+因此明確排除四欄逐筆契約，但仍由既有 metric integration test 驗證。
 
 ## 文件入口
 

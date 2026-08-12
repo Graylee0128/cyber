@@ -276,6 +276,14 @@ print(f"  ✓ {EXPECTED_KALI} 台 red 各自可分辨，未被 SNAT 塌縮")
 PY
 fi
 
+if [ "$TARGET_MODE" = vm ] && [ -f "$REPO/scripts/range/verify-p1-fields.py" ]; then
+  echo "=== P1 最終驗收：range-target/Falco 四欄 + 無憑證 VM clock ==="
+  PYTHONPATH="$REPO/src" python3 "$REPO/scripts/range/verify-p1-fields.py" \
+    --loki-url "$LOKI_URL" --app range-target --falco || fails=1
+  PURPLE_LOKI_URL="$LOKI_URL" PYTHONPATH="$REPO/src" python3 -m purple.clock.cli \
+    --config "$REPO/config/clock-nodes-vm.yaml" || fails=1
+fi
+
 if [ "$fails" -ne 0 ]; then
   echo "❌ 有契約未通過"
   exit 1
