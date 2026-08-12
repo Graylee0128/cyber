@@ -26,11 +26,12 @@ NONCE_FILE="/tmp/range-target-boot.nonce"
 source "$DIR/zones.env"   # TARGET_IP / MGMT_STUB_IP / Z_TARGET_GW 等位址的唯一定義處
 MGMT_IP="$MGMT_STUB_IP"
 RESPONSE_IP="$MGMT_RECEIVER_IP"
+APP_IP="$APP_STUB_IP"
 OSV="${OSV:-ubuntu24.04}"
 VM_MEM="${VM_MEM:-2048}"
 VM_VCPUS="${VM_VCPUS:-2}"
 
-echo "▶ 建 OVS 四區骨架（target 留給 VM）"
+echo "▶ 建 OVS 六區骨架（target 留給 VM）"
 SKIP_TARGET_NETNS=1 bash "$DIR/build-range.sh"
 
 echo "▶ 定義 libvirt 接 OVS 的 network（range-ovs，冪等）"
@@ -83,7 +84,7 @@ write_files:
     encoding: b64
     content: $(base64 -w0 "$DIR/contract1_probe.py")
 runcmd:
-  - [bash, -c, "python3 /opt/contract1_probe.py $MGMT_IP $RESPONSE_IP $BOOT_NONCE | tee /dev/console"]
+  - [bash, -c, "python3 /opt/contract1_probe.py $MGMT_IP $RESPONSE_IP $APP_IP $BOOT_NONCE | tee /dev/console"]
 YAML
 cat > "$NC" <<YAML
 version: 2

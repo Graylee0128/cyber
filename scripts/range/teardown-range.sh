@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# 票 #13 / WS6 Slice 1 —— 拆掉四區 range。冪等、可重複跑（Reset 的雛形）。
+# 票 #13 / #20 —— 拆掉六區 range。冪等、可重複跑（Reset 的雛形）。
 set -uo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/range/zones.env
+source "$DIR/zones.env"
+RED_CIDR="$RANGE_NET_PREFIX.$Z_RED_VLAN.0/24"
 
 pkill -f "scripts/range/stub_listener.py" 2>/dev/null || true
 
@@ -26,7 +31,12 @@ if command -v virsh >/dev/null 2>&1; then
   virsh net-undefine range-ovs 2>/dev/null || true
 fi
 
-for ns in ns-mgmt ns-receiver ns-target ns-red1 ns-red2 ns-red3 ns-red4 ns-red5 ns-red6 ns-router; do
+if command -v iptables >/dev/null 2>&1; then
+  while iptables -D DOCKER-USER -s "$RED_CIDR" -d "$RED_CIDR" \
+    -m comment --comment purplescope-red-isolation -j DROP 2>/dev/null; do :; done
+fi
+
+for ns in ns-mgmt ns-receiver ns-engine ns-app ns-edge ns-blue ns-internet ns-target ns-red1 ns-red2 ns-red3 ns-red4 ns-red5 ns-red6 ns-router; do
   ip netns del "$ns" 2>/dev/null || true
 done
 

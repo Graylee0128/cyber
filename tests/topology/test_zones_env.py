@@ -13,6 +13,7 @@ zones.env 刻意存純字面值（不做變數展開），好讓 shell 與 Pytho
 from __future__ import annotations
 
 import re
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,8 @@ class TestInternalConsistency:
             ("Z_TARGET_GW", "Z_TARGET_VLAN"),
             ("Z_RED_GW", "Z_RED_VLAN"),
             ("Z_APP_GW", "Z_APP_VLAN"),
+            ("Z_EDGE_GW", "Z_EDGE_VLAN"),
+            ("Z_BLUE_GW", "Z_BLUE_VLAN"),
         ],
     )
     def test_gateway_matches_its_vlan(self, zones, gw_key, vlan_key):
@@ -50,8 +53,12 @@ class TestInternalConsistency:
             ("MGMT_STUB_IP", "Z_MGMT_VLAN"),
             ("MGMT_LOKI_IP", "Z_MGMT_VLAN"),
             ("MGMT_RECEIVER_IP", "Z_MGMT_VLAN"),
+            ("MGMT_ENGINE_IP", "Z_MGMT_VLAN"),
             ("TARGET_IP", "Z_TARGET_VLAN"),
             ("RED_IP_FIRST", "Z_RED_VLAN"),
+            ("APP_STUB_IP", "Z_APP_VLAN"),
+            ("EDGE_STUB_IP", "Z_EDGE_VLAN"),
+            ("BLUE_STUB_IP", "Z_BLUE_VLAN"),
         ],
     )
     def test_host_sits_in_its_own_zone(self, zones, host_key, vlan_key):
@@ -70,6 +77,22 @@ class TestInternalConsistency:
         ips = red_ips(zones)
         assert len(ips) == int(zones["RED_COUNT"]) == 6
         assert len(set(ips)) == len(ips)
+
+    def test_libvirt_ovs_portgroups_match_all_six_zones(self, zones):
+        root = ET.parse(RANGE_DIR / "range-ovs.xml").getroot()
+        actual = {
+            group.attrib["name"]: group.find("./vlan/tag").attrib["id"]
+            for group in root.findall("portgroup")
+        }
+        expected = {
+            "z-mgmt": zones["Z_MGMT_VLAN"],
+            "z-target": zones["Z_TARGET_VLAN"],
+            "z-red": zones["Z_RED_VLAN"],
+            "z-app": zones["Z_APP_VLAN"],
+            "z-edge": zones["Z_EDGE_VLAN"],
+            "z-blue": zones["Z_BLUE_VLAN"],
+        }
+        assert actual == expected
 
 
 class TestNoDrift:

@@ -45,6 +45,9 @@ sys.path.insert(0, __file__.rsplit("scripts", 1)[0] + "src")
 
 from purple.topology_check import (  # noqa: E402
     check_mgmt_to_target_blocked,
+    check_app_managed_paths,
+    check_edge_paths,
+    check_red_seat_isolation,
     check_red_to_mgmt_denied,
     check_target_to_mgmt,
     check_zone_assignments,
@@ -88,7 +91,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mgmt", help="Z-MGMT 節點 IP")
     parser.add_argument("--receiver", help="Z-MGMT response receiver IP")
     parser.add_argument("--target", help="Z-TARGET 節點 IP")
-    parser.add_argument("--from-zone", choices=["target", "mgmt", "red"], default="target")
+    parser.add_argument("--app")
+    parser.add_argument("--engine")
+    parser.add_argument("--edge")
+    parser.add_argument("--blue")
+    parser.add_argument("--red-peer")
+    parser.add_argument(
+        "--from-zone",
+        choices=["target", "mgmt", "red", "app", "edge", "internet", "red-seat"],
+        default="target",
+    )
     args = parser.parse_args(argv)
 
     if args.compose:
@@ -99,6 +111,10 @@ def main(argv: list[str] | None = None) -> int:
         "target": ("mgmt", "receiver"),
         "mgmt": ("target",),
         "red": ("mgmt",),
+        "app": ("app", "mgmt", "engine", "target"),
+        "edge": ("edge", "app", "red_peer", "blue", "mgmt", "target"),
+        "internet": ("edge", "app", "red_peer", "blue", "mgmt", "target"),
+        "red-seat": ("red_peer",),
     }
     missing = [name for name in needs[args.from_zone] if not getattr(args, name)]
     if missing:
@@ -114,8 +130,20 @@ def main(argv: list[str] | None = None) -> int:
         fails = check_target_to_mgmt(args.mgmt, args.receiver)  # 契約 1
     elif args.from_zone == "mgmt":
         fails = check_mgmt_to_target_blocked(args.target)  # 契約 2
-    else:  # red
+    elif args.from_zone == "red":
         fails = check_red_to_mgmt_denied(args.mgmt)      # 契約 3
+    elif args.from_zone == "app":
+        fails = check_app_managed_paths(
+            app=args.app, mgmt=args.mgmt, engine=args.engine,
+            target=args.target, from_zone="app",
+        )
+    elif args.from_zone in {"edge", "internet"}:
+        fails = check_edge_paths(
+            edge=args.edge, app=args.app, red=args.red_peer, blue=args.blue,
+            mgmt=args.mgmt, target=args.target, from_zone=args.from_zone,
+        )
+    else:
+        fails = check_red_seat_isolation(args.red_peer)
 
     if fails:
         print("拓樸契約未通過：", file=sys.stderr)

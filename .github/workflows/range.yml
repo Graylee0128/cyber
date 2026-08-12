@@ -1,7 +1,7 @@
-name: Range (single-host four-zone)
+name: Range (single-host six-zone)
 
-# 票 #13 / WS6 Slice 1：在 GitHub runner（有 root，免巢狀虛擬化）用 OVS + netns +
-# nftables 建四區 range，實測四條跨世代契約 + 六台 red source IP 可分辨。
+# 票 #13 / #20：在 GitHub runner（有 root，免巢狀虛擬化）用 OVS + netns +
+# nftables 建六區 range，實測五條契約 + Z-APP 受管路徑 + RED seat 隔離。
 # 真 VM（Slice 2）才需要大主機的 nested KVM，那部分不在此 workflow。
 on:
   push:
@@ -34,7 +34,7 @@ jobs:
 
       # build 起的 mgmt listener 是背景行程；build 與 verify 放同一 step，
       # 確保 listener 在契約 1 驗收時仍存活。
-      - name: Build four-zone range + verify contracts
+      - name: Build six-zone range + verify contracts
         run: |
           sudo bash scripts/range/build-range.sh
           sudo bash scripts/range/verify-range.sh
@@ -101,6 +101,42 @@ jobs:
           sudo ip netns exec ns-target python3 scripts/verify_topology.py \
             --from-zone target --mgmt "$MGMT_STUB_IP" \
             --receiver "$MGMT_RECEIVER_IP"
+
+      - name: Network v0.3 negative assertions can fail
+        run: |
+          set -euo pipefail
+
+          expect_verify_failure() {
+            local expected="$1"
+            set +e
+            output="$(sudo bash scripts/range/verify-range.sh 2>&1)"
+            rc=$?
+            set -e
+            echo "$output"
+            test "$rc" -eq 1 || { echo "::error::expected exit 1, got $rc"; exit 1; }
+            grep -Fq "$expected" <<<"$output" || {
+              echo "::error::missing expected failure: $expected"; exit 1;
+            }
+          }
+
+          sed -i \
+            's/ip saddr $APP_CIDR ip daddr $MGMT_ENGINE_IP tcp dport 8001 accept/ip saddr $APP_CIDR ip daddr $MGMT_CIDR tcp dport 8001 accept/' \
+            scripts/range/build-range.sh
+          sudo bash scripts/range/build-range.sh
+          expect_verify_failure 'APP→其他 MGMT 的受管 API'
+          git restore scripts/range/build-range.sh
+
+          sed -i '/# Contract 5:/a\    ip saddr $EDGE_CIDR ip daddr $MGMT_CIDR tcp dport 3100 accept' \
+            scripts/range/build-range.sh
+          sudo bash scripts/range/build-range.sh
+          expect_verify_failure '契約5 EDGE→MGMT'
+          git restore scripts/range/build-range.sh
+
+          sudo ALLOW_RED_LATERAL=1 bash scripts/range/build-range.sh
+          expect_verify_failure 'RED seat→RED seat'
+
+          sudo bash scripts/range/build-range.sh
+          sudo bash scripts/range/verify-range.sh
 
       - name: Show router ruleset + OVS topology (always)
         if: always()

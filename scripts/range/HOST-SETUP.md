@@ -77,8 +77,8 @@ sudo systemctl is-active openvswitch-switch libvirtd   # 兩個都 active
 這一步不碰 VM，最快確認網路層對。
 
 ```bash
-sudo bash scripts/range/build-range.sh     # OVS 四區 VLAN + router + nftables + netns 節點
-sudo bash scripts/range/verify-range.sh    # 從各區驗契約 1/2/3 + 六台 source IP 可分辨
+sudo bash scripts/range/build-range.sh     # OVS 六區 VLAN + router + nftables + netns policy stubs
+sudo bash scripts/range/verify-range.sh    # 驗契約 1–5、APP managed paths、RED seat isolation
 sudo bash scripts/range/teardown-range.sh  # 拆掉（冪等，可重複）
 ```
 

@@ -11,8 +11,10 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RED_LATERAL_OVERRIDE="${ALLOW_RED_LATERAL:-}"
 # shellcheck source=scripts/range/zones.env
 source "$DIR/zones.env"
+[ -n "$RED_LATERAL_OVERRIDE" ] && ALLOW_RED_LATERAL="$RED_LATERAL_OVERRIDE"
 BR="$RANGE_BRIDGE"
 RED_NET="${RED_IP_FIRST%.*}"        # 10.167.30
 RED_HOST_FIRST="${RED_IP_FIRST##*.}"  # 11
@@ -21,7 +23,7 @@ RED_IMAGE="${RED_IMAGE:-nicolaka/netshoot}"
 COUNT="${COUNT:-$RED_COUNT}"
 
 if ! ovs-vsctl br-exists "$BR" 2>/dev/null; then
-  echo "❌ $BR 不存在 —— 先跑 build-range.sh 或 build-vm-target.sh 建四區骨架"
+  echo "❌ $BR 不存在 —— 先跑 build-range.sh 或 build-vm-target.sh 建六區骨架"
   exit 1
 fi
 
@@ -45,6 +47,9 @@ for i in $(seq 1 "$COUNT"); do
   ip link add "$host_if" type veth peer name "$cont_if"
   ovs-vsctl --if-exists del-port "$BR" "$host_if"
   ovs-vsctl add-port "$BR" "$host_if" tag="$Z_RED_VLAN"
+  if [ "$ALLOW_RED_LATERAL" != "1" ]; then
+    ovs-vsctl set port "$host_if" other_config:protected=true
+  fi
   ip link set "$host_if" up
   ip link set "$cont_if" netns "$name"
   ip netns exec "$name" ip link set "$cont_if" name eth0
@@ -52,8 +57,22 @@ for i in $(seq 1 "$COUNT"); do
   ip netns exec "$name" ip link set eth0 up
   ip netns exec "$name" ip link set lo up
   ip netns exec "$name" ip route add default via "$GW" 2>/dev/null || true
+  nohup ip netns exec "$name" python3 "$DIR/stub_listener.py" --ports 7681 \
+    >"/tmp/range-red$i-listener.log" 2>&1 &
+  disown || true
   echo "   • $name → VLAN$Z_RED_VLAN $ip（pid $pid）"
 done
+
+# Mirrored host-side guard for Docker-managed seat networks. The current OVS
+# veth path is enforced by protected ports above; this rule protects future
+# Docker bridge seat attachment without granting containers host policy power.
+RED_CIDR="$RANGE_NET_PREFIX.$Z_RED_VLAN.0/24"
+if [ "$ALLOW_RED_LATERAL" != "1" ] && iptables -nL DOCKER-USER >/dev/null 2>&1; then
+  iptables -C DOCKER-USER -s "$RED_CIDR" -d "$RED_CIDR" \
+    -m comment --comment purplescope-red-isolation -j DROP 2>/dev/null || \
+  iptables -I DOCKER-USER 1 -s "$RED_CIDR" -d "$RED_CIDR" \
+    -m comment --comment purplescope-red-isolation -j DROP
+fi
 
 echo "✅ $COUNT 台紅隊容器就緒。範例攻擊（六個可分辨 source IP 打靶機 :80）："
 echo "   for i in \$(seq 1 $COUNT); do docker exec range-red\$i curl -s -m3 http://$TARGET_IP/ >/dev/null && echo red\$i打了; done"

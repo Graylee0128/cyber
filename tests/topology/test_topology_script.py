@@ -9,10 +9,15 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from purple.topology_check import (  # 由腳本邏輯抽出的可測部分
+    APP_HTTPS_PORT,
+    EDGE_TTYD_PORT,
     EXPECTED_KALI,
     MGMT_DENIED_PORT,
     MGMT_PORTS,
     MGMT_RESPONSE_PORT,
+    check_app_managed_paths,
+    check_edge_paths,
+    check_red_seat_isolation,
     check_source_ips_distinguishable,
     check_target_to_mgmt,
 )
@@ -134,7 +139,8 @@ def test_the_three_cross_generation_ports_are_named():
 
 def test_contract1_accepts_telemetry_and_only_the_named_receiver(monkeypatch):
     allowed = {("mgmt", port) for port in MGMT_PORTS} | {
-        ("receiver", MGMT_RESPONSE_PORT)
+        ("receiver", MGMT_RESPONSE_PORT),
+        ("app", 443),
     }
 
     monkeypatch.setattr(
@@ -176,7 +182,8 @@ def test_contract1_flags_reachable_non_telemetry_port(monkeypatch):
 def test_vm_contract1_probe_passes_three_ports_and_blocked_canary(monkeypatch, capsys):
     probe = _load_contract1_probe()
     allowed = {("mgmt", port) for port in MGMT_PORTS} | {
-        ("receiver", MGMT_RESPONSE_PORT)
+        ("receiver", MGMT_RESPONSE_PORT),
+        ("app", 443),
     }
     monkeypatch.setattr(
         probe,
@@ -186,7 +193,7 @@ def test_vm_contract1_probe_passes_three_ports_and_blocked_canary(monkeypatch, c
     monkeypatch.setattr(
         probe.sys,
         "argv",
-        ["contract1_probe.py", "mgmt", "receiver", "nonce"],
+        ["contract1_probe.py", "mgmt", "receiver", "app", "nonce"],
     )
     probe.main()
     output = capsys.readouterr().out
@@ -195,6 +202,8 @@ def test_vm_contract1_probe_passes_three_ports_and_blocked_canary(monkeypatch, c
     assert "response receiver receiver:8000 通" in output
     assert "非 receiver MGMT mgmt:8000 不通" in output
     assert f":{MGMT_DENIED_PORT} 不通" in output
+    assert "APP app:443 通" in output
+    assert "APP app:22 不通" in output
     assert "SLICE2A-RESULT: PASS" in output
 
 
@@ -204,7 +213,8 @@ def test_vm_contract1_probe_fails_when_deny_canary_is_reachable(monkeypatch, cap
         ("mgmt", port)
         for port in (*MGMT_PORTS, MGMT_RESPONSE_PORT, MGMT_DENIED_PORT)
     } | {
-        ("receiver", MGMT_RESPONSE_PORT)
+        ("receiver", MGMT_RESPONSE_PORT),
+        ("app", 443),
     }
     monkeypatch.setattr(
         probe,
@@ -214,7 +224,7 @@ def test_vm_contract1_probe_fails_when_deny_canary_is_reachable(monkeypatch, cap
     monkeypatch.setattr(
         probe.sys,
         "argv",
-        ["contract1_probe.py", "mgmt", "receiver", "nonce"],
+        ["contract1_probe.py", "mgmt", "receiver", "app", "nonce"],
     )
     probe.main()
     output = capsys.readouterr().out
@@ -256,3 +266,59 @@ def test_six_kali_must_be_distinguishable():
     assert check_source_ips_distinguishable(["10.0.0.1", "10.0.0.2"])
     # 六個不同 → 通過（無失敗訊息）
     assert not check_source_ips_distinguishable([f"10.167.223.{i}" for i in range(1, 7)])
+
+
+def test_app_managed_path_accepts_exact_engine_and_blocks_raw_query(monkeypatch):
+    allowed = {("engine", 8001)}
+    monkeypatch.setattr(
+        "purple.topology_check.reachable",
+        lambda host, port, timeout=3.0: (host, port) in allowed,
+    )
+    assert check_app_managed_paths(
+        app="app", mgmt="mgmt", engine="engine", target="target", from_zone="app"
+    ) == []
+
+
+def test_app_managed_path_flags_arbitrary_mgmt_host(monkeypatch):
+    allowed = {("engine", 8001), ("mgmt", 8001)}
+    monkeypatch.setattr(
+        "purple.topology_check.reachable",
+        lambda host, port, timeout=3.0: (host, port) in allowed,
+    )
+    fails = check_app_managed_paths(
+        app="app", mgmt="mgmt", engine="engine", target="target", from_zone="app"
+    )
+    assert any("其他 MGMT" in fail for fail in fails)
+
+
+def test_edge_contract_accepts_only_proxy_paths(monkeypatch):
+    allowed = {("app", APP_HTTPS_PORT), ("red", EDGE_TTYD_PORT), ("blue", EDGE_TTYD_PORT)}
+    monkeypatch.setattr(
+        "purple.topology_check.reachable",
+        lambda host, port, timeout=3.0: (host, port) in allowed,
+    )
+    assert check_edge_paths(
+        edge="edge", app="app", red="red", blue="blue", mgmt="mgmt",
+        target="target", from_zone="edge",
+    ) == []
+
+
+def test_edge_contract_flags_mgmt_access(monkeypatch):
+    allowed = {
+        ("app", APP_HTTPS_PORT), ("red", EDGE_TTYD_PORT),
+        ("blue", EDGE_TTYD_PORT), ("mgmt", 3100),
+    }
+    monkeypatch.setattr(
+        "purple.topology_check.reachable",
+        lambda host, port, timeout=3.0: (host, port) in allowed,
+    )
+    fails = check_edge_paths(
+        edge="edge", app="app", red="red", blue="blue", mgmt="mgmt",
+        target="target", from_zone="edge",
+    )
+    assert any("契約5" in fail for fail in fails)
+
+
+def test_red_seat_isolation_flags_reachable_peer(monkeypatch):
+    monkeypatch.setattr("purple.topology_check.reachable", lambda *_args, **_kwargs: True)
+    assert check_red_seat_isolation("red2")
