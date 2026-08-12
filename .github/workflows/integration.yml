@@ -8,6 +8,14 @@ on:
     # 純文件變更不值得起整個 compose 全棧（~5 分鐘）。程式/部署變更才跑。
     paths-ignore:
       - "**.md"
+      - "**.svg"
+      - ".scratch/**"
+      - "docs/**"
+  pull_request:
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "**.svg"
       - ".scratch/**"
       - "docs/**"
   workflow_dispatch:

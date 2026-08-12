@@ -173,7 +173,7 @@
   <text class="ts" x="1246" y="621" text-anchor="middle">endpoint、state=ready</text></g>
 <g class="n-red"><rect x="1636" y="584" width="268" height="48" rx="4"/>
   <text class="th" x="1770" y="605" text-anchor="middle">換裝置／清 cookie → 回不去</text>
-  <text class="ts" x="1770" y="621" text-anchor="middle">須 Instructor 手動改綁（#61），非可選功能</text></g>
+  <text class="ts" x="1770" y="621" text-anchor="middle">須 Instructor 手動改綁（#59），非可選功能</text></g>
 
 <!-- ── L5 Range Core ──────────────────────────────────────── -->
 <g class="n-teal todo"><rect x="780" y="698" width="298" height="46" rx="4"/>
@@ -184,7 +184,7 @@
   <text class="ts" x="1503" y="734" text-anchor="middle">同時只有一場（#32）</text></g>
 <g class="n-teal todo"><rect x="1636" y="698" width="268" height="46" rx="4"/>
   <text class="th" x="1770" y="718" text-anchor="middle">objective 判定／個人計分</text>
-  <text class="ts" x="1770" y="734" text-anchor="middle">遙測路徑 #33／flag 路徑 #34</text></g>
+  <text class="ts" x="1770" y="734" text-anchor="middle">遙測／flag 路徑 #33</text></g>
 <g class="n-teal todo"><rect x="1948" y="698" width="164" height="46" rx="4"/>
   <text class="th" x="2030" y="718" text-anchor="middle">ended → Report</text>
   <text class="ts" x="2030" y="734" text-anchor="middle">#28</text></g>
@@ -195,7 +195,7 @@
   <text class="ts" x="1770" y="881" text-anchor="middle">→ Grafana（唯一 engine）→ Core Event</text></g>
 <g class="n-blue todo"><rect x="1948" y="844" width="164" height="48" rx="4"/>
   <text class="th" x="2030" y="865" text-anchor="middle">coverage／MTTD</text>
-  <text class="ts" x="2030" y="881" text-anchor="middle">P2 #24／#25</text></g>
+  <text class="ts" x="2030" y="881" text-anchor="middle">P2 #21</text></g>
 
 <!-- ── Instructor 觸發（掛在 ⑤ 的空泳道上） ───────────────── -->
 <g class="n-gray todo"><rect x="1414" y="428" width="178" height="46" rx="4"/>
@@ -251,7 +251,7 @@
 <rect class="notebox" x="1104" y="1080" width="1032" height="96" rx="5"/>
 <text class="tnk"   x="1124" y="1106">實作狀態：這張圖只有 ⑥ 那條藍線是真的跑得動的</text>
 <text class="tnote" x="1124" y="1127">實線框＝已實作並有測試（Purple 那條鏈由 T4 全鏈測試守著）。虛線框＝草案或未開工：</text>
-<text class="tnote" x="1124" y="1146">整條 WS8（②③）尚無票消費、Provisioner（④）是 #62、Range Core（⑤⑥⑦）只交付了 #31。</text>
+<text class="tnote" x="1124" y="1146">WS8（②③）由 #59 消費、Provisioner（④）是 #62；Range Core（⑤⑥⑦）的原 #31 是歷史基線，格式遷移由 #42 承接。</text>
 <text class="tnote" x="1124" y="1165">換句話說：<tspan font-weight="700">玩家旅程目前只有中段是實的，頭尾都還是紙上的。</tspan></text>
 
 </svg>

@@ -1,6 +1,6 @@
 # Spec — WS8 Event Control Plane（會議中控）
 
-- **Status**: draft（尚無票消費，定案後比照 P1 遷出至 `docs/`；見 [cyber/CLAUDE.md](../../CLAUDE.md) 資料夾約定）
+- **Status**: draft（由 canonical #59／#62 消費，待 #65 decision gate；定案後比照 P1 遷出至 `docs/`；見 [cyber/CLAUDE.md](../../CLAUDE.md) 資料夾約定）
 - **決策依據**：2026-08-12 對照外部參考架構（Metis 紅藍對抗環境，不在本 repo）＋ 兩題拍板（藍隊形態、座位規模）
 - **上位文件**：[SA](../../資安攻防平台_系統架構設計文件_v0.1.md) §4.2、§5.5、§12
 - **上游依賴**：[WS1 spec §1.3](../ws1-game-design/spec.md)（個人計分）、[WS5 spec §2.1／§2.3](../ws5-range-core/spec.md)（PG 慣例、權限邊界）
