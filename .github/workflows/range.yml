@@ -39,20 +39,23 @@ jobs:
           sudo bash scripts/range/build-range.sh
           sudo bash scripts/range/verify-range.sh
 
-      # 刻意拿掉 Contract 1 的 dport allowlist 再重建。Z-MGMT 的 :22 deny canary
-      # 有 listener，因此這一步若沒有失敗，代表反向斷言已失去抓退化的能力。
-      - name: Contract 1 negative assertion can fail
+      # 兩種退化都要能抓：拿掉 telemetry dport 限制，以及把 receiver:8000 的
+      # 目的 IP 放寬成整段 MGMT_CIDR。兩個被禁止的 endpoint 都有真 listener。
+      - name: Contract 1 negative assertions can fail
         run: |
           set -u
+          source scripts/range/zones.env
+
+          # Mutation 1：telemetry 規則退化成 TARGET→MGMT 全開。
           sed -i \
             's/ip saddr $TARGET_CIDR ip daddr $MGMT_CIDR tcp dport { 3100, 9090, 4317 } accept/ip saddr $TARGET_CIDR ip daddr $MGMT_CIDR accept/' \
             scripts/range/build-range.sh
           grep -Fq 'ip saddr $TARGET_CIDR ip daddr $MGMT_CIDR accept' scripts/range/build-range.sh
           sudo bash scripts/range/build-range.sh
-          source scripts/range/zones.env
           set +e
           output="$(sudo ip netns exec ns-target python3 scripts/verify_topology.py \
-            --from-zone target --mgmt "$MGMT_STUB_IP" 2>&1)"
+            --from-zone target --mgmt "$MGMT_STUB_IP" \
+            --receiver "$MGMT_RECEIVER_IP" 2>&1)"
           rc=$?
           set -e
           echo "$output"
@@ -67,6 +70,37 @@ jobs:
           echo "反向斷言如預期抓到 TARGET→MGMT :22 被錯誤放行"
           git restore scripts/range/build-range.sh
           sudo bash scripts/range/build-range.sh
+
+          # Mutation 2：:8000 例外從指定 receiver IP 退化成整段 MGMT_CIDR。
+          sed -i \
+            's/ip saddr $TARGET_CIDR ip daddr $MGMT_RECEIVER_IP tcp dport 8000 accept/ip saddr $TARGET_CIDR ip daddr $MGMT_CIDR tcp dport 8000 accept/' \
+            scripts/range/build-range.sh
+          grep -Fq 'ip saddr $TARGET_CIDR ip daddr $MGMT_CIDR tcp dport 8000 accept' \
+            scripts/range/build-range.sh
+          sudo bash scripts/range/build-range.sh
+          set +e
+          output="$(sudo ip netns exec ns-target python3 scripts/verify_topology.py \
+            --from-zone target --mgmt "$MGMT_STUB_IP" \
+            --receiver "$MGMT_RECEIVER_IP" 2>&1)"
+          rc=$?
+          set -e
+          echo "$output"
+          if [ "$rc" -ne 1 ]; then
+            echo "::error::預期 receiver 目的限制退化 exit 1，實得 exit $rc"
+            exit 1
+          fi
+          grep -Fq '非 receiver MGMT' <<<"$output" || {
+            echo "::error::失敗原因不是其他 MGMT 主機的 :8000 被放行"
+            exit 1
+          }
+          echo "反向斷言如預期抓到其他 MGMT 主機 :8000 被錯誤放行"
+
+          # 恢復正式規則並再驗一次，always dump 才會留下正確 production ruleset。
+          git restore scripts/range/build-range.sh
+          sudo bash scripts/range/build-range.sh
+          sudo ip netns exec ns-target python3 scripts/verify_topology.py \
+            --from-zone target --mgmt "$MGMT_STUB_IP" \
+            --receiver "$MGMT_RECEIVER_IP"
 
       - name: Show router ruleset + OVS topology (always)
         if: always()

@@ -17,6 +17,7 @@ VT="$REPO/scripts/verify_topology.py"
 # shellcheck source=scripts/range/zones.env
 source "$DIR/zones.env"
 MGMT="$MGMT_STUB_IP"
+RECEIVER="$MGMT_RECEIVER_IP"
 TARGET="$TARGET_IP"
 CONSOLE="/tmp/range-target-console.log"
 NONCE_FILE="/tmp/range-target-boot.nonce"
@@ -76,9 +77,10 @@ else RED_NS_PREFIX=""; RED_MODE="none"; fi
 echo "=== 佈局：靶機=$TARGET_MODE｜紅隊=$RED_MODE ==="
 
 # --- 契約 1：TARGET → MGMT --------------------------------------------------
-echo "=== 契約 1：TARGET → MGMT（:3100/:9090/:4317 通；非 telemetry :22 不通）==="
+echo "=== 契約 1：telemetry 三埠 + 指定 receiver:8000；其他 MGMT:8000/:22 不通 ==="
 if [ "$TARGET_MODE" = "netns" ]; then
-  ip netns exec ns-target python3 "$VT" --from-zone target --mgmt "$MGMT" || fails=1
+  ip netns exec ns-target python3 "$VT" --from-zone target \
+    --mgmt "$MGMT" --receiver "$RECEIVER" || fails=1
 else
   # VM 模式分兩段，而且**只有現場實證那段決定通過與否**。
   #
@@ -117,7 +119,8 @@ else
       fails=1
     fi
 
-    # (b) :9090 / :4317 正向與 :22 反向的開機自驗，加上「這份證據屬於現在這顆 VM」的檢查
+    # (b) :9090/:4317、receiver:8000 正向與其他 MGMT:8000/:22 反向的開機自驗，
+    #     加上「這份證據屬於現在這顆 VM」的檢查。
     want_nonce="$(cat "$NONCE_FILE" 2>/dev/null || echo "")"
     if [ -z "$want_nonce" ]; then
       echo "  ✗ 找不到 boot nonce（$NONCE_FILE）—— 無法確認開機自驗屬於這顆 VM"; fails=1
@@ -125,8 +128,12 @@ else
       echo "  ✗ console log 的 boot nonce 對不上 —— 那份自驗是舊 VM 留下的，不採信"; fails=1
     elif ! grep -q "非 telemetry :22 不通" "$CONSOLE" 2>/dev/null; then
       echo "  ✗ console 沒有 :22 反向斷言 —— 舊版探測腳本的 PASS 不採信，請重建 VM"; fails=1
+    elif ! grep -q "response receiver $RECEIVER:8000 通" "$CONSOLE" 2>/dev/null; then
+      echo "  ✗ console 沒有指定 receiver:8000 正向證據 —— 舊版探測腳本不採信"; fails=1
+    elif ! grep -q "非 receiver MGMT $MGMT:8000 不通" "$CONSOLE" 2>/dev/null; then
+      echo "  ✗ console 沒有其他 MGMT:8000 反向證據 —— 最小權限未獲證明"; fails=1
     elif grep -q "SLICE2A-RESULT: PASS" "$CONSOLE" 2>/dev/null; then
-      echo "  ✓ :9090 / :4317 通且 :22 不通，由本顆 VM 開機自驗通過（nonce 相符；非現場探測）"
+      echo "  ✓ :9090/:4317、receiver:8000 通；其他 MGMT:8000/:22 不通（nonce 相符）"
     else
       echo "  ✗ 本顆 VM 的開機自驗未通過（見 $CONSOLE 的 SLICE2A-RESULT）"; fails=1
     fi

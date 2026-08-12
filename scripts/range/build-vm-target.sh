@@ -25,6 +25,7 @@ NONCE_FILE="/tmp/range-target-boot.nonce"
 # shellcheck source=scripts/range/zones.env
 source "$DIR/zones.env"   # TARGET_IP / MGMT_STUB_IP / Z_TARGET_GW 等位址的唯一定義處
 MGMT_IP="$MGMT_STUB_IP"
+RESPONSE_IP="$MGMT_RECEIVER_IP"
 OSV="${OSV:-ubuntu24.04}"
 VM_MEM="${VM_MEM:-2048}"
 VM_VCPUS="${VM_VCPUS:-2}"
@@ -82,7 +83,7 @@ write_files:
     encoding: b64
     content: $(base64 -w0 "$DIR/contract1_probe.py")
 runcmd:
-  - [bash, -c, "python3 /opt/contract1_probe.py $MGMT_IP $BOOT_NONCE | tee /dev/console"]
+  - [bash, -c, "python3 /opt/contract1_probe.py $MGMT_IP $RESPONSE_IP $BOOT_NONCE | tee /dev/console"]
 YAML
 cat > "$NC" <<YAML
 version: 2

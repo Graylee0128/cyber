@@ -5,7 +5,8 @@
 **絕不 fake pass** —— 永遠綠的拓樸檢查等於沒有檢查。邏輯在 purple.topology_check。
 
 四條契約（SA §12.2）：
-  1. TARGET → MGMT 只有 TCP :3100 / :9090 / :4317 通，非 telemetry :22 不通
+  1. TARGET → MGMT telemetry 只通 TCP :3100 / :9090 / :4317；另只准指定
+     response receiver 的 :8000，其他 MGMT:8000 與非 telemetry :22 不通
   2. MGMT → TARGET 反向不通（response 走 agent pull 的整個理由）
   3. RED → MGMT deny all
   4. collector（Alloy / Falco / response agent）全部在 target 側
@@ -14,17 +15,19 @@
 兩種模式：
   --compose：對 docker compose 的網段歸屬驗 Docker membership 能強制的區規則（票 #15）。
              不需真網段，本機／CI 都能跑。方向性（契約 2）等真防火牆屬 #13。
-  --mgmt/--target：對真四區網段 socket 實測四條契約（workstream 6 / #13）。
+  --mgmt/--receiver/--target：對真四區網段 socket 實測四條契約（workstream 6 / #13）。
 
 每條契約要從**對應的區**測（不然會誤判——如契約 2「MGMT→TARGET 不通」在 target
 節點跑會連到自己而假通）。故 --from-zone 一次只驗它那條：
-    target → 契約 1（TARGET→MGMT 三個 telemetry port 通、:22 不通），需 --mgmt
+    target → 契約 1（三個 telemetry port 與指定 receiver:8000 通；其他
+             MGMT:8000、:22 不通），需 --mgmt 與 --receiver
     mgmt   → 契約 2（MGMT→TARGET 反向不通），需 --target
     red    → 契約 3（RED→MGMT deny all），需 --mgmt
 
 用法：
     python scripts/verify_topology.py --compose
-    ip netns exec ns-target python scripts/verify_topology.py --from-zone target --mgmt 10.167.10.10
+    ip netns exec ns-target python scripts/verify_topology.py --from-zone target \
+      --mgmt 10.167.10.10 --receiver 10.167.10.21
     ip netns exec ns-mgmt   python scripts/verify_topology.py --from-zone mgmt   --target 10.167.20.10
     ip netns exec ns-red1   python scripts/verify_topology.py --from-zone red    --mgmt 10.167.10.10
 退出碼 0＝本區契約通過；1＝契約不成立；2＝環境未就位。
@@ -83,6 +86,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--compose", action="store_true", help="驗 docker compose 網段歸屬（票 #15）")
     parser.add_argument("--mgmt", help="Z-MGMT 節點 IP")
+    parser.add_argument("--receiver", help="Z-MGMT response receiver IP")
     parser.add_argument("--target", help="Z-TARGET 節點 IP")
     parser.add_argument("--from-zone", choices=["target", "mgmt", "red"], default="target")
     args = parser.parse_args(argv)
@@ -91,18 +95,23 @@ def main(argv: list[str] | None = None) -> int:
         return _verify_compose()
 
     #: 每個 zone 驗它那條契約，各自需要的對端 IP。
-    needs = {"target": "mgmt", "mgmt": "target", "red": "mgmt"}
-    required = needs[args.from_zone]
-    if not getattr(args, required):
+    needs = {
+        "target": ("mgmt", "receiver"),
+        "mgmt": ("target",),
+        "red": ("mgmt",),
+    }
+    missing = [name for name in needs[args.from_zone] if not getattr(args, name)]
+    if missing:
+        required = " 與 ".join(f"--{name}" for name in missing)
         print(
-            f"環境未就位：--from-zone {args.from_zone} 需要 --{required}"
+            f"環境未就位：--from-zone {args.from_zone} 需要 {required}"
             f"（四區網段 / workstream 6）。\n本檢查刻意不在缺環境時回報成功。",
             file=sys.stderr,
         )
         return 2
 
     if args.from_zone == "target":
-        fails = check_target_to_mgmt(args.mgmt)          # 契約 1
+        fails = check_target_to_mgmt(args.mgmt, args.receiver)  # 契約 1
     elif args.from_zone == "mgmt":
         fails = check_mgmt_to_target_blocked(args.target)  # 契約 2
     else:  # red

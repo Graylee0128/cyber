@@ -2,8 +2,8 @@
 """Slice 1 range 的極簡 TCP listener（票 #13 / WS6）。
 
 兩個用途：
-- mgmt 用它佔住 telemetry :3100/:9090/:4317 與 deny canary :22，讓契約 1 的
-  正反向斷言都有意義——:22 若可達，能證明是 firewall allowlist 退化。
+- mgmt 用它佔住 telemetry :3100/:9090/:4317 與 deny canary :22/:8000；指定
+  receiver 另佔 :8000。兩個 :8000 都真的 listen，才能證明只有 receiver IP 獲准。
 - target 用它聽 :80 並記錄連入的 source IP，驗六台 red 出現六個可分辨 source IP
   （G0 因 NAT 把六台塌成兩個主機 IP 而退場，這是那條退場理由的直接防呆）。
 """

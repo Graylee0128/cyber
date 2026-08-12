@@ -84,7 +84,7 @@ sudo bash scripts/range/teardown-range.sh  # 拆掉（冪等，可重複）
 
 **預期**（`verify-range.sh` 末尾）：
 ```
-契約 1：TARGET → MGMT ... 拓樸契約通過（from-zone target）
+契約 1：telemetry 三埠 + 指定 receiver:8000；其他 MGMT:8000/:22 不通 ... 通過
 契約 2：MGMT → TARGET 反向不通 ... 拓樸契約通過（from-zone mgmt）
 契約 3：RED → MGMT deny all ... 拓樸契約通過（from-zone red）
 六台 red source IP：10.167.30.11 ~ .16（六個可分辨）
@@ -117,6 +117,9 @@ sudo bash scripts/range/build-vm-target.sh
 驗證機制（免 SSH）：VM 的 serial console 導到 `/tmp/range-target-console.log`，
 cloud-init 開機時跑契約 1 並把結果印到 console，host 讀該檔判定。看完整開機過程：
 `sudo cat /tmp/range-target-console.log`。
+
+VM probe 會同時驗 `MGMT_RECEIVER_IP:8000` 可達，以及一般 `MGMT_STUB_IP:8000`
+不可達；兩端都有 listener，失敗不能由「服務沒啟動」假裝成防火牆封鎖。
 
 覆寫點（環境變數）：`OSV`（os-variant，預設 `ubuntu24.04`）、`VM_MEM`、`VM_VCPUS`。
 例：`sudo OSV=ubuntu22.04 bash scripts/range/build-vm-target.sh`。
