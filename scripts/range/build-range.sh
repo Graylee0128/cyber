@@ -6,7 +6,7 @@
 # 一個 router netns 做 inter-VLAN 路由，nftables 在它的 forward hook 做**真方向性
 # 單向防火牆**——這是 #15 的 docker network membership 逼近做不到、而這裡真做的：
 #
-#   契約 1  TARGET → MGMT            允許（telemetry）
+#   契約 1  TARGET → MGMT            只允許 telemetry :3100/:9090/:4317
 #   契約 2  MGMT   → TARGET  new     擋（單向；只放 established 回程）
 #   契約 3  RED    → MGMT            deny all
 #   §12.3   RED    → TARGET :80/:3306 允許（紅隊打靶）
@@ -97,8 +97,8 @@ table inet range_fw {
     # 回程一律放行（讓契約 1 建立的連線能雙向完成）。
     ct state established,related accept
 
-    # 契約 1：TARGET(VLAN$Z_TARGET_VLAN) → MGMT(VLAN$Z_MGMT_VLAN) 允許（telemetry）。
-    ip saddr $TARGET_CIDR ip daddr $MGMT_CIDR accept
+    # 契約 1：TARGET(VLAN$Z_TARGET_VLAN) → MGMT(VLAN$Z_MGMT_VLAN) 只允許 telemetry。
+    ip saddr $TARGET_CIDR ip daddr $MGMT_CIDR tcp dport { 3100, 9090, 4317 } accept
 
     # §12.3：RED(VLAN$Z_RED_VLAN) → TARGET(VLAN$Z_TARGET_VLAN) 的 :80 / :3306 允許（紅隊打靶）。
     ip saddr $RED_CIDR ip daddr $TARGET_CIDR tcp dport { 80, 3306 } accept
@@ -110,12 +110,12 @@ table inet range_fw {
 }
 NFT
 
-echo "▶ 在 mgmt 起 stub listeners（:3100 :9090 :4317）"
+echo "▶ 在 mgmt 起 stub listeners（telemetry :3100/:9090/:4317；deny canary :22）"
 # nohup + disown：脫離腳本的行程群組，build 腳本 exit 後仍存活給 verify 用。
 nohup ip netns exec ns-mgmt python3 "$DIR/stub_listener.py" \
-  --ports 3100,9090,4317 >/tmp/range-mgmt-listener.log 2>&1 &
+  --ports 3100,9090,4317,22 >/tmp/range-mgmt-listener.log 2>&1 &
 echo $! > /tmp/range-mgmt-listener.pid
 disown || true
-sleep 1  # 讓三個 port 都 bind 完，契約 1 才不會撞到還沒 listen 的空窗
+sleep 1  # 讓 telemetry 與 deny canary 都 bind 完，契約 1 才不會撞到啟動空窗
 
 echo "✅ range 就緒。驗收：scripts/range/verify-range.sh"

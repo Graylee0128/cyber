@@ -39,6 +39,23 @@ jobs:
           sudo bash scripts/range/build-range.sh
           sudo bash scripts/range/verify-range.sh
 
+      # 刻意拿掉 Contract 1 的 dport allowlist 再重建。Z-MGMT 的 :22 deny canary
+      # 有 listener，因此這一步若沒有失敗，代表反向斷言已失去抓退化的能力。
+      - name: Contract 1 negative assertion can fail
+        run: |
+          sed -i \
+            's/ip saddr $TARGET_CIDR ip daddr $MGMT_CIDR tcp dport { 3100, 9090, 4317 } accept/ip saddr $TARGET_CIDR ip daddr $MGMT_CIDR accept/' \
+            scripts/range/build-range.sh
+          grep -Fq 'ip saddr $TARGET_CIDR ip daddr $MGMT_CIDR accept' scripts/range/build-range.sh
+          sudo bash scripts/range/build-range.sh
+          source scripts/range/zones.env
+          if sudo ip netns exec ns-target python3 scripts/verify_topology.py \
+            --from-zone target --mgmt "$MGMT_STUB_IP"; then
+            echo "::error::拿掉 Contract 1 dport allowlist 後反向斷言仍成功"
+            exit 1
+          fi
+          echo "反向斷言如預期抓到 TARGET→MGMT :22 被錯誤放行"
+
       - name: Show router ruleset + OVS topology (always)
         if: always()
         run: |

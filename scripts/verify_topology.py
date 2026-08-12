@@ -5,7 +5,7 @@
 **絕不 fake pass** —— 永遠綠的拓樸檢查等於沒有檢查。邏輯在 purple.topology_check。
 
 四條契約（SA §12.2）：
-  1. TARGET → MGMT 的 :3100 / :9090 / :4317 通
+  1. TARGET → MGMT 只有 :3100 / :9090 / :4317 通，非 telemetry :22 不通
   2. MGMT → TARGET 反向不通（response 走 agent pull 的整個理由）
   3. RED → MGMT deny all
   4. collector（Alloy / Falco / response agent）全部在 target 側
@@ -18,7 +18,7 @@
 
 每條契約要從**對應的區**測（不然會誤判——如契約 2「MGMT→TARGET 不通」在 target
 節點跑會連到自己而假通）。故 --from-zone 一次只驗它那條：
-    target → 契約 1（TARGET→MGMT 三 port 通），需 --mgmt
+    target → 契約 1（TARGET→MGMT 三個 telemetry port 通、:22 不通），需 --mgmt
     mgmt   → 契約 2（MGMT→TARGET 反向不通），需 --target
     red    → 契約 3（RED→MGMT deny all），需 --mgmt
 
