@@ -7,6 +7,8 @@
 - **下游影響**：WS6（動態配置）、WS3（藍隊動作）、WS7（Player Portal 嵌入 shell）
 - **草案拓樸圖**：[topology-v0_3-draft.svg](./topology-v0_3-draft.svg)
 - **中控畫面 demo**：[demo.html](./demo.html)（零依賴單檔、資料寫死；視覺提案，不代表 WS8 開工）
+- **玩家旅程圖**：[player-journey-v0_1-draft.svg](./player-journey-v0_1-draft.svg)
+  —— 七階段 × 六泳道，本檔 §2／§3／§4 的時間軸版本。**這是全 repo 第一張流程圖**（既有六張 SVG 全是拓樸／分層，畫的是空間不是時間）
 
 ---
 

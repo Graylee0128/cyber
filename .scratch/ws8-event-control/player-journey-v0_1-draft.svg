@@ -1,0 +1,257 @@
+<svg width="2160" height="1210" viewBox="0 0 2160 1210" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>玩家旅程 v0.1 草案 — 一場演練從報到到結算的七個階段與六條泳道</title>
+<desc>橫軸為時間（① 報到 → ② 入場 → ③ 領號 → ④ 環境配置 → ⑤ 開演 → ⑥ 攻防迴圈 → ⑦ 結算），縱軸為元件泳道（玩家、Z-EDGE、Admission Service、Seat Provisioner、Range Core、Purple Platform）。全圖唯一的身分產生點在階段 ③：憑據驗證只輸出 boolean，player_id 是配到座位那一刻才鑄造的。WS8 在 ③ 交出 player_id 後退出，不參與 ⑤⑥⑦。</desc>
+<style>
+  text { font-family: "Noto Sans CJK TC", "PingFang TC", "Microsoft JhengHei", "Helvetica Neue", Arial, sans-serif; }
+  .ttl   { font-size: 19px;   font-weight: 700; fill: #2C2C2A; }
+  .sub   { font-size: 12px;   font-weight: 400; fill: #5F5E5A; }
+  .lane  { font-size: 14px;   font-weight: 600; fill: #2C2C2A; }
+  .lanes { font-size: 10.5px; font-weight: 400; fill: #5F5E5A; }
+  .ph    { font-size: 14px;   font-weight: 600; fill: #2C2C2A; }
+  .th    { font-size: 12.5px; font-weight: 600; }
+  .ts    { font-size: 10px;   font-weight: 400; }
+  .tl    { font-size: 10.5px; font-weight: 400; fill: #5F5E5A; }
+  .tlk   { font-size: 10.5px; font-weight: 600; fill: #185FA5; }
+  .tnote { font-size: 11px;   font-weight: 400; fill: #2C2C2A; }
+  .tnk   { font-size: 12px;   font-weight: 700; fill: #2C2C2A; }
+  .bg     { fill: #FFFFFF; }
+  .laneband { fill: #FBFAF6; stroke: #D3D1C7; stroke-width: 1; }
+  .laneband.alt { fill: #F4F2EB; }
+  .phband { fill: #F1EFE8; stroke: #B4B2A9; stroke-width: 1; }
+  .phsep  { stroke: #D3D1C7; stroke-width: 1; stroke-dasharray: 4 5; }
+  .link   { stroke: #185FA5; stroke-width: 1.6; fill: none; }
+  .link.pull { stroke: #854F0B; stroke-width: 1.6; stroke-dasharray: 6 4; }
+  .n-gray  rect { fill: #F1EFE8; stroke: #5F5E5A; stroke-width: 1; }
+  .n-gray  .th { fill: #2C2C2A; } .n-gray  .ts { fill: #5F5E5A; }
+  .n-teal  rect { fill: #E1F5EE; stroke: #0F6E56; stroke-width: 1.6; }
+  .n-teal  .th { fill: #04342C; } .n-teal  .ts { fill: #0F6E56; }
+  .n-blue  rect { fill: #E6F1FB; stroke: #185FA5; stroke-width: 1; }
+  .n-blue  .th { fill: #042C53; } .n-blue  .ts { fill: #185FA5; }
+  .n-red   rect { fill: #FCEBEB; stroke: #A32D2D; stroke-width: 1; }
+  .n-red   .th { fill: #501313; } .n-red   .ts { fill: #A32D2D; }
+  .n-amber rect { fill: #FAEEDA; stroke: #854F0B; stroke-width: 1; }
+  .n-amber .th { fill: #412402; } .n-amber .ts { fill: #854F0B; }
+  .n-slate rect { fill: #E9EEF4; stroke: #3F5169; stroke-width: 1; }
+  .n-slate .th { fill: #17222F; } .n-slate .ts { fill: #3F5169; }
+  .todo rect { stroke-dasharray: 5 4; }
+  .notebox { fill: #FBFAF6; stroke: #B4B2A9; stroke-width: 1; }
+  .notebox.hi { fill: #E1F5EE; stroke: #0F6E56; stroke-width: 1.6; }
+  @media (prefers-color-scheme: dark) {
+    .bg { fill: #10161C; }
+    .ttl, .lane, .ph, .tnote, .tnk { fill: #E7EDF4; }
+    .sub, .lanes, .tl { fill: #93A1B1; }
+    .laneband { fill: #18222D; stroke: #2B3A49; }
+    .laneband.alt { fill: #141C25; }
+    .phband { fill: #1D2833; stroke: #41546A; }
+    .phsep { stroke: #2B3A49; }
+    .link { stroke: #6CB0EC; } .link.pull { stroke: #D9A441; }
+    .tlk { fill: #6CB0EC; }
+    .n-gray  rect { fill: #1E2831; stroke: #93A1B1; } .n-gray  .th { fill: #E7EDF4; } .n-gray  .ts { fill: #93A1B1; }
+    .n-teal  rect { fill: #142A24; stroke: #2E8C70; } .n-teal  .th { fill: #A8E8D2; } .n-teal  .ts { fill: #5FC7A5; }
+    .n-blue  rect { fill: #12243A; stroke: #6CB0EC; } .n-blue  .th { fill: #CFE5FA; } .n-blue  .ts { fill: #6CB0EC; }
+    .n-red   rect { fill: #2E1618; stroke: #F06A80; } .n-red   .th { fill: #FBD0D6; } .n-red   .ts { fill: #F06A80; }
+    .n-amber rect { fill: #2C2010; stroke: #D9A441; } .n-amber .th { fill: #F6E2BC; } .n-amber .ts { fill: #D9A441; }
+    .n-slate rect { fill: #1A2330; stroke: #8FA3BE; } .n-slate .th { fill: #DCE6F2; } .n-slate .ts { fill: #8FA3BE; }
+    .notebox { fill: #18222D; stroke: #41546A; }
+    .notebox.hi { fill: #142A24; stroke: #2E8C70; }
+  }
+</style>
+<defs>
+  <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#185FA5"/>
+  </marker>
+  <marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#854F0B"/>
+  </marker>
+</defs>
+
+<rect class="bg" x="0" y="0" width="2160" height="1210"/>
+
+<!-- ── 標題 ───────────────────────────────────────────────── -->
+<text class="ttl" x="24" y="34">玩家旅程 v0.1 草案 —— 一場演練從報到到結算</text>
+<text class="sub" x="24" y="56">橫軸＝時間，縱軸＝元件。這是三張流程圖裡的 A；B（單次攻防的跨元件時序）與 C（Exercise 狀態機）尚未畫。虛線框＝尚未實作。</text>
+
+<!-- ── 階段帶 ─────────────────────────────────────────────── -->
+<rect class="phband" x="280" y="92" width="1848" height="34"/>
+<text class="ph" x="395"  y="115" text-anchor="middle">① 報到</text>
+<text class="ph" x="637"  y="115" text-anchor="middle">② 入場</text>
+<text class="ph" x="929"  y="115" text-anchor="middle">③ 領號</text>
+<text class="ph" x="1246" y="115" text-anchor="middle">④ 環境配置</text>
+<text class="ph" x="1503" y="115" text-anchor="middle">⑤ 開演</text>
+<text class="ph" x="1770" y="115" text-anchor="middle">⑥ 攻防迴圈</text>
+<text class="ph" x="2030" y="115" text-anchor="middle">⑦ 結算</text>
+
+<!-- 階段分隔線 -->
+<line class="phsep" x1="516"  y1="92" x2="516"  y2="928"/>
+<line class="phsep" x1="758"  y1="92" x2="758"  y2="928"/>
+<line class="phsep" x1="1100" y1="92" x2="1100" y2="928"/>
+<line class="phsep" x1="1392" y1="92" x2="1392" y2="928"/>
+<line class="phsep" x1="1614" y1="92" x2="1614" y2="928"/>
+<line class="phsep" x1="1926" y1="92" x2="1926" y2="928"/>
+
+<!-- ── 泳道底色與標籤 ─────────────────────────────────────── -->
+<rect class="laneband"     x="24" y="140" width="2104" height="150"/>
+<rect class="laneband alt" x="24" y="298" width="2104" height="100"/>
+<rect class="laneband"     x="24" y="406" width="2104" height="150"/>
+<rect class="laneband alt" x="24" y="564" width="2104" height="104"/>
+<rect class="laneband"     x="24" y="676" width="2104" height="140"/>
+<rect class="laneband alt" x="24" y="824" width="2104" height="104"/>
+
+<text class="lane"  x="40" y="205">玩家</text>
+<text class="lanes" x="40" y="224">Red／Blue，瀏覽器</text>
+<text class="lanes" x="40" y="240">看的是 Player Portal（WS7）</text>
+
+<text class="lane"  x="40" y="340">Z-EDGE　VLAN 50</text>
+<text class="lanes" x="40" y="359">nginx／TLS 終結、反向代理</text>
+<text class="lanes" x="40" y="375">零持久化：無 DB、無座位表、無 secret</text>
+
+<text class="lane"  x="40" y="465">Admission Service</text>
+<text class="lanes" x="40" y="484">Z-APP　VLAN 40　WS8</text>
+<text class="lanes" x="40" y="500">憑據 → 座位 → 會話，三段分離</text>
+
+<text class="lane"  x="40" y="608">Seat Provisioner</text>
+<text class="lanes" x="40" y="627">host 側常駐 agent　WS6-y（#62）</text>
+
+<text class="lane"  x="40" y="732">Range Core</text>
+<text class="lanes" x="40" y="751">Z-APP　VLAN 40　WS5</text>
+<text class="lanes" x="40" y="767">Exercise／Score／Objective 的真相來源</text>
+
+<text class="lane"  x="40" y="866">Purple Platform</text>
+<text class="lanes" x="40" y="885">Z-TARGET ＋ Z-MGMT　WS4</text>
+
+<!-- ── L1 玩家 ────────────────────────────────────────────── -->
+<g class="n-gray"><rect x="296" y="162" width="198" height="46" rx="4"/>
+  <text class="th" x="395" y="182" text-anchor="middle">拿到憑據</text>
+  <text class="ts" x="395" y="198" text-anchor="middle">現場碼（60s 窗）／一次性連結</text></g>
+<g class="n-gray todo"><rect x="538" y="162" width="198" height="46" rx="4"/>
+  <text class="th" x="637" y="182" text-anchor="middle">輸入碼／點連結</text>
+  <text class="ts" x="637" y="198" text-anchor="middle">單一 :443 入口</text></g>
+<g class="n-gray todo"><rect x="780" y="162" width="298" height="46" rx="4"/>
+  <text class="th" x="929" y="182" text-anchor="middle">配到座位（例：r-03）</text>
+  <text class="ts" x="929" y="198" text-anchor="middle">此後回程靠 session cookie</text></g>
+<g class="n-gray todo"><rect x="1122" y="162" width="248" height="46" rx="4"/>
+  <text class="th" x="1246" y="182" text-anchor="middle">等待環境就緒</text>
+  <text class="ts" x="1246" y="198" text-anchor="middle">pull 的延遲，玩家看得到</text></g>
+<g class="n-gray todo"><rect x="1414" y="162" width="178" height="46" rx="4"/>
+  <text class="th" x="1503" y="182" text-anchor="middle">倒數開始</text>
+  <text class="ts" x="1503" y="198" text-anchor="middle">純時間制，全場同時</text></g>
+<g class="n-red todo"><rect x="1636" y="162" width="268" height="46" rx="4"/>
+  <text class="th" x="1770" y="182" text-anchor="middle">Red：在嵌入 shell 攻擊</text>
+  <text class="ts" x="1770" y="198" text-anchor="middle">來源 IP 可分辨到人 → 個人計分</text></g>
+<g class="n-blue todo"><rect x="1636" y="220" width="268" height="46" rx="4"/>
+  <text class="th" x="1770" y="240" text-anchor="middle">Blue：在 Blue SOC 處置</text>
+  <text class="ts" x="1770" y="256" text-anchor="middle">受限 shell，非 root（Z-BLUE）</text></g>
+<g class="n-gray todo"><rect x="1948" y="162" width="164" height="46" rx="4"/>
+  <text class="th" x="2030" y="182" text-anchor="middle">看到最終分數</text>
+  <text class="ts" x="2030" y="198" text-anchor="middle">Battleboard／Portal</text></g>
+
+<!-- ── L2 Z-EDGE ──────────────────────────────────────────── -->
+<g class="n-slate todo"><rect x="538" y="318" width="198" height="48" rx="4"/>
+  <text class="th" x="637" y="339" text-anchor="middle">TLS 終結</text>
+  <text class="ts" x="637" y="355" text-anchor="middle">auth_request 子請求 → APP</text></g>
+<g class="n-slate todo"><rect x="1636" y="318" width="268" height="48" rx="4"/>
+  <text class="th" x="1770" y="339" text-anchor="middle">ttyd 反向代理</text>
+  <text class="ts" x="1770" y="355" text-anchor="middle">EDGE → RED／BLUE :7681（容器內）</text></g>
+
+<!-- ── L3 Admission ───────────────────────────────────────── -->
+<g class="n-amber todo"><rect x="538" y="428" width="198" height="46" rx="4"/>
+  <text class="th" x="637" y="448" text-anchor="middle">驗證憑據 → boolean</text>
+  <text class="ts" x="637" y="464" text-anchor="middle">輸出不含身分</text></g>
+<g class="n-amber todo"><rect x="780" y="428" width="298" height="46" rx="4"/>
+  <text class="th" x="929" y="448" text-anchor="middle">原子配位 ＋ 寫 seat(requested)</text>
+  <text class="ts" x="929" y="464" text-anchor="middle">SELECT … FOR UPDATE SKIP LOCKED（PG）</text></g>
+<g class="n-teal todo"><rect x="780" y="486" width="298" height="46" rx="4"/>
+  <text class="th" x="929" y="506" text-anchor="middle">★ 鑄造 player_id</text>
+  <text class="ts" x="929" y="522" text-anchor="middle">全架構唯一的身分產生點</text></g>
+
+<!-- ── L4 Provisioner ─────────────────────────────────────── -->
+<g class="n-red"><rect x="800" y="584" width="260" height="48" rx="4"/>
+  <text class="th" x="930" y="605" text-anchor="middle">額滿 → 直接拒絕</text>
+  <text class="ts" x="930" y="621" text-anchor="middle">無候補、不共用機器（計分的物理前提）</text></g>
+<g class="n-amber todo"><rect x="1122" y="584" width="248" height="48" rx="4"/>
+  <text class="th" x="1246" y="605" text-anchor="middle">建容器／網路 → 回寫</text>
+  <text class="ts" x="1246" y="621" text-anchor="middle">endpoint、state=ready</text></g>
+<g class="n-red"><rect x="1636" y="584" width="268" height="48" rx="4"/>
+  <text class="th" x="1770" y="605" text-anchor="middle">換裝置／清 cookie → 回不去</text>
+  <text class="ts" x="1770" y="621" text-anchor="middle">須 Instructor 手動改綁（#61），非可選功能</text></g>
+
+<!-- ── L5 Range Core ──────────────────────────────────────── -->
+<g class="n-teal todo"><rect x="780" y="698" width="298" height="46" rx="4"/>
+  <text class="th" x="929" y="718" text-anchor="middle">接收 player_id handoff</text>
+  <text class="ts" x="929" y="734" text-anchor="middle">中控在此交棒後退出</text></g>
+<g class="n-teal todo"><rect x="1414" y="698" width="178" height="46" rx="4"/>
+  <text class="th" x="1503" y="718" text-anchor="middle">exercise → running</text>
+  <text class="ts" x="1503" y="734" text-anchor="middle">同時只有一場（#32）</text></g>
+<g class="n-teal todo"><rect x="1636" y="698" width="268" height="46" rx="4"/>
+  <text class="th" x="1770" y="718" text-anchor="middle">objective 判定／個人計分</text>
+  <text class="ts" x="1770" y="734" text-anchor="middle">遙測路徑 #33／flag 路徑 #34</text></g>
+<g class="n-teal todo"><rect x="1948" y="698" width="164" height="46" rx="4"/>
+  <text class="th" x="2030" y="718" text-anchor="middle">ended → Report</text>
+  <text class="ts" x="2030" y="734" text-anchor="middle">#28</text></g>
+
+<!-- ── L6 Purple ──────────────────────────────────────────── -->
+<g class="n-blue"><rect x="1636" y="844" width="268" height="48" rx="4"/>
+  <text class="th" x="1770" y="865" text-anchor="middle">靶機 → Falco → Alloy → Loki</text>
+  <text class="ts" x="1770" y="881" text-anchor="middle">→ Grafana（唯一 engine）→ Core Event</text></g>
+<g class="n-blue todo"><rect x="1948" y="844" width="164" height="48" rx="4"/>
+  <text class="th" x="2030" y="865" text-anchor="middle">coverage／MTTD</text>
+  <text class="ts" x="2030" y="881" text-anchor="middle">P2 #24／#25</text></g>
+
+<!-- ── Instructor 觸發（掛在 ⑤ 的空泳道上） ───────────────── -->
+<g class="n-gray todo"><rect x="1414" y="428" width="178" height="46" rx="4"/>
+  <text class="th" x="1503" y="448" text-anchor="middle">Instructor 按 Start</text>
+  <text class="ts" x="1503" y="464" text-anchor="middle">Instructor Console（WS7）</text></g>
+
+<!-- ── 連線 ───────────────────────────────────────────────── -->
+<path class="link" marker-end="url(#a)" d="M 494 185 H 532"/>
+<path class="link" marker-end="url(#a)" d="M 637 208 V 312"/>
+<path class="link" marker-end="url(#a)" d="M 637 366 V 422"/>
+<path class="link" marker-end="url(#a)" d="M 736 451 H 774"/>
+<text class="tlk" x="755" y="443" text-anchor="middle">true</text>
+<path class="link" marker-end="url(#a)" d="M 929 474 V 480"/>
+<path class="link" marker-end="url(#a)" d="M 780 509 H 768 V 715 H 774"/>
+<text class="tlk" x="764" y="600" text-anchor="end">handoff</text>
+<path class="link" marker-end="url(#a)" d="M 1050 428 V 214"/>
+<text class="tlk" x="1058" y="330">座位＋shell URL</text>
+<path class="link pull" marker-end="url(#ap)" d="M 1122 608 H 1100 V 451 H 1084"/>
+<text class="ts" x="1112" y="500" fill="#854F0B">◀ 輪詢 seat(requested)</text>
+<text class="ts" x="1112" y="516" fill="#854F0B">　 中控不主動呼叫 host</text>
+<path class="link" marker-end="url(#a)" d="M 1246 584 V 214"/>
+<text class="tlk" x="1254" y="345">環境就緒</text>
+<path class="link" marker-end="url(#a)" d="M 1503 474 V 692"/>
+<path class="link" marker-end="url(#a)" d="M 1592 721 H 1630"/>
+<path class="link" marker-start="url(#a)" marker-end="url(#a)" d="M 1700 214 V 312"/>
+<path class="link" marker-end="url(#a)" d="M 1904 185 H 1916 V 868 H 1910"/>
+<text class="tlk" x="1898" y="914" text-anchor="end">攻擊流量</text>
+<path class="link" marker-end="url(#a)" d="M 1770 844 V 750"/>
+<text class="tlk" x="1778" y="800">Core Event</text>
+<path class="link" marker-end="url(#a)" d="M 1904 721 H 1942"/>
+<path class="link" marker-end="url(#a)" d="M 1904 868 H 1942"/>
+<path class="link" marker-end="url(#a)" d="M 2030 698 V 214"/>
+
+<!-- ── 註記 ───────────────────────────────────────────────── -->
+<rect class="notebox hi" x="24" y="968" width="1032" height="96" rx="5"/>
+<text class="tnk"   x="44" y="994">★ 為什麼身分在 ③ 鑄造，不在 ② 驗證</text>
+<text class="tnote" x="44" y="1015">現場進場碼是<tspan font-weight="700">全場共用</tspan>的 —— 一百個人輸入同一組碼，驗證器沒有任何資訊可以區分他們。</text>
+<text class="tnote" x="44" y="1034">把身分綁在憑據上的設計，在現場路徑上直接壞掉。所以驗證只回一個 boolean，</text>
+<text class="tnote" x="44" y="1053">player_id 是配到座位那一刻才誕生的（WS8 spec §2.1）。</text>
+
+<rect class="notebox" x="1104" y="968" width="1032" height="96" rx="5"/>
+<text class="tnk"   x="1124" y="994">WS8 在 ③ 之後就退出 —— 圖上它沒有 ⑤⑥⑦</text>
+<text class="tnote" x="1124" y="1015">中控只擁有身分／座位／會話。Exercise state 與 score 屬 WS5、telemetry 屬 WS4。</text>
+<text class="tnote" x="1124" y="1034">它<tspan font-weight="700">不得成為第二個遊戲狀態的真相來源</tspan> —— 同 SA §3.2 對 Grafana 講過的那句話。</text>
+<text class="tnote" x="1124" y="1053">中控畫面上刻意沒有分數欄，就是這條線的具體表現。</text>
+
+<rect class="notebox" x="24" y="1080" width="1032" height="96" rx="5"/>
+<text class="tnk"   x="44" y="1106">④ 的等待是刻意的，不是效能疏忽</text>
+<text class="tnote" x="44" y="1127">中控只寫 seat(requested)，由 host 側 agent 輪詢後回寫 —— <tspan font-weight="700">pull，不是 push</tspan>。</text>
+<text class="tnote" x="44" y="1146">push 會讓網路平面上的服務成為「可主動對 host 下指令」的來源，與契約 2 同一條邏輯：</text>
+<text class="tnote" x="44" y="1165">延遲換單向性。50+ 規模也把 range-up.sh 從一次性 IaC 變成常駐服務（#62）。</text>
+
+<rect class="notebox" x="1104" y="1080" width="1032" height="96" rx="5"/>
+<text class="tnk"   x="1124" y="1106">實作狀態：這張圖只有 ⑥ 那條藍線是真的跑得動的</text>
+<text class="tnote" x="1124" y="1127">實線框＝已實作並有測試（Purple 那條鏈由 T4 全鏈測試守著）。虛線框＝草案或未開工：</text>
+<text class="tnote" x="1124" y="1146">整條 WS8（②③）尚無票消費、Provisioner（④）是 #62、Range Core（⑤⑥⑦）只交付了 #31。</text>
+<text class="tnote" x="1124" y="1165">換句話說：<tspan font-weight="700">玩家旅程目前只有中段是實的，頭尾都還是紙上的。</tspan></text>
+
+</svg>

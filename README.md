@@ -156,6 +156,7 @@ T4 是整條鏈最真的一段（`tests/integration/test_falco_range_chain.py`�
 | [docs/adr/](./docs/adr/) | 架構決策紀錄，含 trade-off 與被放棄的選項 |
 | [demo_network_topology_v0_2_1.svg](./demo_network_topology_v0_2_1.svg) | **現行**網路拓樸（四區） |
 | [cyber_range_platform_layered_architecture.svg](./cyber_range_platform_layered_architecture.svg) | 分層架構圖 |
+| [.scratch/ws8-event-control/player-journey-v0_1-draft.svg](./.scratch/ws8-event-control/player-journey-v0_1-draft.svg) | **玩家旅程**（七階段 × 六泳道）—— 唯一一張畫時間的圖，其餘全是畫空間的 |
 | [discuss.md](./discuss.md) | 最早的 dashboard 構想（歷史文件，多數已被 SA 吸收） |
 | [archive/](./archive/) | 已非現行的拓樸圖與世代關係 |
 
