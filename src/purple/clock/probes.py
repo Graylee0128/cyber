@@ -48,7 +48,29 @@ def read_docker(container: str, timeout_s: int = PROBE_TIMEOUT_S) -> datetime:
         raise ProbeError(f"docker exec timed out after {timeout_s}s") from exc
 
     if completed.returncode != 0:
-        raise ProbeError(f"docker exec failed: {completed.stderr.strip()}")
+        # Compose v2 prefixes runtime names with the project (for example
+        # ``cyber-alloy-1``). Resolve the stable service name rather than baking
+        # a checkout-dependent project prefix into clock-nodes-compose.yaml.
+        try:
+            resolved = subprocess.run(
+                ["docker", "compose", "ps", "-q", container],
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ProbeError(f"docker compose lookup timed out after {timeout_s}s") from exc
+        container_id = resolved.stdout.strip()
+        if resolved.returncode != 0 or not container_id:
+            raise ProbeError(f"docker exec failed: {completed.stderr.strip()}")
+        completed = subprocess.run(
+            ["docker", "exec", container_id, "date", "+%s.%N"],
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+        )
+        if completed.returncode != 0:
+            raise ProbeError(f"docker exec failed: {completed.stderr.strip()}")
 
     return parse_epoch(completed.stdout.strip(), container)
 
