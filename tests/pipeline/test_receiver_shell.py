@@ -5,6 +5,7 @@ from purple.receiver.adapters import RecordingAdapter
 from purple.response.queue import InMemoryCommandQueue
 from purple.store.alerts import AlertRecordStore
 from purple.store.events import CoreEventStore
+from purple.store.fingerprints import FingerprintIndex
 
 import pytest
 
@@ -88,15 +89,37 @@ class TestIngest:
         assert commands[0].action == "block"
         assert commands[0].source_ip == "10.167.30.11"
 
-    def test_repeat_notification_of_the_same_firing_alert_does_not_reenqueue(self, wired):
+    def test_repeat_notification_of_the_same_firing_alert_does_not_reenqueue(
+        self, wired, pg_connection
+    ):
         """policies.yaml 的 repeat_interval 讓 Grafana 對同一個持續 firing 的 alert
         反覆重送 webhook（同一個 fingerprint／同一個 event_id）。重送不該讓同一次
         攻擊被重複封鎖、重複產生 response.executed（#17 real-range 上實測到
         15s 一次的重送會不斷 enqueue，直到我們把 enqueue 綁到「這次是不是真的
-        新事件」為止）。"""
+        新事件」為止）。
+
+        兩次呼叫必須共用同一個 fingerprint index，重送的 alert 才會鑄成同一個
+        event_id——生產環境的 server.py 就是這樣接的；沒有 fingerprints 時
+        ingest_alert 每次都會鑄新 id，反而測不出重送的情境。
+        """
         events, records, adapter, queue = wired
-        ingest_alert(FIRING, events=events, records=records, adapter=adapter, response_queue=queue)
-        ingest_alert(FIRING, events=events, records=records, adapter=adapter, response_queue=queue)
+        fingerprints = FingerprintIndex(pg_connection)
+        ingest_alert(
+            FIRING,
+            events=events,
+            records=records,
+            adapter=adapter,
+            response_queue=queue,
+            fingerprints=fingerprints,
+        )
+        ingest_alert(
+            FIRING,
+            events=events,
+            records=records,
+            adapter=adapter,
+            response_queue=queue,
+            fingerprints=fingerprints,
+        )
         commands = queue.claim()
         assert len(commands) == 1
 
