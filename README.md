@@ -55,14 +55,14 @@ Falco 是 runtime sensor，需要驅動吃得下 host kernel。腳本用
 | WS | 工作包 | 內容 | 狀態 |
 |---|---|---|---|
 | **6** | Range Infrastructure | 執行環境、隔離、Reset、網路與部署 | ✅ 四區 VLAN／方向性防火牆／靶機真 VM／六台紅隊／一鍵 IaC 已在單主機實測 |
-| **4-P1** | Purple Platform · Telemetry & Detection | 遙測、偵測、Response、事件 schema | 🟡 四契約與全鏈已真環境實測；[驗收 9 項中 4 項有證據](./purple_platform_plan.md#27-p1-驗收)，餘 [#18](https://github.com/Graylee0128/cyber/issues/18) [#29](https://github.com/Graylee0128/cyber/issues/29) [#30](https://github.com/Graylee0128/cyber/issues/30) 在追。[#17](https://github.com/Graylee0128/cyber/issues/17) 程式碼已合併（PR #39）但**結案留言列的三項大主機驗證尚未回報**，故驗收第 2／7 項仍未打勾 |
-| **4-P2** | Purple Platform · Evaluation & Console | coverage／MTTD／MTTR／缺口分類、**Purple Console** | 🟡 已切票 [#21](https://github.com/Graylee0128/cyber/issues/21)–[#28](https://github.com/Graylee0128/cyber/issues/28)；#21 可立即開工，Console 兩張卡 [#26](https://github.com/Graylee0128/cyber/issues/26)／[#27](https://github.com/Graylee0128/cyber/issues/27) |
+| **4-P1** | Purple Platform · Telemetry & Detection | 遙測、偵測、Response、事件 schema | 🟡 四契約與全鏈已真環境實測；[驗收 9 項中 4 項有證據](./purple_platform_plan.md#27-p1-驗收)，餘 [#18](https://github.com/Graylee0128/cyber/issues/18)（source registry）[#29](https://github.com/Graylee0128/cyber/issues/29)（來源欄位＋VM 時鐘）在追。response 鏈程式碼已合（PR #39），三項大主機驗證隨 [#44](https://github.com/Graylee0128/cyber/issues/44) 重烤 golden 一併補，故驗收第 2／7 項仍未打勾 |
+| **4-P2** | Purple Platform · Evaluation & Console | coverage／MTTD／MTTR／缺口分類、**Purple Console** | 🟡 已切三張傘票 [#21](https://github.com/Graylee0128/cyber/issues/21)（Evaluation Backend）[#26](https://github.com/Graylee0128/cyber/issues/26)（Purple Console）[#28](https://github.com/Graylee0128/cyber/issues/28)（Exercise Report）；#21 的 Phase 1 可立即開工 |
 | **5** | Cyber Range Core | Event、Score、Exercise State、API | 🟡 架構已定案（[spec](./.scratch/ws5-range-core/spec.md)，2026-08-11 grilling，5 題）；[#31](https://github.com/Graylee0128/cyber/issues/31) 已由 PR #40 交付，**但交付格式與同日 WS2 決策有六處衝突** —— 遷移票 [#42](https://github.com/Graylee0128/cyber/issues/42) 應先於 [#32](https://github.com/Graylee0128/cyber/issues/32) 起的其餘票 |
-| **1** | Product / Game Design | 遊戲規則、流程、難度、Objective、Hint | ✅ 規則已定案（[spec](./.scratch/ws1-game-design/spec.md)，2026-08-11 grilling，8 題）。無自有程式碼產出（SA §4.2：無基礎設施足跡），決策已內嵌為 [#31](https://github.com/Graylee0128/cyber/issues/31)–[#38](https://github.com/Graylee0128/cyber/issues/38) 的驗收條件 |
-| **2** | Scenario / Target | 靶機、漏洞、攻擊鏈、Flag、Scenario Package | 🟡 內容規則已定案（[spec](./.scratch/ws2-scenario-target/spec.md)，2026-08-11 grilling，17 題）；已切票 [#42](https://github.com/Graylee0128/cyber/issues/42)–[#47](https://github.com/Graylee0128/cyber/issues/47)，**#42 建議優先**（修正已合併的 schema，PR #54 在審）。#44（真攻擊面）要重烤 golden |
-| **3** | Blue Operations | Incident、Investigation、Response Workflow | 🟡 藍隊工作定義已定案（[spec](./.scratch/ws3-blue-ops/spec.md)，2026-08-11 grilling，9 題）；已切票 [#48](https://github.com/Graylee0128/cyber/issues/48)–[#51](https://github.com/Graylee0128/cyber/issues/51)。**關鍵發現：封鎖原本是全自動的，SA §9 四個 Blue objective 有三個是機器在做** |
-| **8** | Event Control Plane（會議中控）| 憑據、座位、會話 —— `player_id` 的唯一產生點 | 🟡 spec draft（[spec](./.scratch/ws8-event-control/spec.md)、[中控畫面 demo](./.scratch/ws8-event-control/demo.html)、[玩家旅程圖](./.scratch/ws8-event-control/player-journey-v0_1-draft.svg)），已切票 [#56](https://github.com/Graylee0128/cyber/issues/56)–[#63](https://github.com/Graylee0128/cyber/issues/63)；三個待決在 [#65](https://github.com/Graylee0128/cyber/issues/65) 待拍板 |
-| **7** | Product UI | Player Portal、Blue SOC、Battleboard、Instructor（**Purple Console 屬 4-P2**，SA §4.2）| 🟡 **邊界層**已定案（[spec](./.scratch/ws7-boundary/spec.md)，2026-08-11 grilling，4 題），票 [#52](https://github.com/Graylee0128/cyber/issues/52)／[#53](https://github.com/Graylee0128/cyber/issues/53)；**畫面層**仍未開始（數字由 4-P2／5 產生，不宜早做），已有[視覺提案](./.scratch/product-ui/spec.md)（[#55](https://github.com/Graylee0128/cyber/issues/55)）|
+| **1** | Product / Game Design | 遊戲規則、流程、難度、Objective、Hint | ✅ 規則已定案（[spec](./.scratch/ws1-game-design/spec.md)，2026-08-11 grilling，8 題）。無自有程式碼產出（SA §4.2：無基礎設施足跡），決策已內嵌為 WS5（[#32](https://github.com/Graylee0128/cyber/issues/32)／[#33](https://github.com/Graylee0128/cyber/issues/33)）與 WS2 諸票的驗收條件 |
+| **2** | Scenario / Target | 靶機、漏洞、攻擊鏈、Flag、Scenario Package | 🟡 內容規則已定案（[spec](./.scratch/ws2-scenario-target/spec.md)，2026-08-11 grilling，17 題）；已切票 [#42](https://github.com/Graylee0128/cyber/issues/42)（schema 遷移）[#43](https://github.com/Graylee0128/cyber/issues/43)（sources 重整）[#44](https://github.com/Graylee0128/cyber/issues/44)（真攻擊面）[#47](https://github.com/Graylee0128/cyber/issues/47)（第一個真 scenario）。**#42 建議優先**（修正已合併 schema，PR #54 在審）；#44 要重烤 golden |
+| **3** | Blue Operations | Incident、Investigation、Response Workflow | 🟡 藍隊工作定義已定案（[spec](./.scratch/ws3-blue-ops/spec.md)，2026-08-11 grilling，9 題）；已切票 [#48](https://github.com/Graylee0128/cyber/issues/48)（人在迴圈）[#49](https://github.com/Graylee0128/cyber/issues/49)（Investigation／遮蔽／評分）[#51](https://github.com/Graylee0128/cyber/issues/51)（封鎖路徑）。**關鍵發現：封鎖原本是全自動的，SA §9 四個 Blue objective 有三個是機器在做** |
+| **8** | Event Control Plane（會議中控）| 憑據、座位、會話 —— `player_id` 的唯一產生點 | 🟡 spec draft（[spec](./.scratch/ws8-event-control/spec.md)、[中控畫面 demo](./.scratch/ws8-event-control/demo.html)、[玩家旅程圖](./.scratch/ws8-event-control/player-journey-v0_1-draft.svg)），已切票 [#20](https://github.com/Graylee0128/cyber/issues/20)（六區網路契約）[#56](https://github.com/Graylee0128/cyber/issues/56)（SA 回寫）[#59](https://github.com/Graylee0128/cyber/issues/59)（Admission／Seat）[#62](https://github.com/Graylee0128/cyber/issues/62)（Seat Runtime）；決策 gate 在 [#65](https://github.com/Graylee0128/cyber/issues/65) 待拍板 |
+| **7** | Product UI | Player Portal、Blue SOC、Battleboard、Instructor（**Purple Console 屬 4-P2**，SA §4.2）| 🟡 **邊界層**已定案（[spec](./.scratch/ws7-boundary/spec.md)，2026-08-11 grilling，4 題），票 [#52](https://github.com/Graylee0128/cyber/issues/52)（共用契約＋服務身分）；**畫面層**仍未開始（數字由 4-P2／5 產生，不宜早做），已有[視覺提案](./.scratch/product-ui/spec.md) |
 
 四條線可平行：**技術線** WS4-P2、**產品線** WS1→WS5→WS7、**內容線** WS2／WS3、
 **入場線** WS8→WS6-y。箭頭方向不可逆 —— 逆向施工的代價是重工，不是延遲（SA §4.1）。
@@ -74,8 +74,10 @@ Falco 是 runtime sensor，需要驅動吃得下 host kernel。腳本用
 ## 現在在做什麼
 
 WS6 與 P1 的主體已完成並在大主機實測（2026-08-10 四層測試全綠）。
-2026-08-11／12 把 **WS1／WS5／WS2／WS3／WS8 五條線的決策一次做完並切票** ——
-目前 43 張 open issue，卡點從「不知道要做什麼」變成「同時能做的太多」。
+2026-08-11／12 把 **WS1／WS5／WS2／WS3／WS8 五條線的決策一次做完並切票**，
+再於 2026-08-12 把細碎子票**收斂成 22 張 canonical 傘票**（每張分「Authoritative
+blockers」＝現行依賴 ＋「Preserved sub-tickets」＝歷史證據兩段）。卡點從
+「不知道要做什麼」變成「同時能做的太多」。
 
 - 對外契約 → [docs/p1-output-contract.md](./docs/p1-output-contract.md)｜執行導覽 → [archive/p1-output-contract-map.md](./archive/p1-output-contract-map.md)（P1 已結，存查）
 - 決策 spec → [WS1 遊戲規則](./.scratch/ws1-game-design/spec.md)｜[WS2 Scenario 內容規則](./.scratch/ws2-scenario-target/spec.md)｜[WS3 藍隊工作定義](./.scratch/ws3-blue-ops/spec.md)｜[WS5 Range Core](./.scratch/ws5-range-core/spec.md)｜[WS7 Console 邊界層](./.scratch/ws7-boundary/spec.md)｜[WS8 會議中控](./.scratch/ws8-event-control/spec.md)
@@ -84,19 +86,18 @@ WS6 與 P1 的主體已完成並在大主機實測（2026-08-10 四層測試全�
 
 | 先做（需要人拍板的） | 說明 |
 |---|---|
-| [#65](https://github.com/Graylee0128/cyber/issues/65) WS8 三個待決 | 卡住 WS8 大半條線。其中「50+ 的實體承載」建議**先實測再開 [#62](https://github.com/Graylee0128/cyber/issues/62)** —— 撐不住會逼出多主機，那會動到 OVS trunk 設計 |
-| [#64](https://github.com/Graylee0128/cyber/issues/64) WS1 §1.3 回改 | Z-BLUE 拍板後「Blue 側不做個人化」已失效，藍隊有自己的機器 |
-| [#56](https://github.com/Graylee0128/cyber/issues/56) SA 回寫 | 四契約→五條、四區→六區、七 WS→八。SA 是單一真相來源，放著會讓所有下游讀到過期的區數 |
+| [#65](https://github.com/Graylee0128/cyber/issues/65) Decision Gate | 唯一的 human gate。卡住 WS8 大半條線（team pool、Blue 個人化、UI）；#64／#66 已吸收進來。「50+ 實體承載」建議**先實測再開 [#62](https://github.com/Graylee0128/cyber/issues/62)** —— 撐不住會逼出多主機，動到 OVS trunk 設計 |
 
-| 現在可動工（無阻塞） | 說明 |
+| 現在可動工（規格完整；有些仍有 Authoritative blocker，見票 body） | 說明 |
 |---|---|
-| [#42](https://github.com/Graylee0128/cyber/issues/42) WS2-1 Scenario schema 遷移 | **建議最優先**。#31 已由 PR #40 合併，但同日 WS2 grilling 與已交付格式有六處衝突（[spec §7](./.scratch/ws2-scenario-target/spec.md)）。現在只有一份 scenario 檔、一支 loader、一組新測試 —— 等 #32 起的票照現行 schema 開工，遷移就變成連鎖成本。PR #54 在審 |
-| [#21](https://github.com/Graylee0128/cyber/issues/21) P2-1 Action Registry | P2 的第一張，無阻塞。分母開演前固定，後面每個數字都靠它。清單來源由 [WS2 spec §2.3](./.scratch/ws2-scenario-target/spec.md) 定為 scenario 檔（檔案是來源、DB 是凍結後的實例）|
-| [#43](https://github.com/Graylee0128/cyber/issues/43) WS2-2 scenario-sources 重整 | 現有五個 scenario id **沒有一個是 scenario**（compose only 或測試 fixture）。字串不動，改的是它們住哪個區塊。動同一批檔案，**應在 PR #41 合併後再開工** |
-| [#19](https://github.com/Graylee0128/cyber/issues/19) 契約 1 port allowlist | 小而真的缺口：`TARGET→MGMT` 目前整段全開，且「非 telemetry port 應被擋」沒有測試。契約 5 也要同一套 nft 規則，**先把規則抽成單一定義處**會讓 [#58](https://github.com/Graylee0128/cyber/issues/58) 省一次重工 |
-| [#18](https://github.com/Graylee0128/cyber/issues/18) source registry 生產路徑 | **PR #41 待合併**（目前有衝突需 rebase）。在 P2 關鍵路徑上（卡 [#22](https://github.com/Graylee0128/cyber/issues/22)、[#27](https://github.com/Graylee0128/cyber/issues/27)）|
-| [#52](https://github.com/Graylee0128/cyber/issues/52) WS7-B1 共用契約套件 | 無阻塞，且**卡住 [#49](https://github.com/Graylee0128/cyber/issues/49)／[#36](https://github.com/Graylee0128/cyber/issues/36)**。遮蔽規則若各自實作，漏遮不會報錯、只會送分 |
-| [#53](https://github.com/Graylee0128/cyber/issues/53) WS7-B2 服務身分 | 無阻塞。沒有它，「呼叫者無法自報 clearance」這條驗收**寫得出來但做不出來** |
+| [#42](https://github.com/Graylee0128/cyber/issues/42) WS2 Schema 遷移 | **建議最優先，無 blocker**。修正 PR #40 已交付、與 WS2 決策六處衝突的 schema（[spec §7](./.scratch/ws2-scenario-target/spec.md)）。等 #32 起的票照現行 schema 開工，遷移就變連鎖成本。PR #54 在審 |
+| [#56](https://github.com/Graylee0128/cyber/issues/56) SA 回寫 | **無 blocker**。四契約→五條、四區→六區、七 WS→八，並掃 active 文件把舊票號更新成 canonical。SA 是單一真相來源，過期會讓所有下游讀到錯的區數 |
+| [#44](https://github.com/Graylee0128/cyber/issues/44) WS2 真攻擊面 | **無未解 blocker**。要重烤 golden —— response 鏈的三項大主機驗證（原 #17）順帶在此補齊 |
+| [#21](https://github.com/Graylee0128/cyber/issues/21) P2 Evaluation Backend | **Phase 1 可先做**（Action Registry，分母開演前固定）；Phase 2 blocked by [#18](https://github.com/Graylee0128/cyber/issues/18)。清單來源由 [WS2 spec §2.3](./.scratch/ws2-scenario-target/spec.md) 定為 scenario 檔 |
+| [#43](https://github.com/Graylee0128/cyber/issues/43) WS2 sources 重整 | 現有五個 scenario id **沒有一個是 scenario**（compose only 或測試 fixture）。字串不動，改的是住哪個區塊 |
+| [#19](https://github.com/Graylee0128/cyber/issues/19) 契約 1 port allowlist | `TARGET→MGMT` 整段全開，無「非 telemetry port 應被擋」測試。契約 5（[#20](https://github.com/Graylee0128/cyber/issues/20)）要同一套 nft 規則，**先抽成單一定義處**省一次重工 |
+| [#18](https://github.com/Graylee0128/cyber/issues/18) source registry 生產路徑 | **PR #41 待 rebase**。P2 關鍵路徑（卡 [#21](https://github.com/Graylee0128/cyber/issues/21)、[#26](https://github.com/Graylee0128/cyber/issues/26)、[#29](https://github.com/Graylee0128/cyber/issues/29)）|
+| [#52](https://github.com/Graylee0128/cyber/issues/52) WS7 Boundary | **無阻塞，卡住 [#49](https://github.com/Graylee0128/cyber/issues/49)／[#36](https://github.com/Graylee0128/cyber/issues/36)**。遮蔽規則若各自實作，漏遮不報錯、只送分。含服務身分（clearance 不能自報）|
 
 > ⚠️ 動 [#48](https://github.com/Graylee0128/cyber/issues/48) 之前先確認：它會把自動 enqueue 降級為「待處置建議」。
 > 若 T4 的封鎖鏈是靠自動 enqueue 驅動的，那條測試要改由測試載具觸發，否則會無聲變綠。
@@ -198,7 +199,7 @@ T4 是整條鏈最真的一段（`tests/integration/test_falco_range_chain.py`�
 > （＋Z-EDGE VLAN 50、＋Z-BLUE VLAN 60）與五條契約（＋`EDGE → MGMT` deny all），
 > 見 [WS8 spec §5](./.scratch/ws8-event-control/spec.md)、
 > [六區草案拓樸](./.scratch/ws8-event-control/topology-v0_3-draft.svg)、
-> 票 [#58](https://github.com/Graylee0128/cyber/issues/58)／[#63](https://github.com/Graylee0128/cyber/issues/63)。
+> 票 [#20](https://github.com/Graylee0128/cyber/issues/20)（網路契約驗收）／[#62](https://github.com/Graylee0128/cyber/issues/62)（Z-BLUE 受限環境）。
 > **一條都還沒實作**，所以沒有寫進上表 —— 契約表只列 T3 驗得出來的。
 
 ## 狀態
