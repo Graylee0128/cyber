@@ -111,7 +111,7 @@ else
   for i in $(seq 1 "$RED_COUNT"); do
     add_node "ns-red$i" "$Z_RED_VLAN" "$((RED_HOST_FIRST + i - 1))"
     if [ "$ALLOW_RED_LATERAL" != "1" ]; then
-      ovs-vsctl set port "h-ns-red$i" other_config:protected=true
+      ovs-vsctl set port "h-ns-red$i" protected=true
     fi
   done
 fi

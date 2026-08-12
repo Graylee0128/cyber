@@ -48,7 +48,7 @@ for i in $(seq 1 "$COUNT"); do
   ovs-vsctl --if-exists del-port "$BR" "$host_if"
   ovs-vsctl add-port "$BR" "$host_if" tag="$Z_RED_VLAN"
   if [ "$ALLOW_RED_LATERAL" != "1" ]; then
-    ovs-vsctl set port "$host_if" other_config:protected=true
+    ovs-vsctl set port "$host_if" protected=true
   fi
   ip link set "$host_if" up
   ip link set "$cont_if" netns "$name"

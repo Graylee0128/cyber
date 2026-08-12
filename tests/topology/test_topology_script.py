@@ -322,3 +322,10 @@ def test_edge_contract_flags_mgmt_access(monkeypatch):
 def test_red_seat_isolation_flags_reachable_peer(monkeypatch):
     monkeypatch.setattr("purple.topology_check.reachable", lambda *_args, **_kwargs: True)
     assert check_red_seat_isolation("red2")
+
+
+def test_red_seat_isolation_uses_the_ovs_protected_column():
+    for path in (BUILD_RANGE, BUILD_RANGE.parent / "attach-red.sh"):
+        text = path.read_text(encoding="utf-8")
+        assert 'protected=true' in text
+        assert 'other_config:protected' not in text
