@@ -31,6 +31,27 @@ SA §5.2：「底層可用 Grafana，但產品 UI 可再包一層簡化的 Incid
 
 Instructor 可以覆寫分數、注入事件——這兩個操作如果演練結束後要寫 Exercise Report（[#28](https://github.com/Graylee0128/cyber/issues/28)），報告該不該標註「這個分數是教官手動調整過的」，否則報告的可信度會被質疑。
 
+## Q4.（2026-08-12 補）Player Portal 要不要嵌入即時 Shell？——組員已定方向：要，嵌入 web page
+
+SA §5.1 的 Player Portal 功能清單（Login/Mission/Target/Difficulty/Hint/Objective/Score/RemainingTime/FlagSubmission）
+裡沒有「Shell」——原本假設玩家操作是走外部 SSH／VNC 直連自己的 kali VM，Portal 只是任務資訊 HUD。**組員已表態方向：
+shell 要嵌入這個 web page**（demo 見 [player-portal.html](./player-portal.html) 的終端機面板），不是外部 SSH／VNC。
+
+這個決定本身不難，難的是三個隨之而來的子問題，**尚未定案**：
+
+1. **連線隔離**——每個 player 的 WebSocket session 只能連到自己的 kali VM，不能連到別人的，怎麼保證
+2. **要不要側錄操作紀錄**——跟 Q3 的 Instructor 稽核是同一類問題，若要留，格式跟 Q3 能不能共用
+3. **這條連線走哪個網段**——是走 Z-APP（Player Portal 所在區）還是直接連 Z-RED，涉及 README 網段表既有的防火牆規則要不要為此新開一條
+
+技術選型（例如 xterm.js 前端 + PTY over WebSocket）也還沒定案，本檔不預設。
+
+## Q5.（2026-08-12 補）Blue 的 Player Portal 頁面內容很薄，要不要乾脆不做，直接導去 Blue SOC Console？
+
+[WS1 spec §1.3](../ws1-game-design/spec.md) 已定案「Blue 側不做個人化，P2 現有 KPI 本來就是全場級指標」——這代表 Blue
+版的 Player Portal 天生沒有 Objective／Hint／Flag 可放（[demo 的 Blue 分頁](./player-portal.html) 只剩 Mission 資訊
+＋團隊 KPI），跟內容豐富的 Red 版形成明顯落差。這不是 demo 沒做完，是設計上的結構性差異。待討論：這頁值不值得獨立存在，
+還是 Blue 登入後直接導向 [Blue SOC Console](./blue-soc.html)（那才是 Blue 真正的操作畫面）？
+
 ---
 
 # Demo
