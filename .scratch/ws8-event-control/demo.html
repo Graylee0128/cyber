@@ -102,10 +102,8 @@
 
 <div class="banner">
   討論用 mock，資料寫死、不吃任何真實 API。<b>WS8 Event Control Plane（會議中控）</b>，
-  依據 <a href="./spec.md">spec.md</a>（draft，尚無票消費）。相關票：
-  <a href="https://github.com/Graylee0128/cyber/issues/59">#59</a> Admission Service、
-  <a href="https://github.com/Graylee0128/cyber/issues/60">#60</a> session↔seat、
-  <a href="https://github.com/Graylee0128/cyber/issues/61">#61</a> 釋放／改綁、
+  依據 <a href="./spec.md">spec.md</a>（draft，由下列 canonical tickets 消費）。相關票：
+  <a href="https://github.com/Graylee0128/cyber/issues/59">#59</a> Admission Service（含 session↔seat、釋放／改綁）、
   <a href="https://github.com/Graylee0128/cyber/issues/62">#62</a> Provisioner Agent。
   三個待決見 <a href="https://github.com/Graylee0128/cyber/issues/65">#65</a>。
 </div>
@@ -249,7 +247,7 @@
       </div>
       <button class="btn danger" style="width:100%">釋放座位（連帶作廢 session）</button>
       <div class="note">
-        <b>這不是便利功能，是現場路徑的必要補償</b>（<a href="https://github.com/Graylee0128/cyber/issues/61">#61</a>）。
+        <b>這不是便利功能，是現場路徑的必要補償</b>（<a href="https://github.com/Graylee0128/cyber/issues/59">#59</a>）。
         三段失效互不連動：session 過期<b>不</b>釋放座位（人只是關了分頁）；
         座位釋放<b>一定</b>使 session 失效（機器已經給別人了）。
       </div>

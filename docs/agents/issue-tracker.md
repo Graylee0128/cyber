@@ -30,8 +30,14 @@ Map 以 issue 編號（`#N`）指向 GitHub，不再指向本地檔案。
 
 - 一張票一個 issue，標題沿用 `NN — 標題` 形式
 - Triage state 用 label（見 `triage-labels.md`）
-- 依賴以內文的 `**Blocked by:** #N` 記錄 —— 本 repo 不使用 sub-issues
+- 只認 **open canonical work package**；closed duplicate 只保留歷史證據，不得開 branch／PR
+- 依賴以 issue body 的 **Authoritative blockers** 記錄；`ready-for-agent` 不代表 blockers 已解除
+- 一個 canonical work package 原則上對應一個主要 draft PR；可分段 commit，但不得夾帶另一個 canonical scope
+- PR 必須以 `master` 為 base，並在 body 用 closing／implementation keyword 指向唯一 canonical issue
 - Issue 內文的檔案連結要用**絕對 URL**（`https://github.com/Graylee0128/cyber/blob/master/...`），相對路徑在 issue 頁面會壞掉
+
+完整的 agent contract 與交接基準見 [#67](https://github.com/Graylee0128/cyber/issues/67)：
+**Codex 是 implementation owner**；**Claude 是 architecture / integration reviewer**。
 
 ## When a skill says "publish to the issue tracker"
 
@@ -53,7 +59,9 @@ gh issue view <number> --json title,body,labels,comments
 gh issue list --label ready-for-agent --state open
 ```
 
-再逐一看內文的 `Blocked by`，取所有 blocker 都已 closed 的最小編號。
+`ready-for-agent` 表示規格已完整，**不是**可以立刻開工。再逐一讀 issue body，只從 open canonical
+work package 中取所有 **Authoritative blockers** 都已解除者。若票是 duplicate、已 closed，或 blocker
+尚未解除，就不在 frontier。
 
 ## 完成一張票
 

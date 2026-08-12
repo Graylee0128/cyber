@@ -1,0 +1,63 @@
+name: PR contract
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate base and canonical implementation target
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const pull = context.payload.pull_request;
+            if (pull.base.ref !== "master") {
+              core.setFailed(`PR base must be master, got ${pull.base.ref}`);
+              return;
+            }
+
+            const body = pull.body || "";
+            const targetPattern = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|implement(?:s|ed)?)\s*:?[ \t]*(?:#(\d+)\b|https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/issues\/(\d+)\b)/gi;
+            const targets = new Set();
+            for (const match of body.matchAll(targetPattern)) {
+              if (match[2] && (match[2] !== context.repo.owner || match[3] !== context.repo.repo)) {
+                core.setFailed(`Implementation target URL must belong to ${context.repo.owner}/${context.repo.repo}`);
+                return;
+              }
+              targets.add(Number(match[1] || match[4]));
+            }
+
+            if (targets.size !== 1) {
+              core.setFailed(`PR body must target exactly one unique canonical issue; found ${targets.size}`);
+              return;
+            }
+
+            const issue_number = [...targets][0];
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+            });
+            const labels = issue.labels.map(label => typeof label === "string" ? label : label.name);
+
+            if (issue.pull_request) {
+              core.setFailed(`#${issue_number} is a pull request, not a canonical issue`);
+              return;
+            }
+            if (issue.state !== "open") {
+              core.setFailed(`#${issue_number} is closed (including closed duplicates) and cannot be an implementation target`);
+              return;
+            }
+            if (!labels.includes("ready-for-agent")) {
+              core.setFailed(`#${issue_number} is not labeled ready-for-agent`);
+              return;
+            }
+
+            core.info(`Validated canonical implementation target #${issue_number}`);

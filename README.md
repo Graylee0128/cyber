@@ -10,7 +10,7 @@ Gamified Red-Blue-Purple 攻防訓練平台。不是 observability lab，也不�
 只有兩個指令要記得。其餘 `scripts/range/*.sh` 都由它們呼叫，不必逐支背。
 
 ```bash
-sudo bash deploy.sh      # 部署：觀測平面(compose) + Range(四區 VLAN/靶機 VM/六台紅隊)
+sudo bash deploy.sh      # 部署：觀測平面(compose) + Range（目前已實作 G2 四區／靶機 VM／六台紅隊）
 sudo bash test.sh        # 測試：單元 → compose 整合 → range 契約 → 真環境全鏈
 ```
 
@@ -47,17 +47,16 @@ Falco 是 runtime sensor，需要驅動吃得下 host kernel。腳本用
 
 ## 產品全貌與進度
 
-整個產品切成八個 workstream。SA §4 目前仍寫七個 —— 2026-08-12 新增的
-**WS8 Event Control Plane（會議中控）**尚未回寫進 SA，回寫票是
-[#56](https://github.com/Graylee0128/cyber/issues/56)（同時處理四契約→五條、四區→六區）。
+整個產品切成八個 workstream；2026-08-12 新增的
+**WS8 Event Control Plane（會議中控）**負責憑據、座位與會話，並把架構擴成六區、五條跨世代契約。
 依賴關係與「為什麼是這個順序」見 **SA §4.1**；下表是**目前進度**：
 
 | WS | 工作包 | 內容 | 狀態 |
 |---|---|---|---|
-| **6** | Range Infrastructure | 執行環境、隔離、Reset、網路與部署 | ✅ 四區 VLAN／方向性防火牆／靶機真 VM／六台紅隊／一鍵 IaC 已在單主機實測 |
-| **4-P1** | Purple Platform · Telemetry & Detection | 遙測、偵測、Response、事件 schema | 🟡 四契約與全鏈已真環境實測；[驗收 9 項中 4 項有證據](./purple_platform_plan.md#27-p1-驗收)，餘 [#18](https://github.com/Graylee0128/cyber/issues/18)（source registry）[#29](https://github.com/Graylee0128/cyber/issues/29)（來源欄位＋VM 時鐘）在追。response 鏈程式碼已合（PR #39），三項大主機驗證隨 [#44](https://github.com/Graylee0128/cyber/issues/44) 重烤 golden 一併補，故驗收第 2／7 項仍未打勾 |
-| **4-P2** | Purple Platform · Evaluation & Console | coverage／MTTD／MTTR／缺口分類、**Purple Console** | 🟡 已切三張傘票 [#21](https://github.com/Graylee0128/cyber/issues/21)（Evaluation Backend）[#26](https://github.com/Graylee0128/cyber/issues/26)（Purple Console）[#28](https://github.com/Graylee0128/cyber/issues/28)（Exercise Report）；#21 的 Phase 1 可立即開工 |
-| **5** | Cyber Range Core | Event、Score、Exercise State、API | 🟡 架構已定案（[spec](./.scratch/ws5-range-core/spec.md)，2026-08-11 grilling，5 題）；[#31](https://github.com/Graylee0128/cyber/issues/31) 已由 PR #40 交付，**但交付格式與同日 WS2 決策有六處衝突** —— 遷移票 [#42](https://github.com/Graylee0128/cyber/issues/42) 應先於 [#32](https://github.com/Graylee0128/cyber/issues/32) 起的其餘票 |
+| **6** | Range Infrastructure | 執行環境、隔離、Reset、網路與部署 | 🟡 G2 四區 VLAN／方向性防火牆／靶機真 VM／六台紅隊／一鍵 IaC 已在單主機實測；G3 新增 Z-EDGE／Z-BLUE 與動態座位，實作由 #20／#62 承接 |
+| **4-P1** | Purple Platform · Telemetry & Detection | 遙測、偵測、Response、事件 schema | 🟡 G2 前四條契約與全鏈已真環境實測；[驗收 9 項中 4 項有證據](./purple_platform_plan.md#27-p1-驗收)，餘 [#18](https://github.com/Graylee0128/cyber/issues/18)（source registry）[#29](https://github.com/Graylee0128/cyber/issues/29)（來源欄位＋VM 時鐘）在追。response 鏈程式碼已合（PR #39），三項大主機驗證隨 [#44](https://github.com/Graylee0128/cyber/issues/44) 重烤 golden 一併補，故驗收第 2／7 項仍未打勾 |
+| **4-P2** | Purple Platform · Evaluation & Console | coverage／MTTD／MTTR／缺口分類、**Purple Console** | 🟡 已切三張傘票 [#21](https://github.com/Graylee0128/cyber/issues/21)（Evaluation Backend）[#26](https://github.com/Graylee0128/cyber/issues/26)（Purple Console）[#28](https://github.com/Graylee0128/cyber/issues/28)（Exercise Report）；先清 #42，再依 #21 → #26 → #28 交付 |
+| **5** | Cyber Range Core | Event、Score、Exercise State、API | 🟡 架構已定案（[spec](./.scratch/ws5-range-core/spec.md)，2026-08-11 grilling，5 題）；歷史里程碑 [#31](https://github.com/Graylee0128/cyber/issues/31) 已由 PR #40 交付，**但交付格式與同日 WS2 決策有六處衝突** —— 遷移票 [#42](https://github.com/Graylee0128/cyber/issues/42) 應先於 [#32](https://github.com/Graylee0128/cyber/issues/32) 起的其餘票 |
 | **1** | Product / Game Design | 遊戲規則、流程、難度、Objective、Hint | ✅ 規則已定案（[spec](./.scratch/ws1-game-design/spec.md)，2026-08-11 grilling，8 題）。無自有程式碼產出（SA §4.2：無基礎設施足跡），決策已內嵌為 WS5（[#32](https://github.com/Graylee0128/cyber/issues/32)／[#33](https://github.com/Graylee0128/cyber/issues/33)）與 WS2 諸票的驗收條件 |
 | **2** | Scenario / Target | 靶機、漏洞、攻擊鏈、Flag、Scenario Package | 🟡 內容規則已定案（[spec](./.scratch/ws2-scenario-target/spec.md)，2026-08-11 grilling，17 題）；已切票 [#42](https://github.com/Graylee0128/cyber/issues/42)（schema 遷移）[#43](https://github.com/Graylee0128/cyber/issues/43)（sources 重整）[#44](https://github.com/Graylee0128/cyber/issues/44)（真攻擊面）[#47](https://github.com/Graylee0128/cyber/issues/47)（第一個真 scenario）。**#42 建議優先**（修正已合併 schema，PR #54 在審）；#44 要重烤 golden |
 | **3** | Blue Operations | Incident、Investigation、Response Workflow | 🟡 藍隊工作定義已定案（[spec](./.scratch/ws3-blue-ops/spec.md)，2026-08-11 grilling，9 題）；已切票 [#48](https://github.com/Graylee0128/cyber/issues/48)（人在迴圈）[#49](https://github.com/Graylee0128/cyber/issues/49)（Investigation／遮蔽／評分）[#51](https://github.com/Graylee0128/cyber/issues/51)（封鎖路徑）。**關鍵發現：封鎖原本是全自動的，SA §9 四個 Blue objective 有三個是機器在做** |
@@ -65,7 +64,7 @@ Falco 是 runtime sensor，需要驅動吃得下 host kernel。腳本用
 | **7** | Product UI | Player Portal、Blue SOC、Battleboard、Instructor（**Purple Console 屬 4-P2**，SA §4.2）| 🟡 **邊界層**已定案（[spec](./.scratch/ws7-boundary/spec.md)，2026-08-11 grilling，4 題），票 [#52](https://github.com/Graylee0128/cyber/issues/52)（共用契約＋服務身分）；**畫面層**仍未開始（數字由 4-P2／5 產生，不宜早做），已有[視覺提案](./.scratch/product-ui/spec.md) |
 
 四條線可平行：**技術線** WS4-P2、**產品線** WS1→WS5→WS7、**內容線** WS2／WS3、
-**入場線** WS8→WS6-y。箭頭方向不可逆 —— 逆向施工的代價是重工，不是延遲（SA §4.1）。
+**入場線** WS8→WS6→WS7。箭頭方向不可逆 —— 逆向施工的代價是重工，不是延遲（SA §4.1）。
 
 > 入場線是 2026-08-12 新增的。它不是活動工具而是架構缺口：WS1 §1.3 已定案 Red 個人計分、
 > WS5 schema 已要 `player_id`，但**目前沒有任何元件在產生它** —— 六台 kali 由
@@ -75,9 +74,11 @@ Falco 是 runtime sensor，需要驅動吃得下 host kernel。腳本用
 
 WS6 與 P1 的主體已完成並在大主機實測（2026-08-10 四層測試全綠）。
 2026-08-11／12 把 **WS1／WS5／WS2／WS3／WS8 五條線的決策一次做完並切票**，
-再於 2026-08-12 把細碎子票**收斂成 22 張 canonical 傘票**（每張分「Authoritative
+再於 2026-08-12 把細碎子票**收斂成 22 張 open canonical work package**（每張分「Authoritative
 blockers」＝現行依賴 ＋「Preserved sub-tickets」＝歷史證據兩段）。卡點從
 「不知道要做什麼」變成「同時能做的太多」。
+
+Canonical open set：**#18 #19 #20 #21 #26 #28 #29 #32 #33 #36 #42 #43 #44 #47 #48 #49 #51 #52 #56 #59 #62 #65**。
 
 - 對外契約 → [docs/p1-output-contract.md](./docs/p1-output-contract.md)｜執行導覽 → [archive/p1-output-contract-map.md](./archive/p1-output-contract-map.md)（P1 已結，存查）
 - 決策 spec → [WS1 遊戲規則](./.scratch/ws1-game-design/spec.md)｜[WS2 Scenario 內容規則](./.scratch/ws2-scenario-target/spec.md)｜[WS3 藍隊工作定義](./.scratch/ws3-blue-ops/spec.md)｜[WS5 Range Core](./.scratch/ws5-range-core/spec.md)｜[WS7 Console 邊界層](./.scratch/ws7-boundary/spec.md)｜[WS8 會議中控](./.scratch/ws8-event-control/spec.md)
@@ -93,7 +94,7 @@ blockers」＝現行依賴 ＋「Preserved sub-tickets」＝歷史證據兩段�
 | [#42](https://github.com/Graylee0128/cyber/issues/42) WS2 Schema 遷移 | **建議最優先，無 blocker**。修正 PR #40 已交付、與 WS2 決策六處衝突的 schema（[spec §7](./.scratch/ws2-scenario-target/spec.md)）。等 #32 起的票照現行 schema 開工，遷移就變連鎖成本。PR #54 在審 |
 | [#56](https://github.com/Graylee0128/cyber/issues/56) SA 回寫 | **無 blocker**。四契約→五條、四區→六區、七 WS→八，並掃 active 文件把舊票號更新成 canonical。SA 是單一真相來源，過期會讓所有下游讀到錯的區數 |
 | [#44](https://github.com/Graylee0128/cyber/issues/44) WS2 真攻擊面 | **無未解 blocker**。要重烤 golden —— response 鏈的三項大主機驗證（原 #17）順帶在此補齊 |
-| [#21](https://github.com/Graylee0128/cyber/issues/21) P2 Evaluation Backend | **Phase 1 可先做**（Action Registry，分母開演前固定）；Phase 2 blocked by [#18](https://github.com/Graylee0128/cyber/issues/18)。清單來源由 [WS2 spec §2.3](./.scratch/ws2-scenario-target/spec.md) 定為 scenario 檔 |
+| [#21](https://github.com/Graylee0128/cyber/issues/21) P2 Evaluation Backend | **先清 [#42](https://github.com/Graylee0128/cyber/issues/42)**（attack chain／`not_executed` 輸入契約）；後續 source-state 階段另 blocked by [#18](https://github.com/Graylee0128/cyber/issues/18)。清單來源由 [WS2 spec §2.3](./.scratch/ws2-scenario-target/spec.md) 定為 scenario 檔 |
 | [#43](https://github.com/Graylee0128/cyber/issues/43) WS2 sources 重整 | 現有五個 scenario id **沒有一個是 scenario**（compose only 或測試 fixture）。字串不動，改的是住哪個區塊 |
 | [#19](https://github.com/Graylee0128/cyber/issues/19) 契約 1 port allowlist | `TARGET→MGMT` 整段全開，無「非 telemetry port 應被擋」測試。契約 5（[#20](https://github.com/Graylee0128/cyber/issues/20)）要同一套 nft 規則，**先抽成單一定義處**省一次重工 |
 | [#18](https://github.com/Graylee0128/cyber/issues/18) source registry 生產路徑 | **PR #41 待 rebase**。P2 關鍵路徑（卡 [#21](https://github.com/Graylee0128/cyber/issues/21)、[#26](https://github.com/Graylee0128/cyber/issues/26)、[#29](https://github.com/Graylee0128/cyber/issues/29)）|
@@ -160,7 +161,7 @@ T4 是整條鏈最真的一段（`tests/integration/test_falco_range_chain.py`�
 | [資安攻防平台_系統架構設計文件_v0.1.md](./資安攻防平台_系統架構設計文件_v0.1.md) | 系統架構設計（SA），單一真相來源 |
 | [purple_platform_plan.md](./purple_platform_plan.md) | 紫隊 P1／P2 工作規劃、計分模型、缺口分類 |
 | [docs/adr/](./docs/adr/) | 架構決策紀錄，含 trade-off 與被放棄的選項 |
-| [demo_network_topology_v0_2_1.svg](./demo_network_topology_v0_2_1.svg) | **現行**網路拓樸（四區）—— 畫空間 |
+| [demo_network_topology_v0_2_1.svg](./demo_network_topology_v0_2_1.svg) | **現行架構**網路拓樸（G3 六區＋中控；檔名沿用）—— 畫空間 |
 | [cyber_range_platform_layered_architecture.svg](./cyber_range_platform_layered_architecture.svg) | 分層架構圖 —— 畫空間 |
 | [attack_chain_sequence_v0_1.svg](./attack_chain_sequence_v0_1.svg) | **單次攻防的跨元件時序**（流程圖 B）—— 畫時間。整條鏈由 T4 守著，圖上每一步都是實作 |
 | [.scratch/ws8-event-control/player-journey-v0_1-draft.svg](./.scratch/ws8-event-control/player-journey-v0_1-draft.svg) | **玩家旅程**（流程圖 A，七階段 × 六泳道）—— 畫時間。多數為草案，虛線框＝未實作 |
@@ -186,21 +187,14 @@ T4 是整條鏈最真的一段（`tests/integration/test_falco_range_chain.py`�
 | Z-MGMT | 10 | 10.167.10.0/24 | Prometheus、Loki、Grafana、Evaluation Engine | `.10` stub／`.20` 真 Loki |
 | Z-TARGET | 20 | 10.167.20.0/24 | 靶機、Alloy、Falco、Response agent | 靶機 VM `.10` |
 | Z-RED | 30 | 10.167.30.0/24 | kali-01…06（各自獨立 IP，不可被 SNAT 塌縮）| `.11`～`.16` |
+| Z-EDGE | 50 | 10.167.50.0/24 | nginx／TLS 終結、ttyd 反向代理（零持久化） | G3 待 #20 實作 |
+| Z-BLUE | 60 | 10.167.60.0/24 | 藍隊每人一段的受限 shell 主機 | G3 待 #62 實作 |
 
-> SA v0.1 的表把 Z-RED 寫成 `10.167.223.0/24`；實作統一採「第三段＝VLAN id」的慣例，
-> 故為 `10.167.30.0/24`。兩者指同一個區，只是位址慣例對齊。
-
-四條跨世代契約：`:3100`／`:9090`／`:4317` 三個 port、`TARGET → MGMT` 單向、
-`RED → MGMT` deny all、collector 裝在 target 側。四條都由
-[scripts/range/verify-range.sh](./scripts/range/verify-range.sh) 實測（`test.sh` 的 T3），
+五條跨世代契約：`:3100`／`:9090`／`:4317` 三個 port、`TARGET → MGMT` 單向、
+`RED → MGMT` deny all、collector 裝在 target 側，以及 `EDGE → MGMT` deny all。
+前四條已由 [scripts/range/verify-range.sh](./scripts/range/verify-range.sh) 在 G2 實測（`test.sh` 的 T3）；
+第五條與六區 G3 拓樸的實作驗收由 [#20](https://github.com/Graylee0128/cyber/issues/20) 承接。
 方向性靠 router netns 的 nftables 真強制 —— docker network membership 只能做可達性、做不到方向。
-
-> **上表與四條契約都是「已實作」的現況。** WS8 草案要把它擴成六區
-> （＋Z-EDGE VLAN 50、＋Z-BLUE VLAN 60）與五條契約（＋`EDGE → MGMT` deny all），
-> 見 [WS8 spec §5](./.scratch/ws8-event-control/spec.md)、
-> [六區草案拓樸](./.scratch/ws8-event-control/topology-v0_3-draft.svg)、
-> 票 [#20](https://github.com/Graylee0128/cyber/issues/20)（網路契約驗收）／[#62](https://github.com/Graylee0128/cyber/issues/62)（Z-BLUE 受限環境）。
-> **一條都還沒實作**，所以沒有寫進上表 —— 契約表只列 T3 驗得出來的。
 
 ## 狀態
 

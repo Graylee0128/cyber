@@ -11,7 +11,7 @@
 
 # 〇、本文件在產品中的位置
 
-本文件談的是 **WS4 · Purple Platform** 一個工作包。它在七個 workstream
+本文件談的是 **WS4 · Purple Platform** 一個工作包。它在八個 workstream
 （SA §4）中的上下游如下 —— 完整依賴圖與約束見 **SA §4.1**：
 
 ```text
@@ -27,7 +27,7 @@ WS4-P1 Telemetry & Detection ──── 事實生產（本文件 §二）
 
 | 關係 | 對象 | 介面 |
 |---|---|---|
-| 上游依賴 | WS6 | 四區網段、跨世代契約、collector 落點 |
+| 上游依賴 | WS6 | 六區網段、五條跨世代契約、collector 落點 |
 | 下游消費者 | WS5、WS3、WS4-P2 | **Core Event Schema**（§2.2：P1 唯一對外產出是 schema，不是面板）|
 | 平行不相依 | WS1、WS7 | P2 的數字先存在，WS7 才有東西可畫（SA §4.1）|
 
@@ -156,7 +156,7 @@ last_heartbeat  ← 各來源每 30s 上報，90s 未報轉 stale
       macvlan，目標（不被 SNAT 塌縮）達成，機制不同，見 [#13](https://github.com/Graylee0128/cyber/issues/13) 結案留言
 - [ ] Alloy／Falco／response agent 全部部署在 Z-TARGET 側
       —— Alloy 與 Falco 已烤進 golden 靶機並實測；**response agent 尚未部署**
-      （`bake.sh` 對 `response|agent` 的 grep 為 0），見 [#17](https://github.com/Graylee0128/cyber/issues/17)
+      （`bake.sh` 對 `response|agent` 的 grep 為 0），由 [#44](https://github.com/Graylee0128/cyber/issues/44) 承接（原 #17 已吸收）
 - [x] `TARGET → MGMT` 三個 port 通，且反向不通（契約 2 的實測）
       —— T3：`:3100` 現場實證（打靶機 → Loki 60s 內收到新行）；`:9090`／`:4317` 由本顆 VM
       開機自驗且 boot nonce 相符。**注意**：目前只驗「這三個通」，未強制「只有這三個通」，
@@ -168,12 +168,12 @@ last_heartbeat  ← 各來源每 30s 上報，90s 未報轉 stale
 - [ ] 所有來源完成時間同步驗證
       —— `config/clock-nodes.yaml` 目前只有 `checker-host`。且不是取消註解就好：
       Falco／Alloy 現在是靶機 VM 內的 systemd unit 而非容器，`probe: docker` 探不到，
-      見 [#30](https://github.com/Graylee0128/cyber/issues/30)
+      見 [#29](https://github.com/Graylee0128/cyber/issues/29)
 - [ ] SQLi 一條鏈跑通：`attack → log → alert → webhook → agent pull → ipset → 封鎖生效`
-      —— 前四跳已在真環境實測；**後兩跳（agent pull → ipset）只到 unit 層**，見 [#17](https://github.com/Graylee0128/cyber/issues/17)
+      —— 前四跳已在真環境實測；**後兩跳（agent pull → ipset）只到 unit 層**，由 [#44](https://github.com/Graylee0128/cyber/issues/44) 承接（原 #17 已吸收）
 - [x] 事件 schema 定版並交付給三個消費者
       —— Core Event schema 定版（[ADR 0001](./docs/adr/0001-p1-output-contract.md)），
-      `assert_core_event` 為契約守門；P2 已可依此切票（#21–#28）
+      `assert_core_event` 為契約守門；P2 由 canonical #21／#26／#28 承接
 - [ ] source registry 由 **scenario 期望清單 ＋ 實際 heartbeat** 合成，P2 可查詢
       —— 原文寫「可由部署狀態自動產生」，與 §2.5 及 [ADR 0001](./docs/adr/0001-p1-output-contract.md) ⑧
       直接衝突（那裡明文禁止單靠部署狀態推導：Falco 掛掉會從推導結果消失、變成
@@ -182,9 +182,9 @@ last_heartbeat  ← 各來源每 30s 上報，90s 未報轉 stale
       兩份輸入都沒有生產路徑，見 [#18](https://github.com/Graylee0128/cyber/issues/18)
 
 **現況：9 項中 4 項有實測證據，5 項未完成。** 未完成的都有票在追：
-[#17](https://github.com/Graylee0128/cyber/issues/17)（第 2、7 項）、
+[#44](https://github.com/Graylee0128/cyber/issues/44)（第 2、7 項；原 #17 已吸收）、
 [#18](https://github.com/Graylee0128/cyber/issues/18)（第 9 項）、
-[#29](https://github.com/Graylee0128/cyber/issues/29)（第 5 項）、[#30](https://github.com/Graylee0128/cyber/issues/30)（第 6 項）。
+[#29](https://github.com/Graylee0128/cyber/issues/29)（第 5、6 項；原 #30 已吸收）。
 
 ---
 
@@ -412,6 +412,9 @@ sanitization 邊界也該由第三方審核，不能自己審自己。
 ① P1 事件流  ──────────→  P2 Evaluation Engine     （Z-MGMT 內，同區）
 ② Engine API ──────────→  P2 Purple Console        （Z-MGMT → Z-APP，跨區）
 ```
+
+G3 六區拓樸新增 Z-EDGE（VLAN 50）與 Z-BLUE（VLAN 60），但 P2 的 Evaluation Engine
+仍在 Z-MGMT、Purple Console 仍在 Z-APP；既有 coverage／MTTD／MTTR 與缺口分類語意不變。
 
 ## 4.1 Evaluation Engine 必須有 raw 查詢權
 

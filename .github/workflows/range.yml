@@ -11,6 +11,13 @@ on:
       - "scripts/verify_topology.py"
       - "src/purple/topology_check.py"
       - ".github/workflows/range.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "scripts/range/**"
+      - "scripts/verify_topology.py"
+      - "src/purple/topology_check.py"
+      - ".github/workflows/range.yml"
   workflow_dispatch:
 
 jobs:

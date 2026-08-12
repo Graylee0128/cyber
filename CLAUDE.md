@@ -8,6 +8,14 @@
 
 Issue 在 **GitHub Issues**（`Graylee0128/cyber`，`gh` CLI 操作）。見 `docs/agents/issue-tracker.md`。
 
+實作流程以 [#67](https://github.com/Graylee0128/cyber/issues/67) 為基準：**Codex 是 implementation owner**，
+**Claude 是 architecture / integration reviewer**。只替仍 open 的 canonical work package 開 branch／PR；
+duplicate issue 不得成為 implementation target。
+
+`ready-for-agent` 只表示規格完整。真正可開工還要確認 issue body 的 **Authoritative blockers**
+全部解除。每個 canonical work package 原則上只開一個主要 draft PR；可用分段 commit 交付，
+但不得在同一 branch／PR 混入另一個 canonical scope。
+
 資料夾約定：
 
 | 東西 | 位置 |
