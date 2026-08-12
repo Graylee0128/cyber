@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>Blue SOC Console — Demo（討論用非正式稿，非本次開工票）</title>
+<style>
+  :root {
+    --bg:#0b1018; --panel:#121a28; --border:#243349; --text:#e8edf5; --muted:#7d8ba3;
+    --blue:#4da6ff; --blue-dim:#122a42; --amber:#ffc94d; --red:#ff5c6c; --green:#37e08a;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Segoe UI","Noto Sans TC",sans-serif; background:var(--bg); color:var(--text); padding:24px; }
+  .banner { background:#3a2a16; color:var(--amber); border:1px solid #6b4f1f; border-radius:6px; padding:10px 14px; font-size:13px; margin-bottom:20px; max-width:1100px; }
+  .banner b { color:#ffdb8a; }
+  .layout { display:grid; grid-template-columns: 340px 1fr; gap:16px; max-width:1100px; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:16px; }
+  .panel-title { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-bottom:12px; font-weight:700; }
+  .inc-row { padding:10px 12px; border-radius:8px; border:1px solid var(--border); margin-bottom:8px; cursor:pointer; }
+  .inc-row.active { border-color:var(--blue); background:var(--blue-dim); }
+  .inc-row .top { display:flex; justify-content:space-between; font-size:13px; font-weight:700; }
+  .sev { font-size:10px; padding:1px 7px; border-radius:999px; font-weight:700; }
+  .sev.high { background:#3a1620; color:var(--red); }
+  .sev.medium { background:#3a3016; color:var(--amber); }
+  .sev.low { background:#1b2038; color:var(--muted); }
+  .inc-row .meta { font-size:12px; color:var(--muted); margin-top:4px; }
+  .inc-row .status { font-size:11px; margin-top:6px; color:var(--blue); }
+  .detail-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+  .detail-title { font-size:18px; font-weight:700; }
+  .section-label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.06em; margin:18px 0 8px; font-weight:700; }
+  .section-label:first-of-type { margin-top:0; }
+  .kv { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--border); font-size:14px; }
+  .mono { font-family:"SFMono-Regular",Consolas,monospace; font-size:13px; }
+  .evidence-tier { display:inline-block; font-size:11px; padding:2px 8px; border-radius:5px; background:#122a42; color:var(--blue); font-weight:700; margin-left:8px; }
+  .cmdline { background:#060a10; border:1px solid var(--border); border-radius:6px; padding:10px 12px; font-family:monospace; font-size:12px; color:#9fe6c9; margin-top:8px; overflow-x:auto; }
+  .actions { display:flex; gap:10px; margin-top:18px; flex-wrap:wrap; }
+  .btn { border:1px solid var(--border); background:#0f1626; color:var(--text); padding:9px 16px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer; }
+  .btn.primary { background:var(--blue); color:#04101f; border-color:var(--blue); }
+  .btn.danger { border-color:#6b2430; color:var(--red); }
+  .btn:hover { opacity:.88; }
+</style>
+</head>
+<body>
+
+<div class="banner">
+  討論用 mock，不是這次要開工的票。<b>Blue SOC Console 屬於 WS7 Product UI</b>（README：⬜ 未開始）。資料寫死，不吃任何真實 API。
+  這是<b>藍隊自己的作戰畫面</b>（SA §5.2）——跟 Player Portal／Battleboard 相反，這裡故意顯示 raw 細節（IP、rule 名稱、command line），
+  因為藍隊本來就該看到自己蒐證用的完整證據。SA §5.2 沒禁止這些欄位，只有 Player Portal（Red）跟 Battleboard（公開層）才要遮蔽。
+</div>
+
+<div class="layout">
+
+  <div class="panel">
+    <div class="panel-title">Incident Queue</div>
+
+    <div class="inc-row active">
+      <div class="top"><span>INC-042</span><span class="sev high">HIGH</span></div>
+      <div class="meta">T1059 Execution · 14:31:04</div>
+      <div class="status">● Open</div>
+    </div>
+
+    <div class="inc-row">
+      <div class="top"><span>INC-041</span><span class="sev medium">MEDIUM</span></div>
+      <div class="meta">T1087 Discovery · 14:15:02</div>
+      <div class="status">● Investigating</div>
+    </div>
+
+    <div class="inc-row">
+      <div class="top"><span>INC-039</span><span class="sev low">LOW</span></div>
+      <div class="meta">T1190 Initial Access · 13:58:40</div>
+      <div class="status" style="color:var(--muted)">✓ Resolved</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="detail-header">
+      <div class="detail-title">INC-042 · Suspicious Shell Spawn</div>
+      <span class="sev high">HIGH</span>
+    </div>
+
+    <div class="section-label">Alert</div>
+    <div class="kv"><span>Rule</span><span class="mono">falco.suspicious_shell_spawn</span></div>
+    <div class="kv"><span>Threshold</span><span class="mono">&gt; 1 event / 30s</span></div>
+    <div class="kv"><span>來源</span><span class="mono">Falco</span></div>
+
+    <div class="section-label">Source / Target</div>
+    <div class="kv"><span>來源</span><span class="mono">10.20.30.5 (kali-02)</span></div>
+    <div class="kv"><span>目標</span><span class="mono">10.20.40.12 (checkout-app)</span></div>
+
+    <div class="section-label">Evidence <span class="evidence-tier">C2</span></div>
+    <div class="kv"><span>Process</span><span class="mono">sh -c "id; whoami"</span></div>
+    <div class="cmdline">$ sh -c "id; whoami"<br>uid=33(www-data) gid=33(www-data)<br>www-data</div>
+
+    <div class="section-label">Timeline</div>
+    <div class="kv"><span>14:31:04</span><span>Shell spawned from web worker process</span></div>
+    <div class="kv"><span>14:31:06</span><span>Falco rule 命中，寫入 Loki</span></div>
+    <div class="kv"><span>14:31:09</span><span>告警送達 SOC 佇列</span></div>
+
+    <div class="actions">
+      <button class="btn danger">Isolate</button>
+      <button class="btn danger">Block IP</button>
+      <button class="btn">Escalate</button>
+      <button class="btn primary">Resolve Incident</button>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

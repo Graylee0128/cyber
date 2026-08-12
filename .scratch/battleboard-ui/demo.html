@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>Battleboard — Demo（討論用非正式稿，非本次開工票）</title>
+<style>
+  :root {
+    --bg: #06070d;
+    --panel: #0e1120;
+    --border: #262c47;
+    --text: #f0f2f8;
+    --muted: #7b83a0;
+    --red: #ff4d5e;
+    --red-dim: #3a1620;
+    --blue: #4da6ff;
+    --blue-dim: #16273a;
+    --green: #37e08a;
+    --amber: #ffc94d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", "Noto Sans TC", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+  }
+  .banner {
+    background: #3a2a16;
+    color: var(--amber);
+    border: 1px solid #6b4f1f;
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 13px;
+    margin-bottom: 20px;
+    max-width: 1100px;
+  }
+  .banner b { color: #ffdb8a; }
+  .board { max-width: 1100px; }
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    background: linear-gradient(90deg, var(--red-dim), var(--panel) 40%, var(--panel) 60%, var(--blue-dim));
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 18px 28px; margin-bottom: 16px;
+  }
+  .header .vs { font-size: 22px; font-weight: 800; letter-spacing: 0.02em; }
+  .header .vs .red { color: var(--red); }
+  .header .vs .blue { color: var(--blue); }
+  .header .meta { font-size: 15px; color: var(--muted); font-weight: 600; }
+  .grid { display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px;
+  }
+  .panel-title { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; font-weight: 700; }
+  .score-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+  .score-row .team { font-size: 16px; font-weight: 700; }
+  .score-row .team.red { color: var(--red); }
+  .score-row .team.blue { color: var(--blue); }
+  .score-row .val { font-size: 32px; font-weight: 800; }
+  .stat-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 15px; }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-row .val { font-weight: 700; }
+  .chain-phase { margin-bottom: 12px; }
+  .chain-phase .name { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .chain-techs { display: flex; gap: 8px; flex-wrap: wrap; }
+  .dot {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border);
+  }
+  .dot.none { color: var(--muted); }
+  .dot.attempted { color: var(--amber); border-color: #6b551f; }
+  .dot.red-success { color: var(--red); border-color: #6b2430; background: var(--red-dim); }
+  .dot.blue-detected { color: var(--green); border-color: #1f6b47; background: #0f2a1c; }
+  .objective-bar-wrap { margin-top: 4px; }
+  .objective-bar { height: 10px; background: #1b2038; border-radius: 999px; overflow: hidden; margin: 8px 0; }
+  .objective-bar .fill { height: 100%; background: var(--green); }
+  .timeline-row { display: flex; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .timeline-row:last-child { border-bottom: none; }
+  .timeline-row .t { color: var(--muted); width: 62px; flex-shrink: 0; }
+  .gap-note {
+    margin-top: 14px; padding: 10px 12px; background: #1a1530; border: 1px solid #3a2f66;
+    border-radius: 6px; font-size: 12px; color: #c9b8ff;
+  }
+  @media (max-width: 760px) {
+    .grid { grid-template-columns: 1fr; }
+    .header { flex-direction: column; align-items: flex-start; gap: 8px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="banner">
+  討論用 mock，不是這次要開工的票。<b>Battleboard 屬於 WS7 Product UI</b>（README：⬜ 未開始），不是紫隊（WS4-P2）要交付的東西。
+  這份 demo 只是為了讓組員理解「Purple Console 看到的東西」跟「Battleboard 看到的東西」差在哪——資料寫死，不吃任何真實 API。
+  對照另一份 <a href="../purple-console-ui/demo.html" style="color:inherit">Purple Console demo</a>。
+</div>
+
+<div class="board">
+
+  <div class="header">
+    <div class="vs"><span class="red">🔴 RED</span> vs <span class="blue">🔵 BLUE</span></div>
+    <div class="meta">ROUND 01</div>
+    <div class="meta">38:21 剩餘</div>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <div class="panel-title">比分</div>
+      <div class="score-row"><span class="team red">RED</span><span class="val" style="color:var(--red)">720</span></div>
+      <div class="score-row"><span class="team blue">BLUE</span><span class="val" style="color:var(--blue)">680</span></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">攻防進度（Scenario-based ATT&CK）</div>
+
+      <div class="chain-phase">
+        <div class="name">Initial Access</div>
+        <div class="chain-techs">
+          <span class="dot blue-detected">🟢 Attack #1 已偵測</span>
+        </div>
+      </div>
+
+      <div class="chain-phase">
+        <div class="name">Execution</div>
+        <div class="chain-techs">
+          <span class="dot red-success">🔴 Attack #2 紅隊得手</span>
+        </div>
+      </div>
+
+      <div class="chain-phase">
+        <div class="name">Discovery</div>
+        <div class="chain-techs">
+          <span class="dot blue-detected">🟢 Attack #3 已偵測</span>
+        </div>
+      </div>
+
+      <div class="chain-phase">
+        <div class="name">Collection</div>
+        <div class="chain-techs">
+          <span class="dot blue-detected">🟢 Attack #4 已偵測</span>
+        </div>
+      </div>
+
+      <div class="chain-phase">
+        <div class="name">C2</div>
+        <div class="chain-techs">
+          <span class="dot attempted">🟡 Attack #5 嘗試中</span>
+        </div>
+      </div>
+
+      <div class="gap-note">
+        技法標示已匿名化為 <code>Attack #N</code>，不直接秀 MITRE 編號／技法名稱——同一 scenario 會被拿給下一組隊伍重打，
+        提前公布「這關考什麼」等於洩題。MITRE 編號只在賽後 Exercise Report、或 Purple Console／Instructor Console 這種非公開畫面上才出現。
+      </div>
+
+      <div class="gap-note" style="border-color:#6b2430; color:#ffb3bd">
+        ⚠️ 更根本的討論點（匿名化解不了）：<code>🔴 Attack #2 紅隊得手</code> 這個「有沒有得手」的即時狀態，等於在藍隊自己的 SOC
+        還沒偵測到之前，Battleboard 就先公開答案——藍隊本該靠自己的告警才知道，現場公布等於洩漏即時戰況給被測的一方。
+        要不要延遲揭露（例如回合結束才顯示這一格），還是只給 Instructor／賽後報告看，需要組員決定，本 demo 暫不擅自處理。
+      </div>
+
+      <div class="gap-note">
+        另一個沿用的舊討論點：Attack #5（原 T1071）在 Purple Console 是 <code>⏳ unknown</code>（來源掉線，無法判定），但
+        Battleboard 只定義了 ○／🟡／🔴／🟢 四態，沒有「unknown」——這裡先借用 🟡 Attempted 頂著，是否恰當待組員討論。
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">防禦狀態</div>
+      <div class="stat-row"><span>已偵測</span><span class="val">3 / 4</span></div>
+      <div class="stat-row"><span>已封鎖</span><span class="val">12</span></div>
+      <div class="stat-row"><span>進行中事件</span><span class="val">1</span></div>
+      <div class="gap-note" style="margin-top:10px">不放裸百分比（如 <code>82%</code>），改用看得到分母的計數，依 <a href="../purple-console-ui/spec.md" style="color:inherit">Console spec §3.9</a> 規則。</div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-title">Objective 進度</div>
+    <div class="objective-bar-wrap">
+      <div class="stat-row" style="border:none; padding-bottom:0"><span>已完成</span><span class="val">4 / 7</span></div>
+      <div class="objective-bar"><div class="fill" style="width:57%"></div></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">戰況時間軸（Sanitized Event）</div>
+    <div class="timeline-row"><span class="t">14:28:40</span><span>🔴 偵測到攻擊行為 — Initial Access</span></div>
+    <div class="timeline-row"><span class="t">14:28:52</span><span>🟢 觸發偵測</span></div>
+    <div class="timeline-row"><span class="t">14:29:10</span><span>🟢 自動應變已執行</span></div>
+    <div class="timeline-row"><span class="t">14:31:04</span><span>🔴 偵測到攻擊行為 — Execution</span></div>
+    <div class="timeline-row"><span class="t">14:31:04</span><span style="color:var(--muted)">— 尚無偵測回應</span></div>
+    <div class="gap-note" style="margin-top:14px">
+      時間軸只放 SA §5.4 允許公開的欄位：時間、狀態、階段、technique 編號。
+      不放 rule threshold／raw payload／detection query／ban TTL／internal IP——這些只在 Blue SOC 看得到。
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

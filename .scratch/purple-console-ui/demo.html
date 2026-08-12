@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>Purple Console — Demo（討論用非正式稿）</title>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #161d2e;
+    --border: #2a3348;
+    --text: #e6e9f0;
+    --muted: #8b93a7;
+    --detected-bg: #143a26;
+    --detected-fg: #4ade80;
+    --missed-bg: #3a1616;
+    --missed-fg: #f87171;
+    --unknown-bg: #3a3016;
+    --unknown-fg: #fbbf24;
+    --na-bg: #232a3a;
+    --na-fg: #8b93a7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", "Noto Sans TC", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+  }
+  .banner {
+    background: #3a2a16;
+    color: #fbbf24;
+    border: 1px solid #6b4f1f;
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 13px;
+    margin-bottom: 20px;
+    max-width: 900px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    max-width: 900px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover { background: #1d2436; }
+  .note { color: var(--muted); font-size: 12px; font-style: italic; margin-top: 4px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+    padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 500;
+  }
+  th:last-child, td:last-child { white-space: nowrap; }
+  .badge.detected { background: var(--detected-bg); color: var(--detected-fg); }
+  .badge.missed { background: var(--missed-bg); color: var(--missed-fg); }
+  .badge.unknown { background: var(--unknown-bg); color: var(--unknown-fg); }
+  .badge.na { background: var(--na-bg); color: var(--na-fg); }
+  #screen2, #screen3 { display: none; }
+  .back { background: none; border: none; color: var(--muted); font-size: 13px; cursor: pointer; padding: 0; margin-bottom: 16px; }
+  .back:hover { color: var(--text); }
+  .drill-header { margin-bottom: 20px; }
+  .drill-header .tech { font-size: 18px; font-weight: 600; }
+  .drill-header .observed { color: var(--muted); font-size: 13px; }
+  .section-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; margin: 20px 0 8px; }
+  .section-label:first-of-type { margin-top: 0; }
+  .kv-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .metrics { display: flex; gap: 32px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+  .metric .label { color: var(--muted); font-size: 12px; }
+  .metric .value { font-size: 20px; font-weight: 600; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 20px; max-width: 900px; }
+  .tab {
+    background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+    padding: 8px 16px; border-radius: 6px; font-size: 13px; cursor: pointer;
+  }
+  .tab.active { color: var(--text); border-color: #4a5a80; background: #1d2436; }
+  .tab .tag { color: var(--muted); font-size: 11px; }
+  .report-row { display: flex; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; gap: 16px; }
+  .report-row .k { width: 90px; flex-shrink: 0; color: var(--muted); }
+  .report-row .v { flex: 1; }
+  .report-note { color: var(--muted); font-size: 12px; font-style: italic; margin-top: 16px; }
+</style>
+</head>
+<body>
+
+<div class="banner">
+  討論用 demo，非 <a href="https://github.com/Graylee0128/cyber/issues/26" style="color:inherit">#26</a>／<a href="https://github.com/Graylee0128/cyber/issues/27" style="color:inherit">#27</a>／<a href="https://github.com/Graylee0128/cyber/issues/28" style="color:inherit">#28</a> 實作。
+  資料寫死、不吃 Evaluation API／Evaluation 快照；只有 T1059 可點入畫面二。視覺方案對應 <a href="./spec.md" style="color:inherit">spec.md</a> 各題的 strawman（非定案）。
+</div>
+
+<div class="tabs">
+  <div class="tab active" id="tab-screen1" onclick="show('screen1')">畫面一・涵蓋率表</div>
+  <div class="tab" id="tab-screen2" onclick="show('screen2')">畫面二・Technique 下鑽</div>
+  <div class="tab" id="tab-screen3" onclick="show('screen3')">Exercise Report <span class="tag">（非 Console 畫面，收尾產出）</span></div>
+</div>
+
+<div id="screen1">
+  <h1>Purple Console — 畫面一：ATT&CK 涵蓋率表</h1>
+  <div class="sub">本場演練涉及的技法；⏳ 未知不進涵蓋率分母</div>
+  <div class="panel">
+    <table>
+      <thead>
+        <tr><th>技法（Technique）</th><th>紅隊</th><th>藍隊</th></tr>
+      </thead>
+      <tbody>
+        <tr class="clickable" onclick="show('screen2')">
+          <td>T1190 Exploit Public-Facing App（利用對外服務漏洞）</td>
+          <td>✅</td>
+          <td><span class="badge detected">✅ 已偵測</span></td>
+        </tr>
+        <tr class="clickable" onclick="show('screen2')">
+          <td>T1059 Command Interpreter（命令直譯器）</td>
+          <td>✅</td>
+          <td><span class="badge missed">❌ 未偵測</span></td>
+        </tr>
+        <tr>
+          <td>
+            T1005 Data from Local System（讀取本機資料）
+            <div class="note">判讀限制：僅代表敏感檔被開啟，未證明內容外流</div>
+          </td>
+          <td>✅</td>
+          <td><span class="badge detected">✅ 已偵測</span></td>
+        </tr>
+        <tr>
+          <td>T1087 Account Discovery（帳號探測）</td>
+          <td>✅</td>
+          <td><span class="badge detected">✅ 已偵測</span></td>
+        </tr>
+        <tr>
+          <td>T1071 Application Layer Protocol（應用層協定）</td>
+          <td><span class="badge unknown">⏳ 未知</span></td>
+          <td><span class="badge na">— 不適用</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div id="screen2">
+  <button class="back" onclick="show('screen1')">← 返回涵蓋率表</button>
+  <div class="panel">
+    <div class="drill-header">
+      <div class="tech">T1059 · 命令直譯器（Command Interpreter）</div>
+      <div class="observed">觀測時間 14:31:04</div>
+    </div>
+
+    <div class="section-label">遙測來源（漏檢分類就靠這欄）</div>
+    <div class="kv-row"><span>Application Log（應用程式日誌）</span><span class="badge detected">✅</span></div>
+    <div class="kv-row"><span>Falco</span><span class="badge missed">❌ 有部署，無事件</span></div>
+    <div class="kv-row"><span>Loki</span><span class="badge detected">✅</span></div>
+    <div class="kv-row"><span>WAF</span><span class="badge na">— 未部署</span></div>
+
+    <div class="section-label">偵測結果</div>
+    <div class="kv-row"><span>規則</span><span>（無命中）</span></div>
+    <div class="kv-row"><span>延遲</span><span>—</span></div>
+
+    <div class="section-label">應變</div>
+    <div class="kv-row"><span>（未觸發）</span><span></span></div>
+
+    <div class="metrics">
+      <div class="metric"><div class="label">MTTD（平均偵測時間）</div><div class="value">—</div></div>
+      <div class="metric"><div class="label">MTTR（平均應變時間）</div><div class="value">—</div></div>
+    </div>
+  </div>
+</div>
+
+<div id="screen3">
+  <h1>Exercise Report — 演練報告（收尾產出）</h1>
+  <div class="sub">演練結束後產出的快照，會被轉寄、被引用；不是 Console 即時畫面，資料快照後不隨後續變動</div>
+  <div class="panel">
+    <div class="report-row"><div class="k">紅隊</div><div class="v">攻擊成功率 67%　／　Objective 完成 4/7</div></div>
+    <div class="report-row"><div class="k">藍隊</div><div class="v">行動涵蓋率 82%　／　MTTD 12.4s　／　MTTR 14.2s　／　告警總量 4,120</div></div>
+    <div class="report-row">
+      <div class="k">涵蓋缺口</div>
+      <div class="v">
+        T1059 <span class="badge missed">偵測缺口</span>
+        T1071 <span class="badge unknown">可見性缺口</span>
+      </div>
+    </div>
+    <div class="report-row"><div class="k">未知（unknown）</div><div class="v">2 項，原因：Falco 於 14:52–14:58 掉線</div></div>
+    <div class="report-row"><div class="k">改善建議</div><div class="v">（依缺口分類自動帶出的建議文字…）</div></div>
+    <div class="report-note">
+      raw log 保留時窗若已過期，報告要標明「哪些時段有 raw 覆蓋」，不能靜默留白——這欄本 demo 未示範。
+    </div>
+  </div>
+</div>
+
+<script>
+  function show(id) {
+    ['screen1', 'screen2', 'screen3'].forEach(function (s) {
+      document.getElementById(s).style.display = (s === id) ? 'block' : 'none';
+    });
+    ['tab-screen1', 'tab-screen2', 'tab-screen3'].forEach(function (t) {
+      document.getElementById(t).classList.toggle('active', t === 'tab-' + id);
+    });
+  }
+</script>
+
+</body>
+</html>

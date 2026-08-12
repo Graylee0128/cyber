@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>Instructor Console — Demo（討論用非正式稿，非本次開工票）</title>
+<style>
+  :root {
+    --bg:#0d0e14; --panel:#161826; --border:#2a2d42; --text:#eef0f7; --muted:#8489a5;
+    --purple:#b794f6; --purple-dim:#241a3a; --amber:#ffc94d; --red:#ff5c6c; --green:#37e08a; --blue:#4da6ff;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Segoe UI","Noto Sans TC",sans-serif; background:var(--bg); color:var(--text); padding:24px; }
+  .banner { background:#3a2a16; color:var(--amber); border:1px solid #6b4f1f; border-radius:6px; padding:10px 14px; font-size:13px; margin-bottom:20px; max-width:1100px; }
+  .banner b { color:#ffdb8a; }
+  .wrap { max-width:1100px; }
+  .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin-bottom:16px; }
+  .btn { border:1px solid var(--border); background:#0f1120; color:var(--text); padding:9px 16px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer; }
+  .btn.start { border-color:#1f6b47; color:var(--green); }
+  .btn.pause { border-color:#6b551f; color:var(--amber); }
+  .btn.stop { border-color:#6b2430; color:var(--red); }
+  .btn:hover { opacity:.85; }
+  select { background:#0f1120; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:8px 12px; font-size:13px; }
+  .spacer { flex:1; }
+  .grid { display:grid; grid-template-columns: 1.4fr 1fr; gap:16px; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:18px; margin-bottom:16px; }
+  .panel-title { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-bottom:14px; font-weight:700; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); }
+  th { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
+  .field { margin-bottom:14px; }
+  .field label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
+  .field input, .field select { width:100%; }
+  .row2 { display:flex; gap:10px; }
+  .row2 > * { flex:1; }
+  .inject-btn { width:100%; }
+  .link-btn { display:block; width:100%; text-align:left; background:none; border:1px solid var(--border); color:var(--text); padding:10px 14px; border-radius:6px; font-size:13px; cursor:pointer; margin-bottom:8px; }
+  .link-btn:hover { border-color:var(--purple); }
+  .audit-note { margin-top:14px; font-size:12px; color:#c9b8ff; background:#1a1530; border:1px solid #3a2f66; border-radius:6px; padding:10px 12px; }
+</style>
+</head>
+<body>
+
+<div class="banner">
+  討論用 mock，不是這次要開工的票。<b>Instructor Console 屬於 WS7 Product UI</b>（README：⬜ 未開始）。資料寫死，不吃任何真實 API。
+  這是唯一的全知角色（SA §5.5）——四個 Product UI 畫面裡權限最大，可覆寫分數、注入事件、看 raw event。
+</div>
+
+<div class="wrap">
+
+  <div class="toolbar">
+    <button class="btn start">▶ Start</button>
+    <button class="btn pause">⏸ Pause</button>
+    <button class="btn">↺ Reset</button>
+    <button class="btn stop">⏹ Stop</button>
+    <div class="spacer"></div>
+    <select><option>Scenario: SQL Injection — E-Commerce Checkout</option></select>
+    <select><option>難度: Medium</option></select>
+  </div>
+
+  <div class="grid">
+    <div>
+      <div class="panel">
+        <div class="panel-title">View All Teams</div>
+        <table>
+          <thead><tr><th>隊伍</th><th>分數</th><th>目前 Objective</th><th>狀態</th></tr></thead>
+          <tbody>
+            <tr><td>🔴 Red</td><td>720</td><td>找到隱藏 flag</td><td>進行中</td></tr>
+            <tr><td>🔵 Blue</td><td>680</td><td>INC-042 處置中</td><td>進行中</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">工具</div>
+        <button class="link-btn">🔍 View Raw Event（未遮蔽的原始事件）</button>
+        <button class="link-btn">📄 Download Exercise Report（<a href="https://github.com/Graylee0128/cyber/issues/28" style="color:inherit">#28</a>）</button>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <div class="panel-title">Inject Hint</div>
+        <div class="field">
+          <label>對象</label>
+          <select><option>Red — 找到隱藏 flag</option></select>
+        </div>
+        <button class="btn inject-btn">注入提示</button>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Inject Event</div>
+        <div class="field">
+          <label>事件類型</label>
+          <select><option>模擬 Falco 告警</option><option>模擬 WAF block</option></select>
+        </div>
+        <button class="btn inject-btn">注入事件</button>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Override Score</div>
+        <div class="row2">
+          <div class="field"><label>隊伍</label><select><option>Red</option><option>Blue</option></select></div>
+          <div class="field"><label>調整分數</label><input type="number" placeholder="+/- 分數"></div>
+        </div>
+        <button class="btn inject-btn">套用</button>
+        <div class="audit-note">
+          討論點（<a href="../product-ui/spec.md" style="color:inherit">spec.md Q3</a>）：Override Score／Inject Event 目前沒有操作紀錄欄位——
+          若 Exercise Report（<a href="https://github.com/Graylee0128/cyber/issues/28" style="color:inherit">#28</a>）不標註「這裡被教官手動調整過」，報告的可信度會被質疑。本 demo 暫未加這個欄位，留給組員決定。
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
