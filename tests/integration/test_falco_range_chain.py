@@ -13,6 +13,8 @@ Z-MGMT 的 Loki（TARGET→MGMT :3100＝契約 1 實用），紅隊是接 VLAN30
 2. `test_sensitive_file_access_becomes_core_event_T1005` —— SA §7 Scenario 03
 3. `test_uncovered_action_is_detection_gap_not_visibility_gap` —— 決定性測試的真環境版：
    `detected` / `source_state` / `telemetry_present` 三個輸入**全部實採**，沒有字面值
+4. `test_response_pull_blocks_only_attack_source_and_reset_clears` —— 票 #17：
+   agent 主動 pull、以 Core Event `source_ip` 封鎖、回報 `response.executed`，Reset 復原
 
 前提（由 scripts/test.sh 準備）：`range-up.sh --with-red --with-falco` 已跑完、
 compose 全棧在跑。以 `PURPLE_RANGE_CHAIN=1` 開啟，否則 skip（一般 CI 無巢狀虛擬化）。
@@ -23,6 +25,7 @@ from __future__ import annotations
 import os
 import subprocess
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -44,6 +47,7 @@ LOKI_URL = os.environ.get("PURPLE_LOKI_URL", "http://localhost:3100")
 TARGET_IP = os.environ.get("PURPLE_RANGE_TARGET_IP", "10.167.20.10")
 CHAIN_TIMEOUT_S = 120.0
 FALCO_SELECTOR = '{job="falco"}'
+REPO = Path(__file__).resolve().parents[2]
 
 
 def _step(msg: str) -> None:
@@ -54,17 +58,30 @@ def _ok(msg: str) -> None:
     print(f"    ✅ {msg}", flush=True)
 
 
-def _attack(path: str, red: str = "range-red1") -> str:
-    """從紅隊容器打靶機 VM 的某個端點（隔著真 VLAN30→VLAN20）。"""
-    result = subprocess.run(
+def _curl_from_red(path: str, red: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         ["docker", "exec", red, "curl", "-s", "-m", "5", f"http://{TARGET_IP}{path}"],
         capture_output=True, text=True, timeout=30,
     )
+
+
+def _attack(path: str, red: str = "range-red1") -> str:
+    """從紅隊容器打靶機 VM 的某個端點（隔著真 VLAN30→VLAN20）。"""
+    result = _curl_from_red(path, red)
     assert result.returncode == 0, (
         f"{red} 打不到靶機 {TARGET_IP}{path}（§12.3 應允許 RED→TARGET:80）："
         f"{result.stdout} {result.stderr}"
     )
     return result.stdout.strip()
+
+
+def _wait_red_reachable(red: str, timeout_s: float = 90.0) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if _curl_from_red("/", red).returncode == 0:
+            return True
+        time.sleep(3)
+    return False
 
 
 def _wait_loki(needle: str, timeout_s: float = CHAIN_TIMEOUT_S) -> int:
@@ -212,3 +229,83 @@ def test_uncovered_action_is_detection_gap_not_visibility_gap(events):
     assert result is MissClass.DETECTION_GAP
     assert result is not MissClass.VISIBILITY_GAP
     _ok("判定 DETECTION_GAP（看得到卻沒偵測到）—— D1 在真環境成立，三個輸入全部實採")
+
+
+def test_response_pull_blocks_only_attack_source_and_reset_clears(events):
+    """#17 真環境鏈：來源 IP 驅動封鎖，MTTR 終於 response.executed，Reset 復原。"""
+    attacker = "range-red4"
+    unaffected = "range-red5"
+    attacker_ip = "10.167.30.14"
+    print(
+        "\n=== [#17 真環境全鏈] Falco → Core Event → agent pull → ipset → Reset ===",
+        flush=True,
+    )
+    mark = events.now()
+
+    _step("前置檢查：range-red4 與 range-red5 都能連靶機 :80（失敗即 fail，不 skip）")
+    assert _wait_red_reachable(attacker), "range-red4 在前置檢查期間始終打不到靶機 :80"
+    assert _wait_red_reachable(unaffected), "range-red5 在前置檢查期間始終打不到靶機 :80"
+
+    try:
+        _step("range-red4 觸發 /exec 五次；marker 由 TCP peer 帶出 source_ip")
+        for _ in range(5):
+            _attack("/exec", red=attacker)
+
+        attack = wait_for_event(
+            fetch=lambda: events.since(mark),
+            match=lambda e: (
+                e["scenario_id"] == "falco-exec-01"
+                and e["event_type"] == "attack.detected"
+                and e.get("target", {}).get("source_ip") == attacker_ip
+            ),
+            what="#17 含攻擊來源 IP 的 attack.detected Core Event",
+            timeout_s=CHAIN_TIMEOUT_S,
+            poll_s=3.0,
+        )
+        assert_core_event(attack)
+        assert attack["target"]["source_ip"] == attacker_ip
+        _ok(f"attack Core Event {attack['event_id']} 保留 source_ip={attacker_ip}")
+
+        response = wait_for_event(
+            fetch=lambda: events.since(mark),
+            match=lambda e: (
+                e["event_type"] == "response.executed"
+                and e.get("target", {}).get("attack_event_id") == attack["event_id"]
+            ),
+            what="#17 agent 寫入 ipset 後的 response.executed Core Event",
+            timeout_s=CHAIN_TIMEOUT_S,
+            poll_s=3.0,
+        )
+        assert_core_event(response)
+        assert response["target"]["source_ip"] == attacker_ip
+        # attack.observed_at 來自 Grafana alert 的 startsAt，只有整秒精度（10s eval
+        # tick 的邊界）；response.observed_at 是 agent 當下的微秒精度 wall clock。
+        # 兩者不同精度來源，真實因果順序已由程式碼保證（receiver 先寫 attack Core
+        # Event、才把命令放進佇列，agent 拉到才會執行）——比較時容許 startsAt 的
+        # 整秒捨入誤差，而非要求逐微秒的嚴格 >=。
+        attack_observed = datetime.fromisoformat(attack["observed_at"])
+        response_observed = datetime.fromisoformat(response["observed_at"])
+        assert response_observed >= attack_observed - timedelta(seconds=1), (
+            f"response({response['observed_at']}) 比 attack({attack['observed_at']}) "
+            "早超過 Grafana startsAt 的整秒捨入容許範圍，因果順序可疑"
+        )
+        _ok(f"response Core Event {response['event_id']}：MTTR 終點為 ipset 成功時刻")
+
+        _step("確認只封鎖攻擊來源：red4 打 :80 失敗，red5 仍成功")
+        blocked = _curl_from_red("/", attacker)
+        assert blocked.returncode != 0, "range-red4 在 response.executed 後仍可連 :80"
+        assert _curl_from_red("/", unaffected).returncode == 0, "封鎖誤傷 range-red5"
+        _ok("精準封鎖成立，未影響其他 red 容器")
+    finally:
+        _step("執行正式 Reset 流程，避免封鎖狀態污染後續演練")
+        subprocess.run(
+            ["bash", str(REPO / "scripts" / "range" / "range-reset.sh"), "--with-red", "--with-falco"],
+            check=True,
+            cwd=REPO,
+            timeout=900,
+        )
+
+    _step("Reset 後重新實採 red4 與 red5 對 :80 的連通性")
+    assert _wait_red_reachable(attacker), "Reset 後 red4 封鎖狀態未清除"
+    assert _wait_red_reachable(unaffected), "Reset 後 red5 未恢復連通"
+    _ok("Reset 已清除 ipset/iptables 狀態，兩個來源均恢復連通")

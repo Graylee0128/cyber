@@ -1,0 +1,98 @@
+"""Response HTTP pull 管路：receiver 排命令，target agent 主動 GET／POST。"""
+
+from __future__ import annotations
+
+import json
+import threading
+from datetime import datetime, timezone
+from http.server import ThreadingHTTPServer
+from urllib.request import Request, urlopen
+
+from purple.harness.schema import assert_core_event
+from purple.receiver.server import WebhookHandler
+from purple.response.agent import ResponseAgent
+from purple.response.direct_block import RecordingBlocker
+from purple.response.http_link import HttpLink
+from purple.response.queue import InMemoryCommandQueue
+from purple.store.events import CoreEventStore
+
+
+FIRING = {
+    "status": "firing",
+    "alerts": [
+        {
+            "status": "firing",
+            "fingerprint": "fp-http-pull",
+            "startsAt": "2026-08-11T05:00:00+00:00",
+            "labels": {
+                "alertname": "FalcoCommandExec",
+                "event_type": "attack.detected",
+                "technique": "T1059",
+                "team": "red",
+                "severity": "high",
+                "scenario_id": "falco-exec-01",
+                "exercise_id": "ex-001",
+                "service": "range-target",
+                "source_ip": "10.167.30.11",
+            },
+            "annotations": {"query": "falco command exec", "threshold": "> 0 / 1m"},
+            "values": {"A": 1},
+        }
+    ],
+}
+
+FIXED_NOW = datetime(2026, 8, 11, 5, 0, 12, tzinfo=timezone.utc)
+
+
+def _post(url: str, body: dict) -> dict:
+    request = Request(
+        url,
+        data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(request, timeout=5) as response:  # noqa: S310 - localhost test server
+        return json.load(response)
+
+
+def test_webhook_to_agent_pull_to_response_core_event(pg_connection):
+    command_queue = InMemoryCommandQueue()
+
+    class Handler(WebhookHandler):
+        response_queue = command_queue
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_port}"
+
+    events = CoreEventStore(pg_connection)
+    mark = events.now()
+    try:
+        assert _post(f"{base_url}/webhook", FIRING)["emitted"]
+
+        # HttpLink 只有 agent 主動發起的 pull/report，沒有 listen/accept。
+        link = HttpLink(base_url)
+        assert not hasattr(link, "listen")
+        assert not hasattr(link, "accept")
+
+        [response_event] = ResponseAgent(
+            link=link,
+            blocker=RecordingBlocker(),
+            now=lambda: FIXED_NOW,
+        ).run_once()
+
+        assert_core_event(response_event)
+        assert response_event["event_type"] == "response.executed"
+        assert response_event["target"]["source_ip"] == "10.167.30.11"
+
+        stored = events.since(mark)
+        assert [event["event_type"] for event in stored] == [
+            "attack.detected",
+            "response.executed",
+        ]
+        assert stored[1] == response_event
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)

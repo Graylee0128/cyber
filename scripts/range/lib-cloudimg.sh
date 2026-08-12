@@ -3,7 +3,7 @@
 # 抽出來的原因：半截下載的 image 會讓 VM 開機讀到壞區塊 → EXT4 I/O error →
 # kernel panic（症狀像網路問題其實是磁碟），這道把關要在每支建 VM 的腳本都成立。
 
-# golden_stamp <repo>：golden image 的**內容指紋** —— 烤進去的四個來源檔的 sha256。
+# golden_stamp <repo>：golden image 的內容指紋 —— 所有烤入來源檔的 sha256。
 #
 # 為什麼需要：golden 是一顆 qcow2，光看檔案在不在無法判斷它是用哪一版來源烤的。
 # 改了靶機 app 或 Alloy 設定卻沿用舊 golden，會得到「檔案存在但功能不對」的假象，
@@ -14,7 +14,20 @@ golden_stamp() {
   cat "$repo/deploy/range-target/bake.sh" \
       "$repo/deploy/range-target/app.py" \
       "$repo/deploy/range-target/config.alloy" \
-      "$repo/deploy/falco/rules.d/purplescope.yaml" 2>/dev/null \
+      "$repo/deploy/falco/rules.d/purplescope.yaml" \
+      "$repo/scripts/range/zones.env" \
+      "$repo/src/purple/__init__.py" \
+      "$repo/src/purple/harness/__init__.py" \
+      "$repo/src/purple/harness/attacker.py" \
+      "$repo/src/purple/harness/loki_probe.py" \
+      "$repo/src/purple/harness/schema.py" \
+      "$repo/src/purple/harness/waiting.py" \
+      "$repo/src/purple/response/__init__.py" \
+      "$repo/src/purple/response/agent.py" \
+      "$repo/src/purple/response/queue.py" \
+      "$repo/src/purple/response/direct_block.py" \
+      "$repo/src/purple/response/http_link.py" \
+      "$repo/src/purple/response/service.py" 2>/dev/null \
     | sha256sum | cut -d' ' -f1
 }
 

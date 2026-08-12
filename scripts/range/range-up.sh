@@ -8,7 +8,7 @@
 #   --with-red     另起六台紅隊容器接 VLAN30（attach-red.sh），並略過 netns red 免 IP 衝突
 #   --with-falco   靶機用 golden image（Falco/Alloy/app 已在內）跑在無網 VLAN20；
 #                  golden 不存在會先 build-golden-target.sh 產出；
-#                  並把 compose 的真 Loki 掛上 VLAN10（attach-mgmt.sh），讓 VM 推得到
+#                  並把 compose 的 Loki／receiver 掛上 VLAN10，讓 VM push telemetry／pull response
 #
 # 需 root + Slice 2 依賴。**不在 CI**（巢狀虛擬化）。冪等：內部各步自帶清理。
 set -euo pipefail
@@ -62,13 +62,13 @@ if [ "$WITH_RED" = 1 ]; then
 fi
 
 if [ "$WITH_FALCO" = 1 ]; then
-  echo "▶ 把 compose 的真 Loki 掛上 VLAN10（讓靶機 VM 的 Alloy 推得到＝契約 1 實用）"
+  echo "▶ 把 compose 的 Loki／receiver 掛上 VLAN10（telemetry push ＋ response pull/report）"
   if ! bash "$DIR/attach-mgmt.sh"; then
-    echo "   ⚠ Loki 未掛上 VLAN10（compose 起了嗎？）——靶機的 Falco 事件不會進 Loki。"
+    echo "   ⚠ MGMT 住戶未完整掛上 VLAN10（compose 起了嗎？）——telemetry／response 會不完整。"
     echo "     先 docker compose up -d，再單獨跑：sudo bash $DIR/attach-mgmt.sh"
   fi
 fi
 
 echo "▶▶ Range up 完成。驗收：sudo bash $DIR/verify-range.sh"
 echo "   靶機 VLAN$Z_TARGET_VLAN: $TARGET_IP | 紅隊 VLAN$Z_RED_VLAN: $RED_IP_FIRST 起 $RED_COUNT 台"
-echo "   MGMT VLAN$Z_MGMT_VLAN: $MGMT_STUB_IP(stub) / $MGMT_LOKI_IP(真 Loki)"
+echo "   MGMT VLAN$Z_MGMT_VLAN: $MGMT_STUB_IP(stub) / $MGMT_LOKI_IP(Loki) / $MGMT_RECEIVER_IP(receiver)"

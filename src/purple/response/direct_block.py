@@ -1,11 +1,9 @@
-"""ipset 直寫封鎖 —— 票 03 的 expand 基線。
+"""target 本機的 ipset 封鎖執行器（票 #17）。
 
-這是攻擊 → 封鎖的最短路徑：receiver 收到 attack.detected 就直接寫 ipset。
-它會破壞 `TARGET → MGMT` 單向（管理平面反向連入 target 才能寫），
-所以**票 09 會用 agent pull 取代它**（expand–contract 的 contract 階段）。
-
-在那之前它必須可用 —— 沒有它，03 到 09 之間就沒有任何封鎖能力。
-本機／CI 沒有 ipset，落到 no-op 並記錄意圖，行為仍可被契約測試觀察。
+receiver 只排命令；target agent 主動 pull 後在本機呼叫本模組，因此不需要
+MGMT 反向連入 target。封鎖來源只讀 Core Event 的 `target.source_ip`，不自行判斷。
+只有 ipset 寫入與 INPUT drop rule 都成功才回報成功；缺工具或任一步失敗都回
+`failed:`，避免把 no-op 誤記成 response.executed（ADR ⑦）。
 """
 
 from __future__ import annotations
@@ -26,7 +24,7 @@ class Blocker(Protocol):
 
 @dataclass
 class DirectIpsetBlocker:
-    """直接呼叫 ipset。ipset 不存在時 no-op 但記錄意圖，不假裝成功也不炸。"""
+    """用 ipset + iptables 封鎖來源；兩者成功才算 response 生效。"""
 
     ipset_set: str = DEFAULT_SET
     attempts: list[str] = field(default_factory=list)
@@ -35,17 +33,38 @@ class DirectIpsetBlocker:
         source_ip = _source_ip(core_event)
         self.attempts.append(source_ip)
 
-        if shutil.which("ipset") is None:
-            return f"noop: ipset unavailable, would block {source_ip}"
+        missing = [name for name in ("ipset", "iptables") if shutil.which(name) is None]
+        if missing:
+            return f"failed: required command unavailable: {', '.join(missing)}"
 
-        result = subprocess.run(
+        created = _run(["ipset", "create", self.ipset_set, "hash:ip", "-exist"])
+        if created.returncode != 0:
+            return f"failed: ipset create: {created.stderr.strip()}"
+
+        rule = [
+            "INPUT", "-p", "tcp", "--dport", "80", "-m", "set",
+            "--match-set", self.ipset_set, "src", "-j", "DROP",
+        ]
+        checked = _run(["iptables", "-w", "-C", *rule])
+        if checked.returncode != 0:
+            inserted = _run(["iptables", "-w", "-I", *rule])
+            if inserted.returncode != 0:
+                return f"failed: iptables insert: {inserted.stderr.strip()}"
+
+        result = _run(
             ["ipset", "add", self.ipset_set, source_ip, "-exist"],
-            capture_output=True,
-            text=True,
         )
         if result.returncode != 0:
-            return f"failed: {result.stderr.strip()}"
+            return f"failed: ipset add: {result.stderr.strip()}"
         return f"blocked: {source_ip} via ipset {self.ipset_set}"
+
+
+def _run(command: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+    )
 
 
 @dataclass
@@ -61,4 +80,7 @@ class RecordingBlocker:
 
 def _source_ip(core_event: dict[str, Any]) -> str:
     target = core_event.get("target", {})
-    return target.get("source_ip") or target.get("service", "unknown")
+    source_ip = target.get("source_ip")
+    if not source_ip:
+        raise ValueError("Core Event target.source_ip is required for blocking")
+    return source_ip

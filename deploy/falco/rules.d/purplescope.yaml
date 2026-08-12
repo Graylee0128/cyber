@@ -14,7 +14,8 @@
 # 警告 —— 那些警告在 bake 失敗時還會把真正的死因從診斷視窗裡擠出去，實際害過一次。
 
 # SA §7 Scenario 01/02 對應的執行面：T1059（Command and Scripting Interpreter）。
-# 靶機 /exec 會跑 `/bin/sh -c "echo PURPLESCOPE_EXEC_<n>; id"`，execve 被 modern-eBPF 抓到。
+# 靶機 /exec 會在 shell cmdline 放 `PURPLESCOPE_EXEC_<n> SOURCE_IP=<tcp-peer>`；
+# modern-eBPF 抓到 execve 後，Grafana 從輸出保留這個可信來源 IP 給 response agent。
 - rule: PurpleScope Command Exec
   desc: T1059 - a scripting interpreter was spawned on the target with the purplescope marker
   condition: >

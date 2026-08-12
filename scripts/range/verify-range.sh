@@ -169,11 +169,17 @@ else
   if [ "$TARGET_MODE" = "vm" ]; then
     # VM 模式：source IP 從**真 Loki** 撈靶機 app 的 log（同時證明 Falco/app 的
     # telemetry 真的走完 TARGET→MGMT→Loki，比 stub listener 更強的證據）。
+    #
+    # Alloy→Loki 有傳輸延遲：六個 probe 幾乎同時送出，但對應的 log 行不會同時
+    # 到齊。舊版一撈到「非空」就 break，實測會撈到只有前一兩個 probe 到位的
+    # 半成品，把「還沒到齊」誤判成「被 SNAT 塌縮成一個來源」（#17 real-range
+    # 觀測到的間歇性失敗）。改成撈到 >= RED_COUNT 個相異 source_ip 才算數，
+    # 撈不齊就繼續重試，重試預算用完才收下當時最完整的結果。
     : > "$REC"
     for _ in $(seq 1 15); do
-      python3 - "$LOKI_URL" "$REC" <<'PY' && break
+      python3 - "$LOKI_URL" "$REC" "$RED_COUNT" <<'PY' && break
 import json, sys, time, urllib.parse, urllib.request
-base, rec = sys.argv[1], sys.argv[2]
+base, rec, expected = sys.argv[1], sys.argv[2], int(sys.argv[3])
 end = time.time(); start = end - 300
 q = urllib.parse.urlencode({
     "query": '{app="range-target"}', "start": str(int(start*1e9)),
@@ -195,6 +201,7 @@ for stream in (payload.get("data") or {}).get("result") or []:
 if not ips:
     sys.exit(1)
 open(rec, "w", encoding="utf-8").write("\n".join(ips) + "\n")
+sys.exit(0 if len(set(ips)) >= expected else 1)
 PY
       sleep 2
     done

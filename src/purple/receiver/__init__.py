@@ -67,16 +67,20 @@ def ingest_alert(
 
         # 落地順序不可顛倒：Alert Record 先寫，Core Event 才有可對接的遙測細節（spec §2.5）。
         records.write(build_alert_record(alert, event_id))
-        events.append(core)
+        is_new = events.append(core)
         adapter.deliver(core)
 
-        if core["event_type"] == "attack.detected" and response_queue is not None:
-            response_queue.enqueue(
-                ResponseCommand(
-                    event_id=event_id,
-                    source_ip=core["target"].get("source_ip", core["target"].get("service", "unknown")),
-                )
-            )
+        # policies.yaml 的 repeat_interval 讓 Grafana 對同一個持續 firing 的 alert
+        # 反覆重送 webhook（lifecycle 測試要靠這個才收得到 firing 中的重送）。只在
+        # 這次是真的新事件時才 enqueue：重送不該讓同一次攻擊被重複封鎖、重複產生
+        # response.executed（#17 real-range 觀測到 repeat_interval=15s 下同一個
+        # attack_event_id 十幾秒內連續 enqueue 好幾次）。
+        if is_new and core["event_type"] == "attack.detected" and response_queue is not None:
+            try:
+                response_queue.enqueue(ResponseCommand.from_core_event(core))
+            except ValueError as exc:
+                # 沒有可信來源 IP 就不封；拿 service 名或猜測值下 ipset 會製造假成功。
+                log.warning("不建立 response command：%s（event_id=%s）", exc, event_id)
 
         emitted.append(event_id)
 

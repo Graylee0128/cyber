@@ -12,7 +12,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Protocol
+import uuid
 
+from purple.harness.schema import assert_core_event, expected_visibility
 from purple.response.direct_block import Blocker, DirectIpsetBlocker
 from purple.response.queue import ResponseCommand
 
@@ -44,7 +46,10 @@ class ResponseAgent:
         return events
 
     def _execute(self, command: ResponseCommand) -> dict:
-        core_event = {"event_id": command.event_id, "target": {"source_ip": command.source_ip}}
+        core_event = {
+            "event_id": command.event_id,
+            "target": {"service": command.service, "source_ip": command.source_ip},
+        }
         try:
             detail = self.blocker.block(core_event)
         except Exception as exc:  # 封鎖失敗要現形，不可靜默
@@ -56,11 +61,29 @@ class ResponseAgent:
         return self._event(command, "response.executed", "blue", detail)
 
     def _event(self, command: ResponseCommand, event_type: str, visibility: str, detail: str) -> dict:
-        return {
-            "event_id": command.event_id,
+        observed_at = self.now().isoformat()
+        event = {
+            # response 是另一個 domain event，不能與 attack 的 (event_id, firing) 撞主鍵。
+            # 因果關係放在 target.attack_event_id，仍可從 response 回溯原攻擊。
+            "event_id": "evt-" + uuid.uuid4().hex,
+            "exercise_id": command.exercise_id,
+            "scenario_id": command.scenario_id,
             "event_type": event_type,
+            "lifecycle": "firing",
+            "severity": command.severity,
+            "source": "response-agent",
+            "team": "blue",
+            "technique": command.technique,
+            "target": {
+                "service": command.service,
+                "source_ip": command.source_ip,
+                "attack_event_id": command.event_id,
+                "response": {"action": command.action, "detail": detail},
+            },
+            # response.executed 的 observed_at 是 ipset 成功回傳後才取值，正是 ADR ⑦ 的 MTTR 終點。
+            "observed_at": observed_at,
             "visibility": visibility,
-            "action": command.action,
-            "detail": detail,
-            "executed_at": self.now().isoformat(),
         }
+        assert visibility == expected_visibility(event_type)
+        assert_core_event(event)
+        return event

@@ -49,6 +49,7 @@ class TestInternalConsistency:
         [
             ("MGMT_STUB_IP", "Z_MGMT_VLAN"),
             ("MGMT_LOKI_IP", "Z_MGMT_VLAN"),
+            ("MGMT_RECEIVER_IP", "Z_MGMT_VLAN"),
             ("TARGET_IP", "Z_TARGET_VLAN"),
             ("RED_IP_FIRST", "Z_RED_VLAN"),
         ],

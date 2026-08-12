@@ -83,9 +83,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/exec":
             marker = _next_marker("EXEC")
             try:
-                # Falco 看的是這個 execve：sh 帶 PURPLESCOPE_EXEC 標記。
+                # Falco 看的是這個 execve。來源 IP 來自 TCP 對端，放進 cmdline 後由
+                # Grafana LogQL 擷取為 source_ip label；agent 不必也不得自行猜封鎖對象。
                 subprocess.run(
-                    ["/bin/sh", "-c", f"echo {marker}; id"],
+                    ["/bin/sh", "-c", f"echo {marker} SOURCE_IP={source_ip}; id"],
                     capture_output=True, timeout=5, check=False,
                 )
             except Exception as exc:  # noqa: BLE001

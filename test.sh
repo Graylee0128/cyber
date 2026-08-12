@@ -8,7 +8,7 @@
 #   T1 單元／契約   純函式與管路契約（需 Postgres，compose 已起即可）
 #   T2 compose 整合 真 SQLi / OTLP metric / Evidence API / lifecycle 走完管線
 #   T3 range 契約   四區方向性防火牆 + 六台紅隊 source IP 可分辨（需 range）
-#   T4 真環境全鏈   紅隊隔真 VLAN 打靶機 VM → Falco → Alloy → Loki → Core Event（需 golden range）
+#   T4 真環境全鏈   紅隊隔真 VLAN → Falco → Core Event → response agent 封鎖／Reset（需 golden range）
 #
 # Falco 兩案（見 scripts/range/falco-mode.sh）：container 走 T2 的 falco 測試；
 # vm 走 T4 的真環境全鏈。覆寫：FALCO_MODE=container|vm。
@@ -111,7 +111,7 @@ fi
 
 # --- T4 真環境全鏈 -----------------------------------------------------------
 echo
-echo "▶▶ T4 真環境全鏈（紅隊 → 靶機 VM → Falco → Alloy → Loki → Core Event）"
+echo "▶▶ T4 真環境全鏈（紅隊 → Falco → Core Event → agent pull → ipset 封鎖／Reset）"
 if [ "$HAVE_PY" = 0 ]; then
   record "T4 真環境全鏈：❌ 無可用 pytest（見上）"
 elif [ "$FALCO_MODE" != "vm" ]; then
