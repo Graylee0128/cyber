@@ -1,0 +1,407 @@
+<svg width="2120" height="1360" viewBox="0 0 2120 1360" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>demo-network 拓樸 v0.3 草案 — 六區：於 v0.2.1 四區之上新增 Z-EDGE 會議中控平面與 Z-BLUE 防守平面</title>
+<desc>在 v0.2.1 四區隔離之上新增兩區：Z-EDGE（VLAN 50）承載 TLS 終結與 ttyd 反向代理、零持久化；Z-BLUE（VLAN 60）承載藍隊每人一段的受限 shell 主機。新增第五條跨世代契約 EDGE→MGMT deny all。領號與身分鑄造住 Z-APP 的 Admission Service，不住 Z-EDGE。ttyd 跑在容器內以避免經由 host mgmt NIC 觸及 Z-MGMT。</desc>
+<style>
+  text { font-family: "Noto Sans CJK TC", "PingFang TC", "Microsoft JhengHei", "Helvetica Neue", Arial, sans-serif; }
+  .th  { font-size: 13px;   font-weight: 600; }
+  .ts  { font-size: 10.5px; font-weight: 400; }
+  .tz  { font-size: 14.5px; font-weight: 600; fill: #2C2C2A; }
+  .tzs { font-size: 11px;   font-weight: 400; fill: #5F5E5A; }
+  .tl  { font-size: 11.5px; font-weight: 400; fill: #5F5E5A; }
+  .tp  { font-size: 11.5px; font-weight: 400; fill: #2C2C2A; }
+  .tpk { font-size: 11.5px; font-weight: 600; fill: #2C2C2A; }
+  .tnote { font-size: 10.5px; font-weight: 400; fill: #5F5E5A; }
+  .tnew  { font-size: 10.5px; font-weight: 600; fill: #0F6E56; }
+  .deny  { font-size: 11.5px; font-weight: 600; fill: #A32D2D; }
+  .denys { font-size: 10.5px; font-weight: 600; fill: #A32D2D; }
+  .bg    { fill: #FFFFFF; }
+  .zone  { fill: none; stroke: #B4B2A9; stroke-width: 1; stroke-dasharray: 5 5; }
+  .zonenew { fill: none; stroke: #0F6E56; stroke-width: 1.6; stroke-dasharray: 6 4; }
+  .sub   { fill: none; stroke: #D3D1C7; stroke-width: 1; stroke-dasharray: 3 3; }
+  .panel { fill: #FBFAF6; stroke: #B4B2A9; stroke-width: 1; }
+  .panelnew { fill: #F0F8F5; stroke: #0F6E56; stroke-width: 1; }
+  .link  { stroke: #888780; stroke-width: 1.3; fill: none; }
+  .linknew { stroke: #0F6E56; stroke-width: 1.8; fill: none; }
+  .conn  { stroke: #185FA5; stroke-width: 1.5; fill: none; }
+  .n-purple rect { fill: #EEEDFE; stroke: #534AB7; stroke-width: 0.8; }
+  .n-purple .th { fill: #26215C; } .n-purple .ts { fill: #534AB7; }
+  .n-teal rect { fill: #E1F5EE; stroke: #0F6E56; stroke-width: 0.8; }
+  .n-teal .th { fill: #04342C; } .n-teal .ts { fill: #0F6E56; }
+  .n-slate rect { fill: #E9EEF4; stroke: #3F5169; stroke-width: 1.1; }
+  .n-slate .th { fill: #17222F; } .n-slate .ts { fill: #3F5169; }
+  .n-red rect { fill: #FCEBEB; stroke: #A32D2D; stroke-width: 0.8; }
+  .n-red .th { fill: #501313; } .n-red .ts { fill: #A32D2D; }
+  .n-blue rect { fill: #E6F1FB; stroke: #185FA5; stroke-width: 0.8; }
+  .n-blue .th { fill: #042C53; } .n-blue .ts { fill: #185FA5; }
+  .n-amber rect { fill: #FAEEDA; stroke: #854F0B; stroke-width: 0.8; }
+  .n-amber .th { fill: #412402; } .n-amber .ts { fill: #854F0B; }
+  .n-gray rect { fill: #F1EFE8; stroke: #5F5E5A; stroke-width: 0.8; }
+  .n-gray .th { fill: #2C2C2A; } .n-gray .ts { fill: #5F5E5A; }
+  @media (prefers-color-scheme: dark) {
+    .bg { fill: #10161C; }
+    .tz { fill: #E7EDF4; } .tzs, .tl, .tnote { fill: #93A1B1; } .tp { fill: #E7EDF4; } .tpk { fill: #E7EDF4; }
+    .deny, .denys { fill: #F06A80; } .tnew { fill: #5FC7A5; }
+    .zone { stroke: #41546A; } .sub { stroke: #2B3A49; }
+    .panel { fill: #18222D; stroke: #41546A; }
+    .panelnew { fill: #142A24; stroke: #2E8C70; }
+    .link { stroke: #6E8093; } .linknew { stroke: #2E8C70; } .conn { stroke: #6CB0EC; }
+    .zonenew { stroke: #2E8C70; }
+    .n-purple rect { fill: #221E45; stroke: #7D74E0; } .n-purple .th { fill: #DCD9FB; } .n-purple .ts { fill: #A79EF0; }
+    .n-teal rect { fill: #0E2E27; stroke: #2E8C70; } .n-teal .th { fill: #CDEFE4; } .n-teal .ts { fill: #6FC2A8; }
+    .n-slate rect { fill: #1B2632; stroke: #6E8AA8; } .n-slate .th { fill: #DCE6F0; } .n-slate .ts { fill: #9DB3C9; }
+    .n-red rect { fill: #331519; stroke: #C4485C; } .n-red .th { fill: #F7D2D8; } .n-red .ts { fill: #E0808F; }
+    .n-blue rect { fill: #12293F; stroke: #3C7FBF; } .n-blue .th { fill: #CFE4F7; } .n-blue .ts { fill: #7FB2E0; }
+    .n-amber rect { fill: #322510; stroke: #A87B2A; } .n-amber .th { fill: #F2E0C0; } .n-amber .ts { fill: #C8A362; }
+    .n-gray rect { fill: #1C232B; stroke: #6E8093; } .n-gray .th { fill: #E7EDF4; } .n-gray .ts { fill: #93A1B1; }
+  }
+</style>
+
+<rect class="bg" x="0" y="0" width="2120" height="1360"/>
+
+<!-- ===== 左上：本版變更 ===== -->
+<rect class="panelnew" x="30" y="30" width="420" height="172" rx="8"/>
+<text class="tpk" x="46" y="54">v0.3 相對 v0.2.1 的變更</text>
+<text class="tp"  x="46" y="78">1 · 新增 Z-EDGE（VLAN 50）會議中控平面，零持久化</text>
+<text class="tp"  x="46" y="99">2 · 新增 Z-BLUE（VLAN 60）藍隊受限 shell 主機</text>
+<text class="tp"  x="46" y="120">3 · 新增契約 5：EDGE → MGMT deny all</text>
+<text class="tp"  x="46" y="141">4 · ttyd 下放進容器；seat 之間 DOCKER-USER DROP</text>
+<text class="tp"  x="46" y="162">5 · 座位動態配置（50+ 規模）→ 四區變六區</text>
+<text class="tnote" x="46" y="186">草案，尚未取代 demo_network_topology_v0_2_1.svg</text>
+
+<!-- ===== 右上：對外發布方式 ===== -->
+<rect class="panel" x="1740" y="30" width="350" height="172" rx="8"/>
+<text class="tpk" x="1756" y="54">對外發布方式＝部署選項，非架構</text>
+<text class="tp"  x="1756" y="78">· 公網 IP + :443</text>
+<text class="tp"  x="1756" y="99">· 反向隧道（雙實例互備）</text>
+<text class="tp"  x="1756" y="120">· 場館 VPN</text>
+<text class="tnote" x="1756" y="146">架構只要求：單一 :443 入口落在 Z-EDGE。</text>
+<text class="tnote" x="1756" y="164">選哪一種不改變本圖任何一條政策。</text>
+<text class="tnote" x="1756" y="186">採隧道時 egress 須 allowlist 到端點，非全開。</text>
+
+<!-- ===== 來賓 ===== -->
+<g class="n-gray">
+  <rect x="740" y="30" width="300" height="62" rx="8"/>
+  <text class="th" x="890" y="55" text-anchor="middle">現場來賓（會議室）</text>
+  <text class="ts" x="890" y="76" text-anchor="middle">大螢幕進場碼 · HMAC 時間窗 · 60s 更新</text>
+</g>
+<g class="n-gray">
+  <rect x="1080" y="30" width="300" height="62" rx="8"/>
+  <text class="th" x="1230" y="55" text-anchor="middle">遠端來賓</text>
+  <text class="ts" x="1230" y="76" text-anchor="middle">報名信一次性連結 · 用過即失效</text>
+</g>
+<text class="tnote" x="740" y="112">進場碼全場共用 → 識別不出人</text>
+<text class="tnote" x="1230" y="112">連結每人唯一 → 可識別</text>
+
+<line class="link" x1="890" y1="92" x2="1016" y2="132"/>
+<line class="link" x1="1230" y1="92" x2="1104" y2="132"/>
+
+<g class="n-gray">
+  <rect x="930" y="134" width="260" height="44" rx="22"/>
+  <text class="th" x="1060" y="161" text-anchor="middle">網際網路</text>
+</g>
+
+<line class="linknew" x1="1060" y1="178" x2="1060" y2="214"/>
+<text class="tnew" x="1074" y="200">:443 唯一入口 · TLS 終結於 Z-EDGE</text>
+
+<!-- ===== Z-EDGE ===== -->
+<rect class="zonenew" x="560" y="214" width="1000" height="150" rx="12"/>
+<text class="tz"  x="578" y="240">Z-EDGE — ingress ／ 會議中控平面</text>
+<text class="tzs" x="1542" y="240" text-anchor="end">VLAN 50 · 10.167.50.0/24 · 新增</text>
+
+<g class="n-slate">
+  <rect x="579" y="258" width="230" height="86" rx="7"/>
+  <text class="th" x="694" y="284" text-anchor="middle">nginx · TLS 終結</text>
+  <text class="ts" x="694" y="305" text-anchor="middle">對外只有 :443</text>
+  <text class="ts" x="694" y="324" text-anchor="middle">其餘一律不對外</text>
+</g>
+<g class="n-slate">
+  <rect x="823" y="258" width="230" height="86" rx="7"/>
+  <text class="th" x="938" y="284" text-anchor="middle">auth_request 轉發</text>
+  <text class="ts" x="938" y="305" text-anchor="middle">每個請求問一次 Z-APP</text>
+  <text class="ts" x="938" y="324" text-anchor="middle">本機不做判斷</text>
+</g>
+<g class="n-slate">
+  <rect x="1067" y="258" width="230" height="86" rx="7"/>
+  <text class="th" x="1182" y="284" text-anchor="middle">ttyd 反向代理</text>
+  <text class="ts" x="1182" y="305" text-anchor="middle">upstream 由 Z-APP 指定</text>
+  <text class="ts" x="1182" y="324" text-anchor="middle">一 session 綁一 seat</text>
+</g>
+<g class="n-slate">
+  <rect x="1311" y="258" width="230" height="86" rx="7"/>
+  <text class="th" x="1426" y="284" text-anchor="middle">AI proxy</text>
+  <text class="ts" x="1426" y="305" text-anchor="middle">保留路由</text>
+  <text class="ts" x="1426" y="324" text-anchor="middle">MVP 不啟用（SA §13）</text>
+</g>
+
+<text class="denys" x="578" y="380">Z-EDGE 零持久化：無資料庫連線、無座位表、無 HMAC secret</text>
+<text class="tnote" x="578" y="398">它是唯一「未經驗證的流量碰得到」的區 —— 被打下時不該連帶交出名單</text>
+
+<line class="link" x1="1060" y1="404" x2="1060" y2="436"/>
+<text class="tl" x="1074" y="424">VLAN 50 · 向內流量一律經 firewall，不得繞道</text>
+
+<!-- ===== firewall / switch ===== -->
+<g class="n-amber">
+  <rect x="910" y="436" width="300" height="60" rx="8"/>
+  <text class="th" x="1060" y="460" text-anchor="middle">Firewall / L3 gateway</text>
+  <text class="ts" x="1060" y="480" text-anchor="middle">inter-VLAN policy · .1 on each VLAN</text>
+</g>
+
+<line class="link" x1="1060" y1="496" x2="1060" y2="530"/>
+<text class="tl" x="1072" y="516">802.1Q trunk</text>
+
+<g class="n-gray">
+  <rect x="910" y="530" width="300" height="60" rx="8"/>
+  <text class="th" x="1060" y="554" text-anchor="middle">L2 switch</text>
+  <text class="ts" x="1060" y="574" text-anchor="middle">VLAN 10 / 20 / 30 / 40 / 50 / 60</text>
+</g>
+
+<line class="link" x1="1060" y1="590" x2="1060" y2="620"/>
+<line class="link" x1="220" y1="620" x2="1900" y2="620"/>
+<line class="link" x1="220"  y1="620" x2="220"  y2="652"/>
+<line class="link" x1="640"  y1="620" x2="640"  y2="652"/>
+<line class="link" x1="1060" y1="620" x2="1060" y2="652"/>
+<line class="link" x1="1480" y1="620" x2="1480" y2="652"/>
+<line class="link" x1="1900" y1="620" x2="1900" y2="652"/>
+<text class="tl" x="230"  y="640">VLAN 40</text>
+<text class="tl" x="650"  y="640">VLAN 10</text>
+<text class="tl" x="1070" y="640">VLAN 20</text>
+<text class="tl" x="1490" y="640">VLAN 60</text>
+<text class="tl" x="1910" y="640">VLAN 30</text>
+
+<!-- ===== Z-APP ===== -->
+<rect class="zone" x="30" y="652" width="380" height="474" rx="12"/>
+<text class="tz"  x="46" y="678">Z-APP — product plane</text>
+<text class="tzs" x="46" y="696">VLAN 40 · 10.167.40.0/24</text>
+
+<g class="n-purple">
+  <rect x="46" y="708" width="348" height="52" rx="7"/>
+  <text class="th" x="60" y="729">Admission Service</text>
+  <text class="ts" x="60" y="748">憑據驗證 · 領號 · session↔seat</text>
+  <text class="ts" x="380" y="729" text-anchor="end">.16</text>
+</g>
+<g class="n-purple">
+  <rect x="46" y="768" width="348" height="52" rx="7"/>
+  <text class="th" x="60" y="789">Range Core</text>
+  <text class="ts" x="60" y="808">event · exercise · score · registry</text>
+  <text class="ts" x="380" y="789" text-anchor="end">.11</text>
+</g>
+<g class="n-purple">
+  <rect x="46" y="828" width="348" height="52" rx="7"/>
+  <text class="th" x="60" y="849">Player Portal</text>
+  <text class="ts" x="60" y="868">mission · hint · flag · 嵌入 shell</text>
+  <text class="ts" x="380" y="849" text-anchor="end">.12</text>
+</g>
+<g class="n-purple">
+  <rect x="46" y="888" width="348" height="52" rx="7"/>
+  <text class="th" x="60" y="909">Battleboard · Instructor</text>
+  <text class="ts" x="60" y="928">sanitized event · 釋放／改綁座位</text>
+  <text class="ts" x="380" y="909" text-anchor="end">.13</text>
+</g>
+<g class="n-purple">
+  <rect x="46" y="948" width="348" height="52" rx="7"/>
+  <text class="th" x="60" y="969">Blue SOC Console</text>
+  <text class="ts" x="60" y="988">alert · incident queue</text>
+  <text class="ts" x="380" y="969" text-anchor="end">.14</text>
+</g>
+<g class="n-purple">
+  <rect x="46" y="1008" width="348" height="52" rx="7"/>
+  <text class="th" x="60" y="1029">Purple Console</text>
+  <text class="ts" x="60" y="1048">coverage · MTTD · gap</text>
+  <text class="ts" x="380" y="1029" text-anchor="end">.15</text>
+</g>
+
+<text class="tnew"  x="46" y="1082">領號成功 → 鑄造 player_id → 交給 Range Core</text>
+<text class="tnote" x="46" y="1100">座位池住這裡的 PostgreSQL（FOR UPDATE SKIP LOCKED）</text>
+<text class="tnote" x="46" y="1118">個人計分的唯一產生點（WS1 §1.3）</text>
+
+<!-- ===== Z-MGMT ===== -->
+<rect class="zone" x="450" y="652" width="380" height="474" rx="12"/>
+<text class="tz"  x="466" y="678">Z-MGMT — observe plane</text>
+<text class="tzs" x="466" y="696">VLAN 10 · 10.167.10.0/24</text>
+
+<g class="n-teal">
+  <rect x="466" y="708" width="348" height="52" rx="7"/>
+  <text class="th" x="480" y="729">Prometheus + Loki</text>
+  <text class="ts" x="480" y="748">:9090 · :3100 · OTLP :4317</text>
+  <text class="ts" x="800" y="729" text-anchor="end">.20</text>
+</g>
+<g class="n-teal">
+  <rect x="466" y="768" width="348" height="52" rx="7"/>
+  <text class="th" x="480" y="789">Grafana · SOC view</text>
+  <text class="ts" x="480" y="808">唯一 alert engine · eval 10s</text>
+</g>
+<g class="n-teal">
+  <rect x="466" y="828" width="348" height="52" rx="7"/>
+  <text class="th" x="480" y="849">Evaluation Engine</text>
+  <text class="ts" x="480" y="868">coverage · MTTD · MTTR · gap</text>
+</g>
+
+<rect class="sub" x="466" y="896" width="348" height="82" rx="8"/>
+<text class="tpk"  x="480" y="918">host-a / host-b · mgmt NIC　.21 ／ .22</text>
+<text class="tnote" x="480" y="938">Seat Provisioner Agent 也跑在這裡</text>
+<text class="denys" x="480" y="958">ttyd 不放這裡 —— 反代過來即構成 EDGE → MGMT</text>
+
+<text class="denys" x="466" y="1002">EDGE → MGMT　deny all（契約 5 · 新增）</text>
+<text class="denys" x="466" y="1022">RED　→ MGMT　deny all（契約 3）</text>
+<text class="tnote" x="466" y="1046">觀測平面對「未通過驗證的流量」完全不可達。</text>
+<text class="tnote" x="466" y="1064">Z-EDGE 比 Z-RED 更不可信：Z-RED 至少是已入場</text>
+<text class="tnote" x="466" y="1082">的人，Z-EDGE 面對的是匿名網際網路。</text>
+<text class="tnote" x="466" y="1106">Provisioner 為 pull 模式，不接受主動下指令。</text>
+
+<!-- ===== Z-TARGET ===== -->
+<rect class="zone" x="870" y="652" width="380" height="474" rx="12"/>
+<text class="tz"  x="886" y="678">Z-TARGET — 共用靶機</text>
+<text class="tzs" x="886" y="696">VLAN 20 · 10.167.20.0/24 · 無人有 shell</text>
+
+<g class="n-amber">
+  <rect x="886" y="708" width="348" height="52" rx="7"/>
+  <text class="th" x="900" y="729">web-target</text>
+  <text class="ts" x="900" y="748">vulnerable-app :80 · db :3306</text>
+  <text class="ts" x="1220" y="729" text-anchor="end">.10</text>
+</g>
+<g class="n-amber">
+  <rect x="886" y="768" width="348" height="52" rx="7"/>
+  <text class="th" x="900" y="789">Alloy agent</text>
+  <text class="ts" x="900" y="808">collection · structured log</text>
+</g>
+<g class="n-amber">
+  <rect x="886" y="828" width="348" height="52" rx="7"/>
+  <text class="th" x="900" y="849">Falco</text>
+  <text class="ts" x="900" y="868">runtime sensor · syscall</text>
+</g>
+<g class="n-amber">
+  <rect x="886" y="888" width="348" height="52" rx="7"/>
+  <text class="th" x="900" y="909">Response agent</text>
+  <text class="ts" x="900" y="928">pull mode · ipset</text>
+</g>
+
+<text class="tnew"  x="886" y="968">結構性可信的遙測基準線</text>
+<text class="tnote" x="886" y="986">沒有任何玩家碰得到 → P2 的 coverage／MTTD</text>
+<text class="tnote" x="886" y="1004">分母長在這裡。「偵測管線自己還活著嗎」只能拿它量。</text>
+<text class="tnote" x="886" y="1028">telemetry 單向上送 Z-MGMT（契約 1、2）</text>
+<text class="tnote" x="886" y="1046">collector 一律裝在 target 側（契約 4）</text>
+<text class="denys" x="886" y="1076">EDGE → TARGET　deny all（新增）</text>
+<text class="tnote" x="886" y="1094">中控不碰攻擊面；入口被打下不附贈捷徑。</text>
+
+<!-- ===== Z-BLUE ===== -->
+<rect class="zonenew" x="1290" y="652" width="380" height="474" rx="12"/>
+<text class="tz"  x="1306" y="678">Z-BLUE — 防守平面</text>
+<text class="tzs" x="1306" y="696">VLAN 60 · 10.167.60.0/24 · 新增 · 藍隊有受限 shell</text>
+
+<rect class="sub" x="1306" y="710" width="348" height="92" rx="8"/>
+<text class="tpk" x="1318" y="730">seat-b01</text>
+<g class="n-blue">
+  <rect x="1318" y="738" width="152" height="54" rx="7"/>
+  <text class="th" x="1394" y="759" text-anchor="middle">對外主機 a</text>
+  <text class="ts" x="1394" y="778" text-anchor="middle">DMZ · 紅隊入口</text>
+</g>
+<line class="conn" x1="1470" y1="765" x2="1490" y2="765"/>
+<g class="n-blue">
+  <rect x="1490" y="738" width="152" height="54" rx="7"/>
+  <text class="th" x="1566" y="759" text-anchor="middle">內部主機 b</text>
+  <text class="ts" x="1566" y="778" text-anchor="middle">flag · 須橫向移動</text>
+</g>
+
+<rect class="sub" x="1306" y="812" width="348" height="92" rx="8"/>
+<text class="tpk" x="1318" y="832">seat-b02</text>
+<g class="n-blue">
+  <rect x="1318" y="840" width="152" height="54" rx="7"/>
+  <text class="th" x="1394" y="861" text-anchor="middle">對外主機 a</text>
+  <text class="ts" x="1394" y="880" text-anchor="middle">DMZ · 紅隊入口</text>
+</g>
+<line class="conn" x1="1470" y1="867" x2="1490" y2="867"/>
+<g class="n-blue">
+  <rect x="1490" y="840" width="152" height="54" rx="7"/>
+  <text class="th" x="1566" y="861" text-anchor="middle">內部主機 b</text>
+  <text class="ts" x="1566" y="880" text-anchor="middle">flag · 須橫向移動</text>
+</g>
+
+<text class="tnote" x="1306" y="928">… × N seat（動態配置，一人一段）</text>
+<text class="tnew"  x="1306" y="956">受限帳號 ＋ sudo allowlist，不是 root</text>
+<text class="denys" x="1306" y="976">allowlist 不得含 Falco／Alloy 設定與 unit</text>
+<text class="tnote" x="1306" y="994">被評分的人若能關掉 collector，coverage 分母</text>
+<text class="tnote" x="1306" y="1012">就由被評分者自己決定 —— 數字失去公信力。</text>
+<text class="tnote" x="1306" y="1036">遙測可信度＝約定式（靠 allowlist），非結構式</text>
+<text class="denys" x="1306" y="1066">seat 之間 DOCKER-USER DROP</text>
+<text class="tnote" x="1306" y="1084">RED → BLUE 只到 DMZ；內部主機須橫向移動</text>
+<text class="tnote" x="1306" y="1108">ttyd :7681 跑在各自容器內</text>
+
+<!-- ===== Z-RED ===== -->
+<rect class="zone" x="1710" y="652" width="380" height="474" rx="12"/>
+<text class="tz"  x="1726" y="678">Z-RED — attackers</text>
+<text class="tzs" x="1726" y="696">VLAN 30 · 10.167.30.0/24</text>
+
+<g class="n-red">
+  <rect x="1726" y="710" width="168" height="54" rx="7"/>
+  <text class="th" x="1810" y="731" text-anchor="middle">kali-01</text>
+  <text class="ts" x="1810" y="750" text-anchor="middle">.11 · ttyd :7681</text>
+</g>
+<g class="n-red">
+  <rect x="1906" y="710" width="168" height="54" rx="7"/>
+  <text class="th" x="1990" y="731" text-anchor="middle">kali-02</text>
+  <text class="ts" x="1990" y="750" text-anchor="middle">.12 · ttyd :7681</text>
+</g>
+<g class="n-red">
+  <rect x="1726" y="774" width="168" height="54" rx="7"/>
+  <text class="th" x="1810" y="795" text-anchor="middle">kali-03</text>
+  <text class="ts" x="1810" y="814" text-anchor="middle">.13 · ttyd :7681</text>
+</g>
+<g class="n-red">
+  <rect x="1906" y="774" width="168" height="54" rx="7"/>
+  <text class="th" x="1990" y="795" text-anchor="middle">kali-04</text>
+  <text class="ts" x="1990" y="814" text-anchor="middle">.14 · ttyd :7681</text>
+</g>
+<g class="n-red">
+  <rect x="1726" y="838" width="168" height="54" rx="7"/>
+  <text class="th" x="1810" y="859" text-anchor="middle">kali-05</text>
+  <text class="ts" x="1810" y="878" text-anchor="middle">.15 · ttyd :7681</text>
+</g>
+<g class="n-red">
+  <rect x="1906" y="838" width="168" height="54" rx="7"/>
+  <text class="th" x="1990" y="859" text-anchor="middle">kali-06</text>
+  <text class="ts" x="1990" y="878" text-anchor="middle">.16 · ttyd :7681</text>
+</g>
+
+<text class="tnote" x="1726" y="920">… × N seat（動態配置，/24 上限 ~250）</text>
+<text class="tnote" x="1726" y="944">每台獨立 IP，不可被 SNAT 塌縮 —— 個人計分的</text>
+<text class="tnote" x="1726" y="962">物理前提，也是 G0 世代的退場理由（SA §12.1）</text>
+<text class="tnew"  x="1726" y="990">ttyd 跑在容器內，綁自己的 Z-RED IP</text>
+<text class="tnote" x="1726" y="1008">跑 host 側會逼出 EDGE → MGMT，直接撞契約 5</text>
+<text class="denys" x="1726" y="1038">seat 之間 DOCKER-USER DROP（現行未規範）</text>
+<text class="tnote" x="1726" y="1056">50+ 規模下不擋＝紅隊互相干擾對方計分</text>
+<text class="tnote" x="1726" y="1080">收尾期由 instructor 開放互打，是政策切換，</text>
+<text class="tnote" x="1726" y="1098">不是預設值。</text>
+
+<!-- ===== 底部政策面板 ===== -->
+<rect class="panel" x="30" y="1156" width="2060" height="190" rx="8"/>
+<text class="tpk" x="46" y="1182">Firewall 政策</text>
+
+<text class="tnew"  x="46"   y="1208">新增（因 Z-EDGE ／ Z-BLUE 而生）</text>
+<text class="tp"    x="46"   y="1230">INTERNET → EDGE</text><text class="tp"   x="206" y="1230">allow :443</text> <text class="tnote" x="330" y="1230">唯一對外入口</text>
+<text class="tp"    x="46"   y="1250">EDGE → APP</text>     <text class="tp"   x="206" y="1250">allow :443</text> <text class="tnote" x="330" y="1250">auth_request · 領號 · Portal</text>
+<text class="tp"    x="46"   y="1270">EDGE → RED／BLUE</text><text class="tp"  x="206" y="1270">allow :7681</text><text class="tnote" x="330" y="1270">ttyd 反代，一 session 綁一 seat</text>
+<text class="tp"    x="46"   y="1290">EDGE → MGMT</text>    <text class="deny" x="206" y="1290">deny all</text>   <text class="tnote" x="330" y="1290">契約 5</text>
+<text class="tp"    x="46"   y="1310">EDGE → TARGET</text>  <text class="deny" x="206" y="1310">deny all</text>   <text class="tnote" x="330" y="1310">中控不碰攻擊面</text>
+<text class="tp"    x="46"   y="1330">RED → BLUE</text>     <text class="tp"   x="206" y="1330">allow :80（DMZ）</text><text class="tnote" x="330" y="1330">內部主機 deny，須橫向移動</text>
+
+<line class="link" x1="700" y1="1196" x2="700" y2="1326"/>
+
+<text class="tpk"   x="726"  y="1208">沿用 v0.2.1，一字不動</text>
+<text class="tp"    x="726"  y="1230">RED → TARGET</text>  <text class="tp"   x="886" y="1230">allow :80 :3306</text><text class="tnote" x="1030" y="1230">保底攻擊面</text>
+<text class="tp"    x="726"  y="1250">RED → APP</text>     <text class="tp"   x="886" y="1250">allow :443</text>     <text class="tnote" x="1030" y="1250">Portal · Battleboard</text>
+<text class="tp"    x="726"  y="1270">RED → MGMT</text>    <text class="deny" x="886" y="1270">deny all</text>       <text class="tnote" x="1030" y="1270">契約 3</text>
+<text class="tp"    x="726"  y="1290">TARGET → MGMT</text> <text class="tp"   x="886" y="1290">allow :3100 :9090 :4317</text>
+<text class="tnote" x="886"  y="1310">單向，MGMT 不主動連 target（契約 1、2）</text>
+<text class="tp"    x="726"  y="1330">MGMT → TARGET</text> <text class="deny" x="886" y="1330">deny</text>           <text class="tnote" x="1030" y="1330">契約 2 · response 走 agent pull</text>
+
+<line class="link" x1="1400" y1="1196" x2="1400" y2="1326"/>
+
+<text class="tpk"   x="1426" y="1208">五條跨世代契約</text>
+<text class="tp"    x="1426" y="1230">1 · telemetry 只走 :3100 ／ :9090 ／ :4317</text>
+<text class="tp"    x="1426" y="1250">2 · TARGET → MGMT 單向</text>
+<text class="tp"    x="1426" y="1270">3 · RED → MGMT deny all</text>
+<text class="tp"    x="1426" y="1290">4 · collector 裝在 target 側</text>
+<text class="tnew"  x="1426" y="1310">5 · EDGE → MGMT deny all　（本版新增）</text>
+<text class="tnote" x="1426" y="1330">變更任何一條＝破壞性變更，須複查 Purple Platform 全層</text>
+
+</svg>
