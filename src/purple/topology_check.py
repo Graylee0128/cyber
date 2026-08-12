@@ -13,6 +13,8 @@ import socket
 
 #: 三條跨世代 port（SA §12.2）。
 MGMT_PORTS = {3100: "Loki", 9090: "Prometheus", 4317: "OTLP"}
+#: 契約 1 的 deny canary；range 在 Z-MGMT 刻意監聽它，確保失敗是 firewall 擋下。
+MGMT_DENIED_PORT = 22
 EXPECTED_KALI = 6
 
 
@@ -27,12 +29,17 @@ def reachable(host: str, port: int, timeout: float = 3.0) -> bool:
 
 
 def check_target_to_mgmt(mgmt: str) -> list[str]:
-    """契約1：TARGET→MGMT 的三個 port 必須通。"""
-    return [
+    """契約1：TARGET→MGMT 只准三個 telemetry port，其他 port 必須不通。"""
+    fails = [
         f"契約1 破：TARGET→MGMT {name} :{port} 不通"
         for port, name in MGMT_PORTS.items()
         if not reachable(mgmt, port)
     ]
+    if reachable(mgmt, MGMT_DENIED_PORT, timeout=2.0):
+        fails.append(
+            f"契約1 破：TARGET→MGMT 非 telemetry :{MGMT_DENIED_PORT} 竟然通了"
+        )
+    return fails
 
 
 def check_mgmt_to_target_blocked(target: str) -> list[str]:
@@ -45,7 +52,8 @@ def check_mgmt_to_target_blocked(target: str) -> list[str]:
 
 def check_red_to_mgmt_denied(mgmt: str) -> list[str]:
     """契約3：RED→MGMT deny all。"""
-    reachable_ports = [p for p in MGMT_PORTS if reachable(mgmt, p, timeout=2.0)]
+    probe_ports = (*MGMT_PORTS, MGMT_DENIED_PORT)
+    reachable_ports = [p for p in probe_ports if reachable(mgmt, p, timeout=2.0)]
     if reachable_ports:
         return [f"契約3 破：RED→MGMT 應 deny all，卻連得上 {reachable_ports}"]
     return []

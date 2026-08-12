@@ -4,16 +4,52 @@
 本檔只確保：腳本在、四條契約都被涵蓋、且缺環境時不會 fake pass。
 """
 
+import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 
 from purple.topology_check import (  # 由腳本邏輯抽出的可測部分
     EXPECTED_KALI,
+    MGMT_DENIED_PORT,
     MGMT_PORTS,
     check_source_ips_distinguishable,
+    check_target_to_mgmt,
 )
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "verify_topology.py"
 MODULE = Path(__file__).resolve().parents[2] / "src" / "purple" / "topology_check.py"
+BUILD_RANGE = (
+    Path(__file__).resolve().parents[2] / "scripts" / "range" / "build-range.sh"
+)
+VERIFY_RANGE = (
+    Path(__file__).resolve().parents[2] / "scripts" / "range" / "verify-range.sh"
+)
+CONTRACT1_PROBE = (
+    Path(__file__).resolve().parents[2] / "scripts" / "range" / "contract1_probe.py"
+)
+
+
+def _load_contract1_probe():
+    spec = importlib.util.spec_from_file_location("contract1_probe", CONTRACT1_PROBE)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class _ProbeSocket:
+    def __init__(self, *, block_denied: bool):
+        self.block_denied = block_denied
+
+    def settimeout(self, _timeout):
+        pass
+
+    def connect(self, address):
+        if self.block_denied and address[1] == MGMT_DENIED_PORT:
+            raise OSError("blocked by Contract 1")
+
+    def close(self):
+        pass
 
 
 def test_script_exists():
@@ -69,6 +105,70 @@ def test_missing_environment_does_not_fake_pass():
 
 def test_the_three_cross_generation_ports_are_named():
     assert set(MGMT_PORTS) == {3100, 9090, 4317}
+    probe = _load_contract1_probe()
+    assert probe.PORTS == MGMT_PORTS
+    assert probe.DENIED_PORT == MGMT_DENIED_PORT
+
+
+def test_contract1_accepts_only_telemetry_ports(monkeypatch):
+    def fake_reachable(_host, port, timeout=3.0):
+        return port in MGMT_PORTS
+
+    monkeypatch.setattr("purple.topology_check.reachable", fake_reachable)
+    assert check_target_to_mgmt("10.167.10.10") == []
+
+
+def test_contract1_flags_reachable_non_telemetry_port(monkeypatch):
+    monkeypatch.setattr("purple.topology_check.reachable", lambda *_args, **_kwargs: True)
+    fails = check_target_to_mgmt("10.167.10.10")
+    assert any(f":{MGMT_DENIED_PORT}" in fail and "竟然通了" in fail for fail in fails)
+
+
+def test_vm_contract1_probe_passes_three_ports_and_blocked_canary(monkeypatch, capsys):
+    probe = _load_contract1_probe()
+    monkeypatch.setattr(
+        probe,
+        "socket",
+        SimpleNamespace(socket=lambda: _ProbeSocket(block_denied=True)),
+    )
+    monkeypatch.setattr(probe.sys, "argv", ["contract1_probe.py", "mgmt", "nonce"])
+    probe.main()
+    output = capsys.readouterr().out
+    for port in MGMT_PORTS:
+        assert f":{port} 通" in output
+    assert f":{MGMT_DENIED_PORT} 不通" in output
+    assert "SLICE2A-RESULT: PASS" in output
+
+
+def test_vm_contract1_probe_fails_when_deny_canary_is_reachable(monkeypatch, capsys):
+    probe = _load_contract1_probe()
+    monkeypatch.setattr(
+        probe,
+        "socket",
+        SimpleNamespace(socket=lambda: _ProbeSocket(block_denied=False)),
+    )
+    monkeypatch.setattr(probe.sys, "argv", ["contract1_probe.py", "mgmt", "nonce"])
+    probe.main()
+    output = capsys.readouterr().out
+    assert f":{MGMT_DENIED_PORT} 竟然通了" in output
+    assert f"SLICE2A-RESULT: FAIL [{MGMT_DENIED_PORT}]" in output
+
+
+def test_vm_verifier_rejects_old_probe_without_deny_evidence():
+    text = VERIFY_RANGE.read_text(encoding="utf-8")
+    missing_deny_evidence = 'elif ! grep -q "非 telemetry :22 不通"'
+    accepts_pass = 'elif grep -q "SLICE2A-RESULT: PASS"'
+    assert missing_deny_evidence in text
+    assert text.index(missing_deny_evidence) < text.index(accepts_pass)
+
+
+def test_build_range_enforces_contract1_allowlist_and_runs_deny_canary():
+    text = BUILD_RANGE.read_text(encoding="utf-8")
+    assert (
+        "ip saddr $TARGET_CIDR ip daddr $MGMT_CIDR "
+        "tcp dport { 3100, 9090, 4317 } accept"
+    ) in text
+    assert "--ports 3100,9090,4317,22" in text
 
 
 def test_six_kali_must_be_distinguishable():

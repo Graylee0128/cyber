@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""靶機 VM 開機時自驗契約 1（TARGET → MGMT 三個 port 通），由 cloud-init 呼叫。
+"""靶機 VM 開機時自驗契約 1（只准三個 telemetry port），由 cloud-init 呼叫。
 
     python3 contract1_probe.py <mgmt_ip> <boot_nonce>
 
@@ -20,6 +20,7 @@ import socket
 import sys
 
 PORTS = {3100: "Loki", 9090: "Prometheus", 4317: "OTLP"}
+DENIED_PORT = 22
 
 
 def main() -> None:
@@ -39,6 +40,22 @@ def main() -> None:
             print(f"契約1 破: {name}:{port} 不通 ({exc})", flush=True)
         finally:
             sock.close()
+    sock = socket.socket()
+    sock.settimeout(3)
+    try:
+        sock.connect((mgmt, DENIED_PORT))
+        bad.append(DENIED_PORT)
+        print(
+            f"契約1 破: TARGET(VM) -> MGMT 非 telemetry :{DENIED_PORT} 竟然通了",
+            flush=True,
+        )
+    except OSError:
+        print(
+            f"契約1 OK: TARGET(VM) -> MGMT 非 telemetry :{DENIED_PORT} 不通",
+            flush=True,
+        )
+    finally:
+        sock.close()
     verdict = "PASS" if not bad else f"FAIL {bad}"
     print(f"=== SLICE2A-RESULT: {verdict} ===", flush=True)
 
