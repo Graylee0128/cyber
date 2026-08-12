@@ -121,6 +121,16 @@ def check_red_seat_isolation(peer: str) -> list[str]:
     return _must_block("RED seat→RED seat", peer, EDGE_TTYD_PORT)
 
 
+def check_blue_seat_isolation(peer: str) -> list[str]:
+    """One BLUE seat must not reach another player's defended segment.
+
+    同一條隔離規則，對象換成藍隊：#65 決策 25 把「每人一段」定為**計分歸屬的單位**，
+    所以碰得到別人那段，就等於碰得到別人的分數來源。理由與 Z-RED 那條同源
+    （WS8 spec §6.4：50+ 規模下座位之間互通會變成互相干擾對方的計分）。
+    """
+    return _must_block("BLUE seat→BLUE seat", peer, EDGE_TTYD_PORT)
+
+
 def check_source_ips_distinguishable(source_ips: list[str]) -> list[str]:
     """六台 kali 應出現六個可分辨 source IP，不被 SNAT 塌成主機 IP。"""
     unique = set(source_ips)

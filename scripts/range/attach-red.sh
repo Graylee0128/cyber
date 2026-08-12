@@ -63,9 +63,15 @@ for i in $(seq 1 "$COUNT"); do
   echo "   • $name → VLAN$Z_RED_VLAN $ip（pid $pid）"
 done
 
-# Mirrored host-side guard for Docker-managed seat networks. The current OVS
-# veth path is enforced by protected ports above; this rule protects future
-# Docker bridge seat attachment without granting containers host policy power.
+# Host-side guard for the RED containers **as they are attached today**: they sit
+# on $RED_CIDR, so this rule blocks red-to-red once traffic ever reaches the
+# Docker forward path instead of the OVS veth path (which protected ports above
+# already cover). It is deliberately narrow.
+#
+# 它**不**覆蓋未來的 per-seat 容器網路：WS8 spec §6.4 的 Z-BLUE 隔離是「每個 seat 一個
+# 獨立容器網路（172.31.<X>.0/24）＋ DOCKER-USER DROP」，那些網段不在 $RED_CIDR 裡，
+# 這條規則一次都不會命中，而且它們的 veth 也不掛在 br-range 上（protected ports 同樣管不到）。
+# 那一層屬 #62 seat runtime，不要以為這裡已經保護到了。
 RED_CIDR="$RANGE_NET_PREFIX.$Z_RED_VLAN.0/24"
 if [ "$ALLOW_RED_LATERAL" != "1" ] && iptables -nL DOCKER-USER >/dev/null 2>&1; then
   iptables -C DOCKER-USER -s "$RED_CIDR" -d "$RED_CIDR" \

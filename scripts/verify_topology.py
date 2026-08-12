@@ -46,6 +46,7 @@ sys.path.insert(0, __file__.rsplit("scripts", 1)[0] + "src")
 from purple.topology_check import (  # noqa: E402
     check_mgmt_to_target_blocked,
     check_app_managed_paths,
+    check_blue_seat_isolation,
     check_edge_paths,
     check_red_seat_isolation,
     check_red_to_mgmt_denied,
@@ -95,10 +96,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--engine")
     parser.add_argument("--edge")
     parser.add_argument("--blue")
+    parser.add_argument("--blue-peer")
     parser.add_argument("--red-peer")
     parser.add_argument(
         "--from-zone",
-        choices=["target", "mgmt", "red", "app", "edge", "internet", "red-seat"],
+        choices=["target", "mgmt", "red", "app", "edge", "internet", "red-seat", "blue-seat"],
         default="target",
     )
     args = parser.parse_args(argv)
@@ -115,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
         "edge": ("edge", "app", "red_peer", "blue", "mgmt", "target"),
         "internet": ("edge", "app", "red_peer", "blue", "mgmt", "target"),
         "red-seat": ("red_peer",),
+        "blue-seat": ("blue_peer",),
     }
     missing = [name for name in needs[args.from_zone] if not getattr(args, name)]
     if missing:
@@ -142,6 +145,8 @@ def main(argv: list[str] | None = None) -> int:
             edge=args.edge, app=args.app, red=args.red_peer, blue=args.blue,
             mgmt=args.mgmt, target=args.target, from_zone=args.from_zone,
         )
+    elif args.from_zone == "blue-seat":
+        fails = check_blue_seat_isolation(args.blue_peer)
     else:
         fails = check_red_seat_isolation(args.red_peer)
 

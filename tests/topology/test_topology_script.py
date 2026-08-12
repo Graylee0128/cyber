@@ -17,6 +17,7 @@ from purple.topology_check import (  # 由腳本邏輯抽出的可測部分
     MGMT_RESPONSE_PORT,
     check_app_managed_paths,
     check_edge_paths,
+    check_blue_seat_isolation,
     check_red_seat_isolation,
     check_source_ips_distinguishable,
     check_target_to_mgmt,
@@ -329,3 +330,37 @@ def test_red_seat_isolation_uses_the_ovs_protected_column():
         text = path.read_text(encoding="utf-8")
         assert 'protected=true' in text
         assert 'other_config:protected' not in text
+
+
+def test_blue_seat_isolation_flags_reachable_peer(monkeypatch):
+    monkeypatch.setattr("purple.topology_check.reachable", lambda *_args, **_kwargs: True)
+    assert check_blue_seat_isolation("blue2")
+
+
+def test_blue_seat_isolation_passes_when_peer_is_blocked(monkeypatch):
+    monkeypatch.setattr("purple.topology_check.reachable", lambda *_args, **_kwargs: False)
+    assert check_blue_seat_isolation("blue2") == []
+
+
+def test_build_range_isolates_blue_seats_behind_its_own_switch():
+    """藍隊每人一段是計分歸屬的單位（#65 決策 25）—— 預設必須隔離，且開關獨立於紅隊。"""
+    text = BUILD_RANGE.read_text(encoding="utf-8")
+    assert 'ALLOW_BLUE_LATERAL' in text, "藍隊隔離缺少顯式的收尾期開關"
+    assert 'h-ns-blue2' in text, "只有一個 blue stub，seat-to-seat 隔離無法被證明"
+
+
+def test_blue_seat_isolation_is_actually_verified():
+    """規則存在但沒有斷言＝沒有保護。verify-range 必須真的從一段打另一段。"""
+    text = (BUILD_RANGE.parent / "verify-range.sh").read_text(encoding="utf-8")
+    assert '--from-zone blue-seat' in text
+
+
+def test_red_to_blue_absence_is_documented_not_silent():
+    """#65 決策 19 定主線攻擊面是 Z-BLUE，本票刻意不開這條路 —— 但必須寫出來。
+
+    沉默的缺口會被下游讀成「紅藍對抗的網路面已完成」。規則由 #62 補（見 build-range.sh
+    nft 區塊的註解），這裡只確保那句話還在。
+    """
+    text = BUILD_RANGE.read_text(encoding="utf-8")
+    assert 'RED → BLUE' in text
+    assert '#62' in text

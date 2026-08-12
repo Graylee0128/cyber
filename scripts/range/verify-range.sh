@@ -215,6 +215,11 @@ echo "=== Z-RED seats：預設 L2 隔離 ==="
 ip netns exec "${RED_NS_PREFIX}1" python3 "$VT" --from-zone red-seat \
   --red-peer "$RANGE_NET_PREFIX.$Z_RED_VLAN.$((RED_HOST_FIRST + 1))" || fails=1
 
+# 藍隊每人一段是計分歸屬的單位（#65 決策 25），碰得到別人那段就等於碰得到別人的分數來源。
+echo "=== Z-BLUE seats：預設 L2 隔離 ==="
+ip netns exec ns-blue python3 "$VT" --from-zone blue-seat \
+  --blue-peer "$BLUE_PEER_IP" || fails=1
+
 # --- 六台 red source IP 可分辨 ----------------------------------------------
 echo "=== 六台 red source IP 可分辨（§12.3 red→target:80；防 G0 的 SNAT 塌縮）==="
 REC="/tmp/range-target-src.txt"
