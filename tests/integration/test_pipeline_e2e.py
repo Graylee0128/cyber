@@ -5,7 +5,11 @@
     → webhook → P1 receiver → PostgreSQL
 
 測試在檔案內的**順序有意義**：負向先跑（此時 Loki 還沒有任何 SQLi 記錄），
-resolved 的慢測試放最後。
+resolved 的慢測試放最後。凡是會觸發 sqli-01 規則的測試，結束前都要等自己那個
+event_id 的 alert 真的 resolved 才收尾——否則會把還在 firing 的狀態留給下一條
+測試，讓它以為自己乾淨開局，實際上是在別人污染過的 60s 偵測視窗裡起跑（真環境
+下實測過：沒清乾淨會讓 test_sqli_alert_resolves_after_attack_stops 在同一次
+full-suite 執行裡失敗，單獨跑卻是乾淨的）。
 
 每條測試會 echo 出每個階段與觀察到的事件欄位（workflow 用 -v -s 顯示），
 方便逐條在 CI log 對照。
@@ -117,6 +121,16 @@ def test_real_sqli_becomes_a_core_event(events):
     assert "evidence_ref" not in core and "loki" not in repr(core).lower()
     _ok("無 evidence_ref、全文無 loki 字樣")
 
+    _step("等這次攻擊的 alert 自然 resolve，避免留下 firing 狀態污染後續測試的 60s 偵測視窗")
+    wait_for_event(
+        fetch=lambda: events.since(mark),
+        match=lambda e: e["event_id"] == core["event_id"] and e["lifecycle"] == "resolved",
+        what="本測試自己的 sqli-01 alert resolved（測試隔離用）",
+        timeout_s=RESOLVE_TIMEOUT_S,
+        poll_s=3.0,
+    )
+    _ok("alert 已 resolve，偵測視窗乾淨")
+
 
 def test_bruteforce_metric_becomes_a_core_event(events):
     """metric 路徑：大量失敗登入 → Prometheus → Grafana PromQL 告警 → Core Event。"""
@@ -181,6 +195,17 @@ def test_evidence_api_returns_context_from_real_loki(events):
     assert body["line_count"] >= 1, "上下文窗應至少有一行（真 Loki 取回）"
     assert "backend" not in json.dumps(body).lower()
     _ok(f"取回 {body['line_count']} 行上下文，無 backend 洩漏")
+
+    _step("等這次攻擊的 alert 自然 resolve，避免留下 firing 狀態污染後面的 lifecycle 測試")
+    wait_for_event(
+        fetch=lambda: events.since(mark),
+        match=lambda e: e["event_id"] == event_id and e["lifecycle"] == "resolved",
+        what="本測試自己的 sqli-01 alert resolved（測試隔離用；緊接在後的 "
+        "test_sqli_alert_resolves_after_attack_stops 需要乾淨的 60s 偵測視窗）",
+        timeout_s=RESOLVE_TIMEOUT_S,
+        poll_s=3.0,
+    )
+    _ok("alert 已 resolve，偵測視窗乾淨")
 
 
 def test_sqli_alert_resolves_after_attack_stops(events):
