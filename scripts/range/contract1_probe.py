@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""靶機 VM 開機時自驗契約 1（只准三個 telemetry port），由 cloud-init 呼叫。
+"""靶機 VM 開機時自驗契約 1 與 response receiver 最小權限例外。
 
-    python3 contract1_probe.py <mgmt_ip> <boot_nonce>
+    python3 contract1_probe.py <mgmt_ip> <receiver_ip> <boot_nonce>
 
 為什麼是獨立檔案而不是塞在 build-vm-target.sh 的 heredoc 裡：位址要代進去就得用
 不引號 heredoc，那會連整段 Python 一起做 shell 展開 —— 今天剛好沒有 `$`，明天加一個
@@ -20,12 +20,14 @@ import socket
 import sys
 
 PORTS = {3100: "Loki", 9090: "Prometheus", 4317: "OTLP"}
+RESPONSE_PORT = 8000
 DENIED_PORT = 22
 
 
 def main() -> None:
     mgmt = sys.argv[1]
-    nonce = sys.argv[2] if len(sys.argv) > 2 else "no-nonce"
+    receiver = sys.argv[2]
+    nonce = sys.argv[3] if len(sys.argv) > 3 else "no-nonce"
 
     print(f"=== SLICE2A-BEGIN（從真 VM 測契約 1）nonce={nonce} ===", flush=True)
     bad = []
@@ -40,6 +42,41 @@ def main() -> None:
             print(f"契約1 破: {name}:{port} 不通 ({exc})", flush=True)
         finally:
             sock.close()
+    sock = socket.socket()
+    sock.settimeout(3)
+    try:
+        sock.connect((receiver, RESPONSE_PORT))
+        print(
+            f"契約1 OK: TARGET(VM) -> response receiver "
+            f"{receiver}:{RESPONSE_PORT} 通",
+            flush=True,
+        )
+    except OSError as exc:
+        bad.append(f"receiver:{RESPONSE_PORT}")
+        print(
+            f"契約1 破: response receiver {receiver}:{RESPONSE_PORT} 不通 ({exc})",
+            flush=True,
+        )
+    finally:
+        sock.close()
+    sock = socket.socket()
+    sock.settimeout(3)
+    try:
+        sock.connect((mgmt, RESPONSE_PORT))
+        bad.append(f"mgmt:{RESPONSE_PORT}")
+        print(
+            f"契約1 破: TARGET(VM) -> 非 receiver MGMT "
+            f"{mgmt}:{RESPONSE_PORT} 竟然通了",
+            flush=True,
+        )
+    except OSError:
+        print(
+            f"契約1 OK: TARGET(VM) -> 非 receiver MGMT "
+            f"{mgmt}:{RESPONSE_PORT} 不通",
+            flush=True,
+        )
+    finally:
+        sock.close()
     sock = socket.socket()
     sock.settimeout(3)
     try:

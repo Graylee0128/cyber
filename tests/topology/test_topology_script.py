@@ -12,6 +12,7 @@ from purple.topology_check import (  # 由腳本邏輯抽出的可測部分
     EXPECTED_KALI,
     MGMT_DENIED_PORT,
     MGMT_PORTS,
+    MGMT_RESPONSE_PORT,
     check_source_ips_distinguishable,
     check_target_to_mgmt,
 )
@@ -38,14 +39,14 @@ def _load_contract1_probe():
 
 
 class _ProbeSocket:
-    def __init__(self, *, block_denied: bool):
-        self.block_denied = block_denied
+    def __init__(self, reachable_endpoints):
+        self.reachable_endpoints = reachable_endpoints
 
     def settimeout(self, _timeout):
         pass
 
     def connect(self, address):
-        if self.block_denied and address[1] == MGMT_DENIED_PORT:
+        if address not in self.reachable_endpoints:
             raise OSError("blocked by Contract 1")
 
     def close(self):
@@ -103,63 +104,136 @@ def test_missing_environment_does_not_fake_pass():
     assert result.returncode != 0
 
 
+def test_target_zone_requires_receiver_ip_too():
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--from-zone",
+            "target",
+            "--mgmt",
+            "10.167.10.10",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "--receiver" in result.stderr
+
+
 def test_the_three_cross_generation_ports_are_named():
     assert set(MGMT_PORTS) == {3100, 9090, 4317}
     probe = _load_contract1_probe()
     assert probe.PORTS == MGMT_PORTS
+    assert probe.RESPONSE_PORT == MGMT_RESPONSE_PORT
     assert probe.DENIED_PORT == MGMT_DENIED_PORT
 
 
-def test_contract1_accepts_only_telemetry_ports(monkeypatch):
-    def fake_reachable(_host, port, timeout=3.0):
-        return port in MGMT_PORTS
+def test_contract1_accepts_telemetry_and_only_the_named_receiver(monkeypatch):
+    allowed = {("mgmt", port) for port in MGMT_PORTS} | {
+        ("receiver", MGMT_RESPONSE_PORT)
+    }
 
-    monkeypatch.setattr("purple.topology_check.reachable", fake_reachable)
-    assert check_target_to_mgmt("10.167.10.10") == []
+    monkeypatch.setattr(
+        "purple.topology_check.reachable",
+        lambda host, port, timeout=3.0: (host, port) in allowed,
+    )
+    assert check_target_to_mgmt("mgmt", "receiver") == []
+
+
+def test_contract1_flags_other_mgmt_host_on_response_port(monkeypatch):
+    allowed = {("mgmt", port) for port in MGMT_PORTS} | {
+        ("receiver", MGMT_RESPONSE_PORT),
+        ("mgmt", MGMT_RESPONSE_PORT),
+    }
+    monkeypatch.setattr(
+        "purple.topology_check.reachable",
+        lambda host, port, timeout=3.0: (host, port) in allowed,
+    )
+    fails = check_target_to_mgmt("mgmt", "receiver")
+    assert any("非 receiver MGMT" in fail and ":8000" in fail for fail in fails)
+
+
+def test_contract1_requires_named_receiver_on_response_port(monkeypatch):
+    allowed = {("mgmt", port) for port in MGMT_PORTS}
+    monkeypatch.setattr(
+        "purple.topology_check.reachable",
+        lambda host, port, timeout=3.0: (host, port) in allowed,
+    )
+    fails = check_target_to_mgmt("mgmt", "receiver")
+    assert any("response receiver" in fail and ":8000 不通" in fail for fail in fails)
 
 
 def test_contract1_flags_reachable_non_telemetry_port(monkeypatch):
     monkeypatch.setattr("purple.topology_check.reachable", lambda *_args, **_kwargs: True)
-    fails = check_target_to_mgmt("10.167.10.10")
+    fails = check_target_to_mgmt("mgmt", "receiver")
     assert any(f":{MGMT_DENIED_PORT}" in fail and "竟然通了" in fail for fail in fails)
 
 
 def test_vm_contract1_probe_passes_three_ports_and_blocked_canary(monkeypatch, capsys):
     probe = _load_contract1_probe()
+    allowed = {("mgmt", port) for port in MGMT_PORTS} | {
+        ("receiver", MGMT_RESPONSE_PORT)
+    }
     monkeypatch.setattr(
         probe,
         "socket",
-        SimpleNamespace(socket=lambda: _ProbeSocket(block_denied=True)),
+        SimpleNamespace(socket=lambda: _ProbeSocket(allowed)),
     )
-    monkeypatch.setattr(probe.sys, "argv", ["contract1_probe.py", "mgmt", "nonce"])
+    monkeypatch.setattr(
+        probe.sys,
+        "argv",
+        ["contract1_probe.py", "mgmt", "receiver", "nonce"],
+    )
     probe.main()
     output = capsys.readouterr().out
     for port in MGMT_PORTS:
         assert f":{port} 通" in output
+    assert "response receiver receiver:8000 通" in output
+    assert "非 receiver MGMT mgmt:8000 不通" in output
     assert f":{MGMT_DENIED_PORT} 不通" in output
     assert "SLICE2A-RESULT: PASS" in output
 
 
 def test_vm_contract1_probe_fails_when_deny_canary_is_reachable(monkeypatch, capsys):
     probe = _load_contract1_probe()
+    allowed = {
+        ("mgmt", port)
+        for port in (*MGMT_PORTS, MGMT_RESPONSE_PORT, MGMT_DENIED_PORT)
+    } | {
+        ("receiver", MGMT_RESPONSE_PORT)
+    }
     monkeypatch.setattr(
         probe,
         "socket",
-        SimpleNamespace(socket=lambda: _ProbeSocket(block_denied=False)),
+        SimpleNamespace(socket=lambda: _ProbeSocket(allowed)),
     )
-    monkeypatch.setattr(probe.sys, "argv", ["contract1_probe.py", "mgmt", "nonce"])
+    monkeypatch.setattr(
+        probe.sys,
+        "argv",
+        ["contract1_probe.py", "mgmt", "receiver", "nonce"],
+    )
     probe.main()
     output = capsys.readouterr().out
+    assert "非 receiver MGMT mgmt:8000 竟然通了" in output
     assert f":{MGMT_DENIED_PORT} 竟然通了" in output
-    assert f"SLICE2A-RESULT: FAIL [{MGMT_DENIED_PORT}]" in output
+    assert "SLICE2A-RESULT: FAIL" in output
 
 
 def test_vm_verifier_rejects_old_probe_without_deny_evidence():
     text = VERIFY_RANGE.read_text(encoding="utf-8")
-    missing_deny_evidence = 'elif ! grep -q "非 telemetry :22 不通"'
+    required_evidence = (
+        'elif ! grep -q "非 telemetry :22 不通"',
+        'elif ! grep -q "response receiver $RECEIVER:8000 通"',
+        'elif ! grep -q "非 receiver MGMT $MGMT:8000 不通"',
+    )
     accepts_pass = 'elif grep -q "SLICE2A-RESULT: PASS"'
-    assert missing_deny_evidence in text
-    assert text.index(missing_deny_evidence) < text.index(accepts_pass)
+    for evidence in required_evidence:
+        assert evidence in text
+        assert text.index(evidence) < text.index(accepts_pass)
 
 
 def test_build_range_enforces_contract1_allowlist_and_runs_deny_canary():
@@ -168,7 +242,12 @@ def test_build_range_enforces_contract1_allowlist_and_runs_deny_canary():
         "ip saddr $TARGET_CIDR ip daddr $MGMT_CIDR "
         "tcp dport { 3100, 9090, 4317 } accept"
     ) in text
-    assert "--ports 3100,9090,4317,22" in text
+    assert (
+        "ip saddr $TARGET_CIDR ip daddr $MGMT_RECEIVER_IP "
+        "tcp dport 8000 accept"
+    ) in text
+    assert "--ports 3100,9090,4317,22,8000" in text
+    assert 'ip netns exec ns-receiver python3 "$DIR/stub_listener.py"' in text
 
 
 def test_six_kali_must_be_distinguishable():

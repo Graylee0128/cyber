@@ -26,7 +26,7 @@ if command -v virsh >/dev/null 2>&1; then
   virsh net-undefine range-ovs 2>/dev/null || true
 fi
 
-for ns in ns-mgmt ns-target ns-red1 ns-red2 ns-red3 ns-red4 ns-red5 ns-red6 ns-router; do
+for ns in ns-mgmt ns-receiver ns-target ns-red1 ns-red2 ns-red3 ns-red4 ns-red5 ns-red6 ns-router; do
   ip netns del "$ns" 2>/dev/null || true
 done
 

@@ -6,7 +6,8 @@
 # 一個 router netns 做 inter-VLAN 路由，nftables 在它的 forward hook 做**真方向性
 # 單向防火牆**——這是 #15 的 docker network membership 逼近做不到、而這裡真做的：
 #
-#   契約 1  TARGET → MGMT            只允許 telemetry :3100/:9090/:4317
+#   契約 1  TARGET → MGMT            telemetry :3100/:9090/:4317
+#                                        + 指定 receiver :8000 最小權限例外
 #   契約 2  MGMT   → TARGET  new     擋（單向；只放 established 回程）
 #   契約 3  RED    → MGMT            deny all
 #   §12.3   RED    → TARGET :80/:3306 允許（紅隊打靶）
@@ -70,6 +71,9 @@ ip netns exec ns-router sysctl -qw net.ipv4.ip_forward=1
 
 echo "▶ 建各區節點"
 add_node ns-mgmt "$Z_MGMT_VLAN" "${MGMT_STUB_IP##*.}"
+# CI 與 VM 開機自驗都需要一個真的 response receiver endpoint。Slice 4 稍後會由
+# attach-mgmt.sh 用同 IP 的真 receiver container 取代這個 stub namespace。
+add_node ns-receiver "$Z_MGMT_VLAN" "${MGMT_RECEIVER_IP##*.}"
 # 混合模式（Slice 2a）：target 換成真 VM 接 VLAN20，就不建 target netns（IP 會撞）。
 if [ "${SKIP_TARGET_NETNS:-0}" = "1" ]; then
   echo "   • ns-target 略過（SKIP_TARGET_NETNS=1；由真 VM 接 VLAN$Z_TARGET_VLAN）"
@@ -100,6 +104,9 @@ table inet range_fw {
     # 契約 1：TARGET(VLAN$Z_TARGET_VLAN) → MGMT(VLAN$Z_MGMT_VLAN) 只允許 telemetry。
     ip saddr $TARGET_CIDR ip daddr $MGMT_CIDR tcp dport { 3100, 9090, 4317 } accept
 
+    # Response agent 仍由 TARGET 主動 pull/report，但只能打指定 receiver IP 的 :8000。
+    ip saddr $TARGET_CIDR ip daddr $MGMT_RECEIVER_IP tcp dport 8000 accept
+
     # §12.3：RED(VLAN$Z_RED_VLAN) → TARGET(VLAN$Z_TARGET_VLAN) 的 :80 / :3306 允許（紅隊打靶）。
     ip saddr $RED_CIDR ip daddr $TARGET_CIDR tcp dport { 80, 3306 } accept
 
@@ -110,12 +117,16 @@ table inet range_fw {
 }
 NFT
 
-echo "▶ 在 mgmt 起 stub listeners（telemetry :3100/:9090/:4317；deny canary :22）"
+echo "▶ 在 mgmt 起 listeners（telemetry + deny canaries；receiver :8000）"
 # nohup + disown：脫離腳本的行程群組，build 腳本 exit 後仍存活給 verify 用。
 nohup ip netns exec ns-mgmt python3 "$DIR/stub_listener.py" \
-  --ports 3100,9090,4317,22 >/tmp/range-mgmt-listener.log 2>&1 &
+  --ports 3100,9090,4317,22,8000 >/tmp/range-mgmt-listener.log 2>&1 &
 echo $! > /tmp/range-mgmt-listener.pid
 disown || true
-sleep 1  # 讓 telemetry 與 deny canary 都 bind 完，契約 1 才不會撞到啟動空窗
+nohup ip netns exec ns-receiver python3 "$DIR/stub_listener.py" \
+  --ports 8000 >/tmp/range-receiver-listener.log 2>&1 &
+echo $! > /tmp/range-receiver-listener.pid
+disown || true
+sleep 1  # 讓 telemetry、receiver 與 deny canary 都 bind 完，避免啟動空窗
 
 echo "✅ range 就緒。驗收：scripts/range/verify-range.sh"

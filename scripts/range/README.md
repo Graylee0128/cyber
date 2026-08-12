@@ -28,7 +28,7 @@ source IP 可分辨）能先拿到 CI 綠燈。真 VM（Slice 2）才需要你�
 
 | # | 契約 | Slice 1 怎麼強制 |
 |---|---|---|
-| 1 | TARGET→MGMT `:3100/:9090/:4317` 通 | nftables 放行 VLAN20→VLAN10；mgmt 起 stub listener |
+| 1 | TARGET→MGMT telemetry `:3100/:9090/:4317` 通；只對指定 receiver 放行 `:8000`；其他 MGMT `:8000/:22` 不通 | nftables 三埠 allowlist + `MGMT_RECEIVER_IP:8000` 精準例外；兩個 MGMT netns 都起真 listener 驗最小權限 |
 | 2 | MGMT→TARGET 反向**不通**（單向） | nftables `policy drop` + 只放 established 回程，無 mgmt→target new 規則 |
 | 3 | RED→MGMT **deny all** | nftables 無 VLAN30→VLAN10 規則，被 policy drop |
 | 4 | collector 在 target 側 | 節點歸屬（Slice 2 接真 collector） |
@@ -67,7 +67,7 @@ sudo bash scripts/range/teardown-range.sh  # 拆掉（冪等，Reset 雛形）
 - `lib-cloudimg.sh` — 共用：cloud image 下載 + `qemu-img check` 完整性把關（防半截 image）
 - `range-ovs.xml` — libvirt 接 OVS（br-range）的 network 定義，四區 VLAN portgroup
 - `teardown-range.sh` — 拆除 netns / VM / red 容器 / golden（可重複跑，Reset 基礎）
-- `stub_listener.py` — mgmt 佔三 port；target 聽 :80 記錄 red source IP
+- `stub_listener.py` — mgmt/receiver 佔正向與 deny-canary port；target 聽 :80 記錄 red source IP
 
 契約判定邏輯在 `src/purple/topology_check.py`（已單元測試），CLI 在
 `scripts/verify_topology.py`。
