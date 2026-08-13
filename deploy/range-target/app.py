@@ -22,12 +22,55 @@ import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 LOG_PATH = os.environ.get("TARGET_LOG_PATH", "/var/log/range-target/app.log")
 SECRET_PATH = os.environ.get("TARGET_SECRET_PATH", "/etc/purplescope/secret.txt")
 PORT = int(os.environ.get("TARGET_PORT", "80"))
 HEARTBEAT_INTERVAL_S = 30
+
+# ── 計分攻擊面（票 #44）——「真的要打進去」的 SQLi，與上面的 fixture 端點分屬二分兩側。
+#
+# `/product?id=<raw>` 把使用者輸入**直接字串串接**進 SQL，不做參數化 —— 這是刻意的、
+# 也是可計分攻擊面「必須真的可利用」的落地（spec §3.1）。紅隊用 UNION 從這裡撈出
+# credentials 表裡的 dbadmin 帳密（第一關產出），再拿去直連 :3306 讀 vault.flag（第二關）。
+#
+# app 用 webapp@localhost 連 DB —— 這個帳號對 vault 沒有 grant，所以**光靠這條 SQLi
+# 撈不到 flag**（seed.sql 的授權邊界）。這就是「未經利用拿不到 flag」與「內容鏈接」。
+DB_HOST = os.environ.get("TARGET_DB_HOST", "127.0.0.1")
+DB_PORT = int(os.environ.get("TARGET_DB_PORT", "3306"))
+DB_USER = os.environ.get("TARGET_DB_USER", "webapp")
+DB_PASSWORD = os.environ.get("TARGET_DB_PASSWORD", "webapp-local-only")
+DB_NAME = os.environ.get("TARGET_DB_NAME", "shopdb")
+
+
+def build_product_query(raw_id: str) -> str:
+    """把 id 直接串進 SQL —— 真 SQLi，不是模擬。
+
+    抽成 module-level 純函式的唯一理由：可注入性要**被測試接住**而不必連真 DB。
+    `tests/deploy/test_target_attack_surface.py` 餵一個 UNION payload，斷言它原封不動
+    出現在回傳的 SQL 裡（＝沒有任何 escaping／參數化）。若哪天有人把這裡改成參數化查詢，
+    那條測試會紅 —— 提醒他「這是計分攻擊面，不能修」。
+    """
+    return f"SELECT id, name, price, description FROM products WHERE id = {raw_id}"
+
+
+def _query_products(raw_id: str) -> list[tuple]:
+    """以 webapp@localhost 執行可注入的 query。pymysql 延後 import：DB 掛了也不影響
+    fixture 端點（那些完全不碰 DB），import 失敗也只讓計分面回 500，不拖垮整支 app。"""
+    import pymysql  # noqa: PLC0415 — 刻意延後：只有計分面用得到，fixture 不必背這個相依
+
+    conn = pymysql.connect(
+        host=DB_HOST, port=DB_PORT, user=DB_USER,
+        password=DB_PASSWORD, database=DB_NAME, connect_timeout=5,
+    )
+    try:
+        with conn.cursor() as cur:
+            cur.execute(build_product_query(raw_id))
+            return list(cur.fetchall())
+    finally:
+        conn.close()
+
 
 _lock = threading.Lock()
 _seq = 0
@@ -72,6 +115,24 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/healthz":
             self._text(200, "ok")
+            return
+
+        if path == "/product":
+            # 計分攻擊面（票 #44）：id 直接進 SQL，可 UNION 撈 credentials。
+            # 回傳撈到的列，讓紅隊看得到戰利品；來源 IP 照樣入 log（歸屬證據）。
+            raw_id = parse_qs(urlparse(self.path).query).get("id", [""])[0]
+            try:
+                rows = _query_products(raw_id)
+            except Exception as exc:  # noqa: BLE001 — SQL 錯誤原文回給紅隊是 SQLi 的一部分
+                _write_log({"ts": _now(), "app": "range-target", "path": "/product",
+                            "source_ip": source_ip, "id": raw_id, "outcome": "db_error",
+                            "error": str(exc)})
+                self._text(500, f"query error: {exc}\n")
+                return
+            _write_log({"ts": _now(), "app": "range-target", "path": "/product",
+                        "source_ip": source_ip, "id": raw_id, "outcome": "query",
+                        "rows": len(rows)})
+            self._text(200, json.dumps(rows, ensure_ascii=False, default=str) + "\n")
             return
 
         if path == "/uncovered":

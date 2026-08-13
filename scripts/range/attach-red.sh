@@ -7,10 +7,11 @@
 # br-range tag=30（與 build-range 的 add_node 同技術，只是目標是容器的 PID netns）。
 #
 # 前提：br-range 已由 build-range.sh / build-vm-target.sh 建好。需 root。**不在 CI**。
-# 覆寫點：RED_IMAGE（預設 nicolaka/netshoot；真 kali 用 RED_IMAGE=kalilinux/kali-rolling）。
+# 覆寫點：RED_IMAGE（預設 purplescope/red-attacker，本地 build；票 #46）。
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$DIR/../.." && pwd)"
 RED_LATERAL_OVERRIDE="${ALLOW_RED_LATERAL:-}"
 # shellcheck source=scripts/range/zones.env
 source "$DIR/zones.env"
@@ -19,8 +20,17 @@ BR="$RANGE_BRIDGE"
 RED_NET="${RED_IP_FIRST%.*}"        # 10.167.30
 RED_HOST_FIRST="${RED_IP_FIRST##*.}"  # 11
 GW="$Z_RED_GW"
-RED_IMAGE="${RED_IMAGE:-nicolaka/netshoot}"
+# 票 #46：預設用本地烤的最小攻擊 image（curl + mariadb-client），內容由 #44 攻擊鏈決定。
+# netshoot 沒有 SQL client，第二跳（直連 :3306）打不動 —— 見 deploy/red-attacker/Dockerfile。
+RED_IMAGE="${RED_IMAGE:-purplescope/red-attacker:latest}"
 COUNT="${COUNT:-$RED_COUNT}"
+
+# image 不存在就在 host（有網）先 build 好 —— 容器接上無網的 VLAN30 後才不需要任何安裝步驟。
+# 只對預設 image 自動 build；使用者若指定別的 RED_IMAGE，由他自己負責先拉/建好。
+if [ "$RED_IMAGE" = "purplescope/red-attacker:latest" ] && ! docker image inspect "$RED_IMAGE" >/dev/null 2>&1; then
+  echo "▶ 本地 build 紅隊 image（$RED_IMAGE，host 有網，約 30–60s）"
+  docker build -t "$RED_IMAGE" "$REPO/deploy/red-attacker"
+fi
 
 if ! ovs-vsctl br-exists "$BR" 2>/dev/null; then
   echo "❌ $BR 不存在 —— 先跑 build-range.sh 或 build-vm-target.sh 建六區骨架"

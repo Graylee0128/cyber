@@ -73,6 +73,18 @@ echo "▶ 產生 cloud-init（靜態 IP + 開機自驗契約 1）"
 BOOT_NONCE="$(od -An -tx1 -N16 /dev/urandom | tr -dc '0-9a-f')"
 echo "$BOOT_NONCE" > "$NONCE_FILE"
 
+# 票 #45：每次 range-up 鑄一個新 flag，注入 VM、且寫到 Range Core 讀得到的宣告檔。
+# flag 值**不烤進 golden**（不在 golden_stamp 來源清單）——換 flag 只重跑 range-up，不重烤。
+echo "▶ 產生當場 flag（每次 range-up 輪換）"
+FLAG="$(python3 "$DIR/flag_mint.py")"
+# 宣告檔共享，不做執行期跨區呼叫（§5.1，與 expected_sources 同手法）：range-up 寫、
+# Range Core（Z-APP）讀來比對玩家提交。路徑可用 FLAG_SHARE_FILE 覆寫。
+FLAG_SHARE_FILE="${FLAG_SHARE_FILE:-/var/lib/purplescope/current-flag.txt}"
+mkdir -p "$(dirname "$FLAG_SHARE_FILE")"
+printf '%s\n' "$FLAG" > "$FLAG_SHARE_FILE"
+chmod 0644 "$FLAG_SHARE_FILE"
+echo "   flag=${FLAG:0:6}…（完整值在 $FLAG_SHARE_FILE，供 Range Core 比對）"
+
 UD="$(mktemp)"; NC="$(mktemp)"
 # 探測腳本走 write_files + base64（與 build-golden-target.sh 同慣例）：位址與 nonce
 # 當 argv 傳入，Python 內容完全不經 shell 展開，沒有跳脫地雷。
@@ -84,6 +96,12 @@ write_files:
     permissions: '0755'
     encoding: b64
     content: $(base64 -w0 "$DIR/contract1_probe.py")
+  # 票 #45：當場 flag 注入檔。golden 的 purplescope-flag-inject.service 開機讀它並 UPDATE
+  # vault.flag。乾淨 image 模式沒有那個 oneshot，這檔存在也無副作用。
+  - path: /etc/purplescope/flag.txt
+    permissions: '0640'
+    encoding: b64
+    content: $(printf '%s\n' "$FLAG" | base64 -w0)
 runcmd:
   - [bash, -c, "python3 /opt/contract1_probe.py $MGMT_IP $RESPONSE_IP $APP_IP $CLOCK_IP $BOOT_NONCE | tee /dev/console"]
 YAML

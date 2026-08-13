@@ -17,8 +17,9 @@ set -Eeuo pipefail
 exec > >(tee /dev/console) 2>&1
 set -x
 
-# 這顆 VM 要跑的四個 service —— 一處定義，enable / start / 檢查 / 收尾都用它。
-UNITS=(falco-modern-bpf.service purplescope-alloy.service range-target-app.service purplescope-response-agent.service)
+# 這顆 VM 要跑的 service —— 一處定義，enable / start / 檢查 / 收尾都用它。
+# mariadb 是票 #44 的計分攻擊面資料層（SQLi → 憑證 → 直連 :3306 → flag）。
+UNITS=(falco-modern-bpf.service purplescope-alloy.service range-target-app.service purplescope-response-agent.service mariadb.service)
 
 # 診斷本身不該因為「被診斷的東西是壞的」而中止腳本，所以整段關掉 errexit。
 # 每行都加 DIAG| 前綴：關機序列有上百行，host 端才能精準撈出診斷而不是被淹掉。
@@ -194,6 +195,48 @@ RestartSec=5
 WantedBy=multi-user.target
 UNIT
 
+echo "--- 4.5/6 靶機 DB（票 #44 計分攻擊面：SQLi → 憑證 → 直連 :3306 → flag）---"
+# mariadb-server：紅隊第二跳直連 :3306 的那道門。python3-pymysql：靶機 app 連本機 DB 用。
+# 兩者都在有網的 NAT 階段裝好烤進 golden；VLAN20 無網時裝不了。
+apt-get "${APT_OPTS[@]}" install -y -q mariadb-server python3-pymysql
+
+# bind 0.0.0.0：紅隊在 VLAN30 要連得到 :3306（防火牆已放行 RED→TARGET:3306）。
+# 預設 mariadb 只 bind 127.0.0.1，遠端連不進來 —— 第二跳會斷在網路層而非授權層。
+mkdir -p /etc/mysql/mariadb.conf.d
+cat > /etc/mysql/mariadb.conf.d/99-purplescope.cnf <<'CNF'
+[mysqld]
+bind-address = 0.0.0.0
+CNF
+
+systemctl enable mariadb.service
+systemctl start mariadb.service
+# 等 socket 就緒再灌 seed（剛 start 可能還沒收 connection）。
+for _ in $(seq 1 30); do mysqladmin --protocol=socket -u root ping >/dev/null 2>&1 && break; sleep 1; done
+
+# 灌 schema + 授權邊界。seed.sql 由 cloud-init 放到 /opt/range-target/seed.sql。
+# flag 值不在 seed 裡（placeholder）；真 flag 由 inject-flag 在**每次開機**注入。
+mysql --protocol=socket -u root < /opt/range-target/seed.sql
+echo "seed 灌完：$(mysql --protocol=socket -u root -N -e "SELECT COUNT(*) FROM shopdb.products")  products / $(mysql --protocol=socket -u root -N -e "SELECT COUNT(*) FROM shopdb.credentials") credentials"
+
+# 開機注入 flag 的 oneshot：mariadb 起來後跑一次，讀 cloud-init 注入的 flag 檔並 UPDATE。
+# RemainAfterExit：oneshot 跑完保持 active，狀態檢查看得到它成功過。
+install -D -m 0755 /opt/range-target/inject-flag.sh /opt/range-target/inject-flag.sh
+cat > /etc/systemd/system/purplescope-flag-inject.service <<'UNIT'
+[Unit]
+Description=PurpleScope inject per-range flag into vault.flag
+After=mariadb.service
+Requires=mariadb.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/range-target/inject-flag.sh
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl enable purplescope-flag-inject.service
+
 echo "--- 5/6 enable 服務（golden 開機後自動就位，無網也能跑）---"
 systemctl daemon-reload
 # 逐個 enable：一次列多個時只要有一個 unit 名不存在，整條指令失敗、其餘也沒 enable 到。
@@ -255,6 +298,20 @@ EXEC_HITS=$(grep -c "PurpleScope exec detected" /var/log/falco/events.json 2>/de
 SEC_HITS=$(grep -c "PurpleScope sensitive file access" /var/log/falco/events.json 2>/dev/null || echo 0)
 UNCOV_HITS=$(grep -c "PurpleScope uncovered action" /var/log/falco/events.json 2>/dev/null || echo 0)
 echo "=== GOLDEN-RULE-HITS: exec=$EXEC_HITS secret=$SEC_HITS uncovered=$UNCOV_HITS ==="
+
+# 授權邊界自證（票 #44）：光靠 app 帳號 webapp 拿不到 flag，才叫「未經利用拿不到 flag」。
+# 這是**結構性**保證 —— flag 讀不到不是因為 app 沒寫那條路由，是因為 webapp 對 vault 沒 grant。
+# 三個都要成立才算對：products 讀得到（攻擊面在）、credentials 讀得到（戰利品在）、
+# vault.flag 讀不到（第二道門真的鎖著）。
+set +e
+WEBAPP=(mysql --protocol=socket -u webapp -pwebapp-local-only -N -e)
+"${WEBAPP[@]}" "SELECT COUNT(*) FROM shopdb.products"    >/dev/null 2>&1 && PROD_OK=1 || PROD_OK=0
+"${WEBAPP[@]}" "SELECT COUNT(*) FROM shopdb.credentials" >/dev/null 2>&1 && CRED_OK=1 || CRED_OK=0
+# 這一條**必須失敗**：成功就代表授權邊界破了，SQLi 一跳就能撈 flag，二分白做。
+if "${WEBAPP[@]}" "SELECT token FROM vault.flag" >/dev/null 2>&1; then FLAG_LEAK=1; else FLAG_LEAK=0; fi
+set -e
+echo "=== GOLDEN-DB-STATE: products=$PROD_OK credentials=$CRED_OK ==="
+echo "=== GOLDEN-FLAG-GUARD: webapp_can_read_flag=$FLAG_LEAK ==="
 
 echo "=== GOLDEN-BAKE-DONE ==="
 
