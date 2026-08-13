@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """靶機 VM 開機時自驗契約 1 與 response receiver 最小權限例外。
 
-    python3 contract1_probe.py <mgmt_ip> <receiver_ip> <boot_nonce>
+    python3 contract1_probe.py <mgmt_ip> <receiver_ip> <app_ip> <boot_nonce>
 
 為什麼是獨立檔案而不是塞在 build-vm-target.sh 的 heredoc 裡：位址要代進去就得用
 不引號 heredoc，那會連整段 Python 一起做 shell 展開 —— 今天剛好沒有 `$`，明天加一個
@@ -22,12 +22,14 @@ import sys
 PORTS = {3100: "Loki", 9090: "Prometheus", 4317: "OTLP"}
 RESPONSE_PORT = 8000
 DENIED_PORT = 22
+APP_PORT = 443
 
 
 def main() -> None:
     mgmt = sys.argv[1]
     receiver = sys.argv[2]
-    nonce = sys.argv[3] if len(sys.argv) > 3 else "no-nonce"
+    app = sys.argv[3]
+    nonce = sys.argv[4] if len(sys.argv) > 4 else "no-nonce"
 
     print(f"=== SLICE2A-BEGIN（從真 VM 測契約 1）nonce={nonce} ===", flush=True)
     bad = []
@@ -93,6 +95,23 @@ def main() -> None:
         )
     finally:
         sock.close()
+    for port, should_reach in ((APP_PORT, True), (DENIED_PORT, False)):
+        sock = socket.socket()
+        sock.settimeout(3)
+        try:
+            sock.connect((app, port))
+            reached = True
+        except OSError:
+            reached = False
+        finally:
+            sock.close()
+        if reached == should_reach:
+            outcome = "通" if reached else "不通"
+            print(f"Z-APP OK: TARGET(VM) -> APP {app}:{port} {outcome}", flush=True)
+        else:
+            bad.append(f"app:{port}")
+            outcome = "竟然通了" if reached else "不通"
+            print(f"Z-APP 破: TARGET(VM) -> APP {app}:{port} {outcome}", flush=True)
     verdict = "PASS" if not bad else f"FAIL {bad}"
     print(f"=== SLICE2A-RESULT: {verdict} ===", flush=True)
 
