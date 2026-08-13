@@ -1,7 +1,7 @@
-name: Range (single-host four-zone)
+name: Range (single-host six-zone)
 
-# 票 #13 / WS6 Slice 1：在 GitHub runner（有 root，免巢狀虛擬化）用 OVS + netns +
-# nftables 建四區 range，實測四條跨世代契約 + 六台 red source IP 可分辨。
+# 票 #13 / #20：在 GitHub runner（有 root，免巢狀虛擬化）用 OVS + netns +
+# nftables 建六區 range，實測五條契約 + Z-APP 受管路徑 + RED seat 隔離。
 # 真 VM（Slice 2）才需要大主機的 nested KVM，那部分不在此 workflow。
 on:
   push:
@@ -34,8 +34,107 @@ jobs:
 
       # build 起的 mgmt listener 是背景行程；build 與 verify 放同一 step，
       # 確保 listener 在契約 1 驗收時仍存活。
-      - name: Build four-zone range + verify contracts
+      - name: Build six-zone range + verify contracts
         run: |
+          sudo bash scripts/range/build-range.sh
+          sudo bash scripts/range/verify-range.sh
+
+      # 兩種退化都要能抓：拿掉 telemetry dport 限制，以及把 receiver:8000 的
+      # 目的 IP 放寬成整段 MGMT_CIDR。兩個被禁止的 endpoint 都有真 listener。
+      - name: Contract 1 negative assertions can fail
+        run: |
+          set -u
+          source scripts/range/zones.env
+
+          # Mutation 1：telemetry 規則退化成 TARGET→MGMT 全開。
+          sed -i \
+            's/ip saddr $TARGET_CIDR ip daddr $MGMT_CIDR tcp dport { 3100, 9090, 4317 } accept/ip saddr $TARGET_CIDR ip daddr $MGMT_CIDR accept/' \
+            scripts/range/build-range.sh
+          grep -Fq 'ip saddr $TARGET_CIDR ip daddr $MGMT_CIDR accept' scripts/range/build-range.sh
+          sudo bash scripts/range/build-range.sh
+          set +e
+          output="$(sudo ip netns exec ns-target python3 scripts/verify_topology.py \
+            --from-zone target --mgmt "$MGMT_STUB_IP" \
+            --receiver "$MGMT_RECEIVER_IP" 2>&1)"
+          rc=$?
+          set -e
+          echo "$output"
+          if [ "$rc" -ne 1 ]; then
+            echo "::error::預期契約退化 exit 1，實得 exit $rc"
+            exit 1
+          fi
+          grep -Fq '非 telemetry :22 竟然通了' <<<"$output" || {
+            echo "::error::失敗原因不是 TARGET→MGMT :22 被放行"
+            exit 1
+          }
+          echo "反向斷言如預期抓到 TARGET→MGMT :22 被錯誤放行"
+          git restore scripts/range/build-range.sh
+          sudo bash scripts/range/build-range.sh
+
+          # Mutation 2：:8000 例外從指定 receiver IP 退化成整段 MGMT_CIDR。
+          sed -i \
+            's/ip saddr $TARGET_CIDR ip daddr $MGMT_RECEIVER_IP tcp dport 8000 accept/ip saddr $TARGET_CIDR ip daddr $MGMT_CIDR tcp dport 8000 accept/' \
+            scripts/range/build-range.sh
+          grep -Fq 'ip saddr $TARGET_CIDR ip daddr $MGMT_CIDR tcp dport 8000 accept' \
+            scripts/range/build-range.sh
+          sudo bash scripts/range/build-range.sh
+          set +e
+          output="$(sudo ip netns exec ns-target python3 scripts/verify_topology.py \
+            --from-zone target --mgmt "$MGMT_STUB_IP" \
+            --receiver "$MGMT_RECEIVER_IP" 2>&1)"
+          rc=$?
+          set -e
+          echo "$output"
+          if [ "$rc" -ne 1 ]; then
+            echo "::error::預期 receiver 目的限制退化 exit 1，實得 exit $rc"
+            exit 1
+          fi
+          grep -Fq '非 receiver MGMT' <<<"$output" || {
+            echo "::error::失敗原因不是其他 MGMT 主機的 :8000 被放行"
+            exit 1
+          }
+          echo "反向斷言如預期抓到其他 MGMT 主機 :8000 被錯誤放行"
+
+          # 恢復正式規則並再驗一次，always dump 才會留下正確 production ruleset。
+          git restore scripts/range/build-range.sh
+          sudo bash scripts/range/build-range.sh
+          sudo ip netns exec ns-target python3 scripts/verify_topology.py \
+            --from-zone target --mgmt "$MGMT_STUB_IP" \
+            --receiver "$MGMT_RECEIVER_IP"
+
+      - name: Network v0.3 negative assertions can fail
+        run: |
+          set -euo pipefail
+
+          expect_verify_failure() {
+            local expected="$1"
+            set +e
+            output="$(sudo bash scripts/range/verify-range.sh 2>&1)"
+            rc=$?
+            set -e
+            echo "$output"
+            test "$rc" -eq 1 || { echo "::error::expected exit 1, got $rc"; exit 1; }
+            grep -Fq "$expected" <<<"$output" || {
+              echo "::error::missing expected failure: $expected"; exit 1;
+            }
+          }
+
+          sed -i \
+            's/ip saddr $APP_CIDR ip daddr $MGMT_ENGINE_IP tcp dport 8001 accept/ip saddr $APP_CIDR ip daddr $MGMT_CIDR tcp dport 8001 accept/' \
+            scripts/range/build-range.sh
+          sudo bash scripts/range/build-range.sh
+          expect_verify_failure 'APP→其他 MGMT 的受管 API'
+          git restore scripts/range/build-range.sh
+
+          sed -i '/# Contract 5:/a\    ip saddr $EDGE_CIDR ip daddr $MGMT_CIDR tcp dport 3100 accept' \
+            scripts/range/build-range.sh
+          sudo bash scripts/range/build-range.sh
+          expect_verify_failure '契約5 EDGE→MGMT'
+          git restore scripts/range/build-range.sh
+
+          sudo ALLOW_RED_LATERAL=1 bash scripts/range/build-range.sh
+          expect_verify_failure 'RED seat→RED seat'
+
           sudo bash scripts/range/build-range.sh
           sudo bash scripts/range/verify-range.sh
 

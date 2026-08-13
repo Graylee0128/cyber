@@ -34,7 +34,6 @@ class TestParsing:
         assert alloy.probe == "docker"
         assert alloy.container == "alloy"
 
-
 class TestBadConfigIsLoud:
     def test_empty_node_list_is_rejected(self):
         with pytest.raises(ConfigError, match="at least one node"):

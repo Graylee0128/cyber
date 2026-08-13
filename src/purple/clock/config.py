@@ -54,7 +54,13 @@ def parse_config(raw: dict[str, Any]) -> ClockConfig:
         if probe == "docker" and not container:
             raise ConfigError(f"node {name!r} uses the docker probe but names no container")
 
-        nodes.append(NodeConfig(name=name, probe=probe, container=container))
+        nodes.append(
+            NodeConfig(
+                name=name,
+                probe=probe,
+                container=container,
+            )
+        )
 
     reference = raw.get("reference")
     if reference not in seen:

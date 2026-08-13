@@ -59,7 +59,10 @@ def test_webhook_to_agent_pull_to_response_core_event(pg_connection):
     command_queue = InMemoryCommandQueue()
 
     class Handler(WebhookHandler):
+        # 這條測試驗的是整條鏈（webhook → queue → agent pull → response event），
+        # 屬於測試載具用途，不是演練計分路徑，所以明確開啟 auto_response（票 48）。
         response_queue = command_queue
+        auto_response = True
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

@@ -25,6 +25,14 @@ if ! ovs-vsctl br-exists "$BR" 2>/dev/null; then
   exit 1
 fi
 
+# build-range 的 ns-receiver 只供 CI / VM 開機契約 probe。Slice 4 改掛真 receiver
+# container 前先移除 stub，避免同一個 MGMT_RECEIVER_IP 在 VLAN10 發生 ARP 衝突。
+if ip netns list 2>/dev/null | awk '{print $1}' | grep -qx ns-receiver; then
+  kill "$(cat /tmp/range-receiver-listener.pid 2>/dev/null)" 2>/dev/null || true
+  ip netns del ns-receiver
+  ovs-vsctl --if-exists del-port "$BR" h-ns-receiver
+fi
+
 attach_container() {
   local service="$1" ns="$2" ip="$3" host_if="$4" cont_if="$5" description="$6"
   local cid pid

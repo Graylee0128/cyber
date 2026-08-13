@@ -19,6 +19,7 @@ import json
 import os
 import subprocess
 import threading
+import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
@@ -26,6 +27,7 @@ from urllib.parse import urlparse
 LOG_PATH = os.environ.get("TARGET_LOG_PATH", "/var/log/range-target/app.log")
 SECRET_PATH = os.environ.get("TARGET_SECRET_PATH", "/etc/purplescope/secret.txt")
 PORT = int(os.environ.get("TARGET_PORT", "80"))
+HEARTBEAT_INTERVAL_S = 30
 
 _lock = threading.Lock()
 _seq = 0
@@ -46,6 +48,17 @@ def _next_marker(kind: str) -> str:
     with _lock:
         _seq += 1
         return f"PURPLESCOPE_{kind}_{_seq}"
+
+
+def emit_alloy_heartbeat() -> None:
+    """End-to-end canary：只有 Alloy 還能轉送時，這筆才會出現在 Loki。"""
+    _write_log({"ts": _now(), "app": "range-target", "event": "alloy.heartbeat"})
+
+
+def _alloy_heartbeat_loop() -> None:
+    while True:
+        emit_alloy_heartbeat()
+        time.sleep(HEARTBEAT_INTERVAL_S)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -130,6 +143,7 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> None:
     # 開機寫一行，讓 Loki 一定有這個 stream（查詢不會因無 stream 報錯）。
     _write_log({"ts": _now(), "app": "range-target", "event": "startup"})
+    threading.Thread(target=_alloy_heartbeat_loop, daemon=True).start()
     print(f"range-target app listening on :{PORT}", flush=True)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
 

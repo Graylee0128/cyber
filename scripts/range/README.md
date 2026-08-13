@@ -1,6 +1,6 @@
-# Range Infrastructure（票 #13 / Workstream 6）
+# Range Infrastructure（票 #13 / #20 / Workstream 6）
 
-單主機四區 range 的建置與驗收腳本。四區照 SA §12：
+單主機六區 range 的建置與驗收腳本。六區照 SA §12：
 
 | 區 | VLAN | 網段 | 住戶 |
 |---|---|---|---|
@@ -8,6 +8,19 @@
 | Z-TARGET | 20 | 10.167.20.0/24 | 靶機 + collector（Alloy/Falco/response agent） |
 | Z-RED | 30 | 10.167.30.0/24 | 六台 kali（各自 IP） |
 | Z-APP | 40 | 10.167.40.0/24 | Range Core / Product UI（WS5） |
+| Z-EDGE | 50 | 10.167.50.0/24 | TLS ingress / ttyd proxy（WS8） |
+| Z-BLUE | 60 | 10.167.60.0/24 | Blue seat runtime（由 #62 交付；本票僅用 stub 驗 policy） |
+
+## Network Topology v0.3（#20）
+
+- Z-APP 的 `:443` 可由 RED、TARGET、MGMT 到達；其他 APP port 維持封鎖。
+- APP 只可連指定 `MGMT_ENGINE_IP:8001`（Evaluation／Evidence API）；其他 MGMT
+  主機的 `:8001` 與 Loki raw query `:3100` 都有真 listener 負向驗證。
+- INTERNET 只進 EDGE `:443`；EDGE 只往 APP `:443` 與 RED／BLUE `:7681`，
+  對 MGMT／TARGET 維持契約 5 deny all。
+- RED seat 同 VLAN 預設以 OVS protected ports 隔離；Docker seat path 同步寫入
+  `DOCKER-USER` CIDR DROP。只有明確設定 `ALLOW_RED_LATERAL=1` 才開放收尾期互打。
+- APP／EDGE／BLUE netns 是 policy stub，不代表 WS5／WS7／#62 runtime 已完成。
 
 ## 切片（單主機巢狀，選型：混合 VM+容器 + Open vSwitch）
 
@@ -28,7 +41,7 @@ source IP 可分辨）能先拿到 CI 綠燈。真 VM（Slice 2）才需要你�
 
 | # | 契約 | Slice 1 怎麼強制 |
 |---|---|---|
-| 1 | TARGET→MGMT `:3100/:9090/:4317` 通 | nftables 放行 VLAN20→VLAN10；mgmt 起 stub listener |
+| 1 | TARGET→MGMT telemetry `:3100/:9090/:4317` 通；只對指定 receiver 放行 `:8000`；其他 MGMT `:8000/:22` 不通 | nftables 三埠 allowlist + `MGMT_RECEIVER_IP:8000` 精準例外；兩個 MGMT netns 都起真 listener 驗最小權限 |
 | 2 | MGMT→TARGET 反向**不通**（單向） | nftables `policy drop` + 只放 established 回程，無 mgmt→target new 規則 |
 | 3 | RED→MGMT **deny all** | nftables 無 VLAN30→VLAN10 規則，被 policy drop |
 | 4 | collector 在 target 側 | 節點歸屬（Slice 2 接真 collector） |
@@ -43,8 +56,8 @@ nftables 在 router 的 forward hook 做真方向性，正是 #15 明白委派�
 > （探測 → 裝依賴 → 驗證 → 建四區 → 驗契約），可在任何 Ubuntu 主機重現。
 
 ```bash
-sudo bash scripts/range/build-range.sh     # 建四區
-sudo bash scripts/range/verify-range.sh    # 驗四契約 + source IP
+sudo bash scripts/range/build-range.sh     # 建六區
+sudo bash scripts/range/verify-range.sh    # 驗五契約 + APP/seat policy + source IP
 sudo bash scripts/range/teardown-range.sh  # 拆掉（冪等，Reset 雛形）
 ```
 
@@ -67,7 +80,7 @@ sudo bash scripts/range/teardown-range.sh  # 拆掉（冪等，Reset 雛形）
 - `lib-cloudimg.sh` — 共用：cloud image 下載 + `qemu-img check` 完整性把關（防半截 image）
 - `range-ovs.xml` — libvirt 接 OVS（br-range）的 network 定義，四區 VLAN portgroup
 - `teardown-range.sh` — 拆除 netns / VM / red 容器 / golden（可重複跑，Reset 基礎）
-- `stub_listener.py` — mgmt 佔三 port；target 聽 :80 記錄 red source IP
+- `stub_listener.py` — mgmt/receiver 佔正向與 deny-canary port；MGMT :3100 回獨立 HTTP `Date` 供 VM clock 驗證；target 聽 :80 記錄 red source IP
 
 契約判定邏輯在 `src/purple/topology_check.py`（已單元測試），CLI 在
 `scripts/verify_topology.py`。

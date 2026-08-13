@@ -9,6 +9,8 @@ MTTR 的終點是 **ipset 寫入成功**（response.executed），不是 Grafana
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Protocol
@@ -31,18 +33,50 @@ class Link(Protocol):
 
 
 @dataclass
+class JsonlHeartbeat:
+    """把成功 pull 寫進既有 Alloy→Loki log transport，不新增 endpoint。"""
+
+    path: Path | str = "/var/log/purplescope/response-agent.jsonl"
+    source: str = "response-agent"
+    interval_s: float = 30
+    _last_written: datetime | None = field(default=None, init=False, repr=False)
+
+    def __call__(self, observed_at: datetime) -> None:
+        if observed_at.tzinfo is None or observed_at.tzinfo.utcoffset(observed_at) is None:
+            raise ValueError("response agent heartbeat 缺少 timezone")
+        if self._last_written is not None:
+            elapsed = (observed_at - self._last_written).total_seconds()
+            if elapsed < 0:
+                raise ValueError("response agent heartbeat 時間倒退")
+            if elapsed < self.interval_s:
+                return
+        path = Path(self.path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"source": self.source, "observed_at": observed_at.isoformat()}
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        self._last_written = observed_at
+
+
+@dataclass
 class ResponseAgent:
     link: Link
     blocker: Blocker = field(default_factory=DirectIpsetBlocker)
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
+    heartbeat: Callable[[datetime], None] | None = None
 
     def run_once(self) -> list[dict]:
         """拉取一批命令、逐一執行、回報。回傳產生的 response 事件。"""
+        commands = self.link.pull()
         events: list[dict] = []
-        for command in self.link.pull():
+        for command in commands:
             events.append(self._execute(command))
         for event in events:
             self.link.report(event)
+        # 成功完成 outbound pull 才算 agent 路徑健康；放在 response 之後，heartbeat
+        # 寫檔故障也不會阻止已取得的封鎖命令執行／回報。
+        if self.heartbeat is not None:
+            self.heartbeat(self.now())
         return events
 
     def _execute(self, command: ResponseCommand) -> dict:

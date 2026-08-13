@@ -20,4 +20,10 @@
   <portgroup name='z-app'>
     <vlan><tag id='40'/></vlan>
   </portgroup>
+  <portgroup name='z-edge'>
+    <vlan><tag id='50'/></vlan>
+  </portgroup>
+  <portgroup name='z-blue'>
+    <vlan><tag id='60'/></vlan>
+  </portgroup>
 </network>

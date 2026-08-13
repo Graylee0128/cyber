@@ -1,9 +1,10 @@
 // 靶機 VM 內的 Alloy（Slice 4 / 票 #9）—— collector 在 target 側（契約 4）。
 //
-// 兩條進料都推去 Z-MGMT 的 Loki（10.167.10.20:3100）：
+// 三條進料都推去 Z-MGMT 的 Loki（10.167.10.20:3100）：
 //   1. Falco events.json → job="falco"       ← Grafana 的 FalcoCommandExec /
 //                                               FalcoSensitiveFileAccess 靠這個 label 計數
 //   2. 靶機 app.log      → app="range-target" ← 內含 source_ip，六台紅隊可分辨的觀測點
+//   3. response heartbeat → job="response-agent" ← 成功 pull 後寫入，不新增 port
 //
 // 這條 VLAN20 → VLAN10 :3100 就是**契約 1 的實用**（不是模擬）。反向 MGMT→TARGET
 // 依然被 ns-router 的 nftables 擋著（契約 2），所以只能是 target 主動 push。
@@ -31,6 +32,18 @@ local.file_match "target_app" {
 
 loki.source.file "target_app" {
   targets    = local.file_match.target_app.targets
+  forward_to = [loki.write.mgmt.receiver]
+}
+
+local.file_match "response_agent" {
+  path_targets = [{
+    __path__ = "/var/log/purplescope/response-agent.jsonl",
+    job      = "response-agent",
+  }]
+}
+
+loki.source.file "response_agent" {
+  targets    = local.file_match.response_agent.targets
   forward_to = [loki.write.mgmt.receiver]
 }
 
