@@ -39,7 +39,7 @@ class TestScenarioCatalog:
     def test_shipped_catalog_is_the_single_expected_source_definition(self):
         catalog = load_catalog()
 
-        sources = catalog.scenario_sources("falco-exec-01")
+        sources = catalog.fixture_sources("falco-exec-01")
 
         assert [(source.id, source.expected) for source in sources] == [
             ("falco", True),
@@ -50,16 +50,54 @@ class TestScenarioCatalog:
         assert "alloy.heartbeat" in catalog.signal("alloy").query
         assert catalog.signal("response-agent").query == '{job="response-agent"}'
 
-    def test_sources_not_expected_by_scenario_are_explicitly_absent(self):
+    def test_sources_not_expected_by_fixture_are_explicitly_absent(self):
         catalog = load_catalog()
 
-        sources = catalog.scenario_sources("sqli-01")
+        sources = catalog.fixture_sources("sqli-01")
 
         assert [(source.id, source.expected) for source in sources] == [
             ("falco", False),
             ("alloy", True),
             ("response-agent", True),
         ]
+
+    def test_shipped_catalog_has_no_real_scenarios_yet(self):
+        # WS2 的真實起點是零個 scenario（spec §6.2）；fixture 不算進去（#43）。
+        catalog = load_catalog()
+
+        assert catalog.scenarios == ()
+        assert {fixture.id for fixture in catalog.fixtures} == {
+            "sqli-01",
+            "bruteforce-01",
+            "falco-exec-01",
+            "falco-secret-03",
+            "falco-uncovered-01",
+        }
+
+    def test_fixture_lookup_via_scenario_sources_is_rejected(self):
+        catalog = load_catalog()
+
+        with pytest.raises(CatalogError, match="fixture.*不是 scenario"):
+            catalog.scenario_sources("falco-exec-01")
+
+    def test_scenario_lookup_via_fixture_sources_is_rejected(self, tmp_path):
+        path = tmp_path / "scenario-sources.yaml"
+        path.write_text(
+            """
+sources:
+  - id: falco
+    heartbeat: {provider: loki, query: '{job="falco"}'}
+scenarios:
+  - id: real-01
+    expected_sources: [falco]
+fixtures: []
+""",
+            encoding="utf-8",
+        )
+        catalog = load_catalog(path)
+
+        with pytest.raises(CatalogError, match="scenario.*不是 fixture"):
+            catalog.fixture_sources("real-01")
 
     def test_unknown_source_reference_is_rejected(self, tmp_path):
         path = tmp_path / "scenario-sources.yaml"
@@ -68,7 +106,7 @@ class TestScenarioCatalog:
 sources:
   - id: falco
     heartbeat: {provider: loki, query: '{job="falco"}'}
-scenarios:
+fixtures:
   - id: bad
     expected_sources: [phantom]
 """,
@@ -109,7 +147,7 @@ class TestRegistryService:
             }
         )
 
-        registry = RegistryService(catalog, reader, now=lambda: NOW).get("falco-exec-01")
+        registry = RegistryService(catalog, reader, now=lambda: NOW).get_fixture("falco-exec-01")
 
         assert registry.get("falco").state is SourceState.HEALTHY
         assert registry.get("alloy").state is SourceState.HEALTHY
@@ -126,7 +164,7 @@ class TestRegistryService:
             catalog,
             FakeHeartbeatReader({"alloy": NOW}),
             now=lambda: NOW,
-        ).get("falco-exec-01")
+        ).get_fixture("falco-exec-01")
 
         falco = registry.get("falco")
         assert falco is not None
@@ -139,7 +177,7 @@ class TestRegistryService:
             load_catalog(),
             FakeHeartbeatReader({"alloy": NOW, "response-agent": NOW}),
             now=lambda: NOW,
-        ).get("falco-exec-01")
+        ).get_fixture("falco-exec-01")
 
         result = classify_from_registry(
             registry=registry,
