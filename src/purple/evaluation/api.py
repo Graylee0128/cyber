@@ -17,13 +17,38 @@ from purple.evaluation.action_registry import (
 )
 from purple.evaluation.assembly import EvaluationAssembler
 from purple.evaluation.evaluator import EvaluationService
+from purple.evaluation.latency import LatencyAssembler, LatencySummary, summarize_latency
 from purple.evidence.backends import BackendUnavailable
 from purple.receiver.whitelist import TechniqueRejected, default_whitelist
 from purple.store.alerts import AlertRecordStore
 from purple.store.db import connect, ensure_schema
 from purple.store.events import CoreEventStore
 from purple.store.executions import ActionExecutionStore
+from purple.store.latency import LatencySummaryStore
 from range_core.scenarios import ScenarioCatalog
+
+
+def render_latency(summaries: dict[str, LatencySummary]) -> dict[str, Any]:
+    """把每個 mode 的 latency 摘要序列化（純函數）。
+
+    `exercise` 與 `automatic` 各自成一筆，永不合併 —— 人在迴圈的 MTTR 與自動模式
+    是不同的量。每筆帶上 `notes`，讓讀者知道 MTTD 有工具下限、演練 MTTR 含決策時間。
+    """
+    return {
+        "modes": {
+            mode: {
+                "sample_count": s.sample_count,
+                "mttd_p50_ms": s.mttd_p50_ms,
+                "mttd_p95_ms": s.mttd_p95_ms,
+                "mttr_p50_ms": s.mttr_p50_ms,
+                "mttr_p95_ms": s.mttr_p95_ms,
+                "containment_p50_ms": s.containment_p50_ms,
+                "containment_p95_ms": s.containment_p95_ms,
+                "notes": {"mttd_floor": s.mttd_floor_note, "mttr_mode": s.mttr_mode_note},
+            }
+            for mode, s in summaries.items()
+        }
+    }
 
 
 def render_evaluation(service: EvaluationService) -> dict[str, Any]:
@@ -65,6 +90,7 @@ def create_app(
     *,
     source_registry: Callable[[str], Any] | None = None,
     telemetry: Any = None,
+    latency_mode: Callable[[str], str] | None = None,
 ) -> FastAPI:
     """建立 Evaluation Engine 的 app。
 
@@ -118,6 +144,16 @@ def create_app(
             telemetry=backend,
         )
 
+    def _latency_assembler(conn) -> LatencyAssembler:
+        # mode 來自回應觸發方式（ResponseCommand.triggered_by）；未注入時整場當 exercise
+        # （演練預設藍隊觸發＝人在迴圈）。auto 模式的分流屬 #48/#51 整合，見 latency.py。
+        mode_of = latency_mode or (lambda _action_id: "exercise")
+        return LatencyAssembler(
+            executions=ActionExecutionStore(conn),
+            events=CoreEventStore(conn),
+            mode_of=mode_of,
+        )
+
     @app.post("/api/exercises/{exercise_id}/actions", status_code=201)
     def register(exercise_id: str, payload: RegistryInput):
         scenario = next(
@@ -155,6 +191,38 @@ def create_app(
         都無法判斷準不準（#21 §3.2 陷阱①）。所以是 409 conflict，不是 200 空集合。
         """
         return _session(lambda conn: render_evaluation(_assembler(conn).build(exercise_id)))
+
+    @app.post("/api/exercises/{exercise_id}/latency")
+    def compute_latency(exercise_id: str):
+        """從真實事件組出量測、算 p50/p95、**持久化**，回傳每個 mode 的摘要。
+
+        每個 mode 都必須恰好 `REQUIRED_SAMPLE_COUNT` 筆，否則 `summarize_latency`
+        拋 ValueError → 409。少於 20 筆不是「先存著」，是「還不能當最終量測交付」
+        （#21 §四）。這條路徑在 #44 的真攻擊面就緒前拿不到足量樣本 —— 那是預期的，
+        不是這支程式的缺陷。
+        """
+
+        def _run(conn):
+            runs = _latency_assembler(conn).build(exercise_id)
+            try:
+                summaries = summarize_latency(runs)
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            LatencySummaryStore(conn).save_all(exercise_id, summaries)
+            return render_latency(summaries)
+
+        return _session(_run)
+
+    @app.get("/api/exercises/{exercise_id}/latency")
+    def get_latency(exercise_id: str):
+        """讀**已持久化**的 latency 摘要。重啟後仍查得到（#90 Phase 4）。
+
+        沒有任何已存摘要時回 `{"modes": {}}`，不是 404 —— 「還沒算過」是合法狀態，
+        用 200＋空集合表達，讓前端不必把「沒算」與「查錯」混在同一個錯誤分支。
+        """
+        return _session(
+            lambda conn: render_latency(LatencySummaryStore(conn).for_exercise(exercise_id))
+        )
 
     return app
 

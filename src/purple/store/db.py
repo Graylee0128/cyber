@@ -104,6 +104,28 @@ CREATE TABLE IF NOT EXISTS action_executions (
     CONSTRAINT action_executions_marker_present CHECK (marker <> '')
 );
 
+-- Latency 量測的持久化（#90 Phase 4）。存的是**已算好的 p50/p95 摘要**，不是每筆
+-- 原始樣本 —— 報告要的是分佈端點，重烤原始樣本沒有意義且會讓歷史數字浮動。
+--
+-- 主鍵含 mode：`exercise` 與 `automatic` 兩個模式各存一列，永不合併成單一分佈
+-- （見 latency.py 的 MTTR_MODE_NOTE，人在迴圈的 MTTR 與自動模式混比會誤讀成退步）。
+-- computed_at 存下來，讓「這份摘要是何時算的」可查 —— 與 action_registries.frozen_at
+-- 同精神：一個數字要能說出自己的時效。
+CREATE TABLE IF NOT EXISTS latency_summaries (
+    exercise_id        text        NOT NULL,
+    mode               text        NOT NULL,
+    sample_count       int         NOT NULL,
+    mttd_p50_ms        int,
+    mttd_p95_ms        int,
+    mttr_p50_ms        int,
+    mttr_p95_ms        int,
+    containment_p50_ms int,
+    containment_p95_ms int,
+    computed_at        timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (exercise_id, mode),
+    CONSTRAINT latency_summaries_sample_count_nonneg CHECK (sample_count >= 0)
+);
+
 CREATE OR REPLACE FUNCTION reject_frozen_action_registry_mutation()
 RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE source_frozen timestamptz;
@@ -188,6 +210,6 @@ def ensure_schema(conn: psycopg.Connection) -> None:
 def truncate_all(conn: psycopg.Connection) -> None:
     """測試之間清空。TRUNCATE 而非 DROP —— 保留 schema，快得多。"""
     conn.execute(
-        "TRUNCATE action_executions, registered_actions, action_registries, "
-        "core_events, alert_records, alert_fingerprints"
+        "TRUNCATE latency_summaries, action_executions, registered_actions, "
+        "action_registries, core_events, alert_records, alert_fingerprints"
     )

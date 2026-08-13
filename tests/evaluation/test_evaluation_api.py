@@ -178,3 +178,22 @@ def test_response_never_uses_the_banned_detection_rate_label(pg_connection):
     assert "detection_rate" not in api.get(
         f"/api/exercises/{EXERCISE}/evaluation"
     ).text
+
+
+# ── #90 Phase 4：latency 持久化 endpoint ───────────────────────────────────
+
+
+def test_latency_reads_back_empty_before_anything_is_computed(pg_connection):
+    api = client(telemetry())
+    body = api.get(f"/api/exercises/{EXERCISE}/latency").json()
+    # 「還沒算過」是合法狀態，200＋空集合而非 404。
+    assert body == {"modes": {}}
+
+
+def test_latency_compute_rejects_fewer_than_twenty_runs(pg_connection):
+    api = client(telemetry())
+    ActionExecutionStore(pg_connection).record(EXERCISE, "a-1", EXECUTED, MARKER)
+    # 只有 1 筆執行 → 遠少於 20 → 不得當最終量測交付。
+    response = api.post(f"/api/exercises/{EXERCISE}/latency")
+    assert response.status_code == 409
+    assert "20" in response.json()["detail"]

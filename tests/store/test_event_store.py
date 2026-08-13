@@ -128,6 +128,47 @@ class TestActionCorrelation:
         assert store.alert_volume("ex-001") == 1
 
 
+class TestLatencyCorrelation:
+    """#90 Phase 4：latency 的三個時間終點各走各的 join key。"""
+
+    FIRING = {**FIRING, "event_id": "evt-fire", "action_id": "a-1"}
+    RESOLVED = {
+        **FIRING,
+        "event_id": "evt-fire",
+        "action_id": "a-1",
+        "lifecycle": "resolved",
+        "observed_at": "2026-08-08T14:40:00+08:00",
+    }
+    RESPONSE = {
+        **FIRING,
+        "event_id": "evt-resp",
+        "event_type": "response.executed",
+        "visibility": "blue",
+        "action_id": None,
+        "observed_at": "2026-08-08T14:32:00+08:00",
+        "target": {"service": "vulnerable-app", "attack_event_id": "evt-fire"},
+    }
+
+    def test_firing_is_keyed_by_action_id(self, store):
+        store.append(self.FIRING)
+        firings = store.firings_by_action("ex-001")
+        assert firings["a-1"]["event_id"] == "evt-fire"
+
+    def test_response_is_keyed_by_the_attack_event_it_answered(self, store):
+        store.append(self.FIRING)
+        store.append(self.RESPONSE)
+        responses = store.responses_by_attack_event("ex-001")
+        # 以攻擊 event_id 對接，不是 response 自己的 event_id
+        assert "evt-fire" in responses
+        assert "evt-resp" not in responses
+
+    def test_resolution_shares_the_firing_event_id(self, store):
+        store.append(self.FIRING)
+        store.append(self.RESOLVED)
+        resolutions = store.resolutions_by_event("ex-001")
+        assert "evt-fire" in resolutions
+
+
 class TestTimezoneFidelity:
     def test_offset_aware_timestamp_is_not_flattened_to_naive(self, store):
         store.append(FIRING)
