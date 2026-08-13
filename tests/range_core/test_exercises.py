@@ -120,8 +120,8 @@ def test_reset_deletes_exercise_scoped_state_and_allows_immediate_restart(
     pg_connection.execute(
         """
         INSERT INTO exercise_objective_completions
-            (exercise_id, player_id, objective_id, completed_at)
-        VALUES (%s, 'red-alice', 'capture_flag', now())
+            (exercise_id, player_id, objective_id, completed_at, evaluation, evidence_event_id)
+        VALUES (%s, 'red-alice', 'capture_flag', now(), 'submission', NULL)
         """,
         (first.exercise_id,),
     )
