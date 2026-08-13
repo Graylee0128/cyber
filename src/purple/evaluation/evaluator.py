@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
+from purple.evaluation.action_registry import ActionRegistryStore
 from purple.metrics.gaps import MissClass, classify_miss
 from purple.registry.source_registry import Registry, SourceState
 
@@ -96,6 +97,33 @@ class EvaluationService:
     source_registry: Registry
     evidence_by_action: dict[str, ActionEvidence] = field(default_factory=dict)
     alert_volume: int = 0
+
+    @classmethod
+    def for_frozen_registry(
+        cls,
+        registry: ActionRegistryStore,
+        exercise_id: str,
+        source_registry: Registry,
+        evidence_by_action: dict[str, ActionEvidence] | None = None,
+        alert_volume: int = 0,
+    ) -> "EvaluationService":
+        """建構評分服務時，動作清單只能來自**凍結的** Action Registry（#90）。
+
+        「分母只能由凍結清單推導，不得由現場事件反推」在 #21 只是約定 ——
+        呼叫端直接把 tuple 傳給 `actions` 欄位，繞過凍結檢查完全合法。這裡
+        把它變成機制：**唯一**建構清單的路徑是 `frozen_actions()`，未凍結
+        時它自己就會拋 `RegistryNotFrozen`（與 `denominator()` 共用同一道
+        檢查，兩者不會各自漂移——見 `action_registry.py` 的說明）。直接對
+        `EvaluationService(actions=...)` 建構子傳手填 tuple 仍然可行（測試
+        需要能注入假資料），但那不是這個工廠函式，呼叫端要主動繞過去。
+        """
+        frozen = registry.frozen_actions(exercise_id)
+        return cls(
+            actions=tuple((action.id, action.technique) for action in frozen),
+            source_registry=source_registry,
+            evidence_by_action=evidence_by_action or {},
+            alert_volume=alert_volume,
+        )
 
     def evaluate(self) -> list[ActionResult]:
         results: list[ActionResult] = []
