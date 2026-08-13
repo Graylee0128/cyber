@@ -120,8 +120,8 @@ def test_reset_deletes_exercise_scoped_state_and_allows_immediate_restart(
     pg_connection.execute(
         """
         INSERT INTO exercise_objective_completions
-            (exercise_id, player_id, objective_id, completed_at)
-        VALUES (%s, 'red-alice', 'capture_flag', now())
+            (exercise_id, player_id, objective_id, completed_at, evaluation, evidence_event_id)
+        VALUES (%s, 'red-alice', 'capture_flag', now(), 'submission', NULL)
         """,
         (first.exercise_id,),
     )
@@ -172,6 +172,21 @@ def test_exercise_schema_has_no_writable_score_column(pg_connection) -> None:
         WHERE table_schema = 'public'
           AND table_name LIKE 'exercise%'
           AND column_name = 'score'
+        """
+    ).fetchall()
+
+    assert columns == []
+
+
+def test_no_table_in_the_database_has_a_score_column(pg_connection) -> None:
+    """#33: score is derived at read time, never stored, anywhere — not
+    just on exercise-prefixed tables. A future table named something else
+    entirely must not quietly reintroduce a stored score."""
+    columns = pg_connection.execute(
+        """
+        SELECT table_name, column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND column_name = 'score'
         """
     ).fetchall()
 

@@ -13,7 +13,14 @@ CATALOG = ScenarioCatalog(
                 "name": "SQLi",
                 "difficulty": "intro",
                 "duration": "30m",
-                "objectives": [{"id": "o-1", "evaluation": "telemetry", "points": 100}],
+                "objectives": [
+                    {
+                        "id": "o-1",
+                        "evaluation": "telemetry",
+                        "points": 100,
+                        "telemetry_signal": {"action_id": "a-1"},
+                    }
+                ],
                 "targets": [{"host": "target", "surfaces": ["http"]}],
                 "expected_sources": ["alloy"],
                 "attack_chain": [

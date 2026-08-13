@@ -48,14 +48,39 @@ CREATE TABLE IF NOT EXISTS exercise_players (
 
 -- #33 owns the completion and scoring behavior.  #32 owns their lifecycle:
 -- every derived row is exercise-scoped and disappears with its exercise.
+--
+-- `evidence_event_id` has no FK to core_events: that table's PK is
+-- (event_id, lifecycle), and #32 deliberately keeps it outside this
+-- aggregate's cascade so reset cannot erase the audit trail. The CHECK
+-- below is the only enforcement that a telemetry completion carries
+-- evidence and a submission completion does not.
 CREATE TABLE IF NOT EXISTS exercise_objective_completions (
     exercise_id text        NOT NULL,
     player_id   text        NOT NULL,
     objective_id text       NOT NULL,
     completed_at timestamptz NOT NULL,
+    evaluation  text,
+    evidence_event_id text,
     PRIMARY KEY (exercise_id, player_id, objective_id),
     FOREIGN KEY (exercise_id, player_id)
         REFERENCES exercise_players(exercise_id, player_id) ON DELETE CASCADE
+);
+
+-- Existing-database upgrade path (#32 shipped this table without these
+-- columns): CREATE TABLE IF NOT EXISTS above is a no-op once the table
+-- already exists, so add the columns explicitly. Backfill before the
+-- NOT NULL so a dirty pre-existing table can't fail the migration.
+ALTER TABLE exercise_objective_completions ADD COLUMN IF NOT EXISTS evaluation text;
+ALTER TABLE exercise_objective_completions ADD COLUMN IF NOT EXISTS evidence_event_id text;
+UPDATE exercise_objective_completions SET evaluation = 'submission' WHERE evaluation IS NULL;
+ALTER TABLE exercise_objective_completions ALTER COLUMN evaluation SET NOT NULL;
+ALTER TABLE exercise_objective_completions DROP CONSTRAINT IF EXISTS exercise_objective_completions_evaluation_check;
+ALTER TABLE exercise_objective_completions ADD CONSTRAINT exercise_objective_completions_evaluation_check
+    CHECK (evaluation IN ('telemetry', 'submission'));
+ALTER TABLE exercise_objective_completions DROP CONSTRAINT IF EXISTS completion_evidence_matches_evaluation;
+ALTER TABLE exercise_objective_completions ADD CONSTRAINT completion_evidence_matches_evaluation CHECK (
+    (evaluation = 'telemetry'  AND evidence_event_id IS NOT NULL) OR
+    (evaluation = 'submission' AND evidence_event_id IS NULL)
 );
 
 CREATE TABLE IF NOT EXISTS exercise_hint_usages (
