@@ -24,15 +24,10 @@ def read_local() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def read_docker(container: str, timeout_s: int = PROBE_TIMEOUT_S) -> datetime:
-    """在容器內執行 `date` 取得它自己的時間。
-
-    用 `%s.%N`（epoch 秒＋奈秒）而非 ISO 格式：BusyBox 的 date 不支援
-    `-Ins`，而 epoch 格式在 BusyBox、coreutils、Alpine 上行為一致。
-    """
+def _docker_date(target: str, timeout_s: int) -> subprocess.CompletedProcess[str]:
     try:
-        completed = subprocess.run(
-            ["docker", "exec", container, "date", "+%s.%N"],
+        return subprocess.run(
+            ["docker", "exec", target, "date", "+%s.%N"],
             capture_output=True,
             text=True,
             timeout=timeout_s,
@@ -42,8 +37,34 @@ def read_docker(container: str, timeout_s: int = PROBE_TIMEOUT_S) -> datetime:
     except subprocess.TimeoutExpired as exc:
         raise ProbeError(f"docker exec timed out after {timeout_s}s") from exc
 
+
+def read_docker(container: str, timeout_s: int = PROBE_TIMEOUT_S) -> datetime:
+    """在容器內執行 `date` 取得它自己的時間。
+
+    用 `%s.%N`（epoch 秒＋奈秒）而非 ISO 格式：BusyBox 的 date 不支援
+    `-Ins`，而 epoch 格式在 BusyBox、coreutils、Alpine 上行為一致。
+    """
+    completed = _docker_date(container, timeout_s)
+
     if completed.returncode != 0:
-        raise ProbeError(f"docker exec failed: {completed.stderr.strip()}")
+        # Compose v2 prefixes runtime names with the project (for example
+        # ``cyber-alloy-1``). Resolve the stable service name rather than baking
+        # a checkout-dependent project prefix into clock-nodes-compose.yaml.
+        try:
+            resolved = subprocess.run(
+                ["docker", "compose", "ps", "-q", container],
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ProbeError(f"docker compose lookup timed out after {timeout_s}s") from exc
+        container_id = resolved.stdout.strip()
+        if resolved.returncode != 0 or not container_id:
+            raise ProbeError(f"docker exec failed: {completed.stderr.strip()}")
+        completed = _docker_date(container_id, timeout_s)
+        if completed.returncode != 0:
+            raise ProbeError(f"docker exec failed: {completed.stderr.strip()}")
 
     return parse_epoch(completed.stdout.strip(), container)
 

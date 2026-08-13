@@ -16,7 +16,22 @@
 | 巢狀虛擬化 | `kvm_intel/kvm_amd nested=1` | 大主機內開真 VM（Slice 2） |
 | OS | Ubuntu 22.04 / 24.04 | 下文套件名以此為準 |
 | kernel BTF | `/sys/kernel/btf/vmlinux` 存在 | Falco 走 modern eBPF，免 kernel module（Slice 2b / #9） |
-| 資源（建議） | ≥ 8 核 / ≥ 16G RAM / ≥ 100G 磁碟 | 四區 + 六 kali + 觀測棧 |
+| **kernel 版本** | **≤ 6.8** | **硬前提**，見下 |
+| 資源（建議） | ≥ 8 核 / ≥ 16G RAM / ≥ 100G 磁碟 | 六區 + 六 kali + 觀測棧（G3 的 50+ 規模另見 #78 承載 spike） |
+
+> **為什麼 kernel 必須 ≤ 6.8**（#65 決策 20）：Z-BLUE 走容器，而容器不能各自跑 Falco
+> （需 host kernel 存取＋privileged，且玩家有 shell 就碰得到）。所以遙測只能是
+> **host 層單一 Falco 觀察所有 seat 容器** —— 這也讓 Z-BLUE 從「約定式可信」升級為
+> 結構性可信：玩家在容器內結構上碰不到 collector。
+>
+> 但 2026-08-09 實測：kernel `7.0.0-28` 上 Falco 0.39.2／0.44.1 的 modern-eBPF 都因
+> CO-RE relocation 對不上而 `scap_init` 失敗（`struct mm_struct.rss_stat` 版面變了），
+> kmod 驅動同樣不支援。因此**部署環境的 kernel 版本是硬前提，不是建議**。
+>
+> 曾評估過的替代方案：把 seat 容器與 Falco 一起放進一台 kernel 6.8 的 VM，
+> 讓實體主機 kernel 不受限。**已否決** —— 多一層 VM 的 overhead 正好落在承載這個
+> 目前最不確定的地方（#78）。注意「給 Falco 一台獨立 VM」本身不成立：
+> Falco 看的是**它自己所在 kernel** 的 syscall，跨不過 kernel 邊界。
 
 ---
 
@@ -77,14 +92,14 @@ sudo systemctl is-active openvswitch-switch libvirtd   # 兩個都 active
 這一步不碰 VM，最快確認網路層對。
 
 ```bash
-sudo bash scripts/range/build-range.sh     # OVS 四區 VLAN + router + nftables + netns 節點
-sudo bash scripts/range/verify-range.sh    # 從各區驗契約 1/2/3 + 六台 source IP 可分辨
+sudo bash scripts/range/build-range.sh     # OVS 六區 VLAN + router + nftables + netns policy stubs
+sudo bash scripts/range/verify-range.sh    # 驗契約 1–5、APP managed paths、RED seat isolation
 sudo bash scripts/range/teardown-range.sh  # 拆掉（冪等，可重複）
 ```
 
 **預期**（`verify-range.sh` 末尾）：
 ```
-契約 1：TARGET → MGMT ... 拓樸契約通過（from-zone target）
+契約 1：telemetry 三埠 + 指定 receiver:8000；其他 MGMT:8000/:22 不通 ... 通過
 契約 2：MGMT → TARGET 反向不通 ... 拓樸契約通過（from-zone mgmt）
 契約 3：RED → MGMT deny all ... 拓樸契約通過（from-zone red）
 六台 red source IP：10.167.30.11 ~ .16（六個可分辨）
@@ -117,6 +132,9 @@ sudo bash scripts/range/build-vm-target.sh
 驗證機制（免 SSH）：VM 的 serial console 導到 `/tmp/range-target-console.log`，
 cloud-init 開機時跑契約 1 並把結果印到 console，host 讀該檔判定。看完整開機過程：
 `sudo cat /tmp/range-target-console.log`。
+
+VM probe 會同時驗 `MGMT_RECEIVER_IP:8000` 可達，以及一般 `MGMT_STUB_IP:8000`
+不可達；兩端都有 listener，失敗不能由「服務沒啟動」假裝成防火牆封鎖。
 
 覆寫點（環境變數）：`OSV`（os-variant，預設 `ubuntu24.04`）、`VM_MEM`、`VM_VCPUS`。
 例：`sudo OSV=ubuntu22.04 bash scripts/range/build-vm-target.sh`。

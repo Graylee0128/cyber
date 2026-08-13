@@ -13,6 +13,13 @@ import socket
 
 #: 三條跨世代 port（SA §12.2）。
 MGMT_PORTS = {3100: "Loki", 9090: "Prometheus", 4317: "OTLP"}
+#: response agent 唯一獲准的非 telemetry 連線；目的 IP 仍須精準匹配 receiver。
+MGMT_RESPONSE_PORT = 8000
+#: 契約 1 的 deny canary；range 在 Z-MGMT 刻意監聽它，確保失敗是 firewall 擋下。
+MGMT_DENIED_PORT = 22
+APP_HTTPS_PORT = 443
+MGMT_ENGINE_PORT = 8001
+EDGE_TTYD_PORT = 7681
 EXPECTED_KALI = 6
 
 
@@ -26,13 +33,28 @@ def reachable(host: str, port: int, timeout: float = 3.0) -> bool:
             return False
 
 
-def check_target_to_mgmt(mgmt: str) -> list[str]:
-    """契約1：TARGET→MGMT 的三個 port 必須通。"""
-    return [
+def check_target_to_mgmt(mgmt: str, receiver: str) -> list[str]:
+    """契約1：三個 telemetry port，加上指定 receiver:8000 最小權限例外。"""
+    fails = [
         f"契約1 破：TARGET→MGMT {name} :{port} 不通"
         for port, name in MGMT_PORTS.items()
         if not reachable(mgmt, port)
     ]
+    if not reachable(receiver, MGMT_RESPONSE_PORT):
+        fails.append(
+            f"契約1 破：TARGET→MGMT response receiver {receiver}:"
+            f"{MGMT_RESPONSE_PORT} 不通"
+        )
+    if reachable(mgmt, MGMT_RESPONSE_PORT, timeout=2.0):
+        fails.append(
+            f"契約1 破：TARGET→非 receiver MGMT {mgmt}:"
+            f"{MGMT_RESPONSE_PORT} 竟然通了"
+        )
+    if reachable(mgmt, MGMT_DENIED_PORT, timeout=2.0):
+        fails.append(
+            f"契約1 破：TARGET→MGMT 非 telemetry :{MGMT_DENIED_PORT} 竟然通了"
+        )
+    return fails
 
 
 def check_mgmt_to_target_blocked(target: str) -> list[str]:
@@ -45,10 +67,68 @@ def check_mgmt_to_target_blocked(target: str) -> list[str]:
 
 def check_red_to_mgmt_denied(mgmt: str) -> list[str]:
     """契約3：RED→MGMT deny all。"""
-    reachable_ports = [p for p in MGMT_PORTS if reachable(mgmt, p, timeout=2.0)]
+    probe_ports = (*MGMT_PORTS, MGMT_DENIED_PORT)
+    reachable_ports = [p for p in probe_ports if reachable(mgmt, p, timeout=2.0)]
     if reachable_ports:
         return [f"契約3 破：RED→MGMT 應 deny all，卻連得上 {reachable_ports}"]
     return []
+
+
+def _must_reach(label: str, host: str, port: int) -> list[str]:
+    return [] if reachable(host, port) else [f"{label} 應可達 {host}:{port}，實際被擋"]
+
+
+def _must_block(label: str, host: str, port: int) -> list[str]:
+    return [f"{label} 應阻擋 {host}:{port}，實際可達"] if reachable(host, port, timeout=2.0) else []
+
+
+def check_app_managed_paths(*, app: str, mgmt: str, engine: str, target: str, from_zone: str) -> list[str]:
+    """#20 Z-APP paths: only HTTPS and the exact managed engine endpoint."""
+    if from_zone in {"red", "target", "mgmt"}:
+        fails = _must_reach(f"{from_zone.upper()}→APP", app, APP_HTTPS_PORT)
+        fails += _must_block(f"{from_zone.upper()}→APP 非 HTTPS", app, MGMT_DENIED_PORT)
+        return fails
+    if from_zone == "app":
+        fails = _must_reach("APP→MGMT Evaluation/Evidence API", engine, MGMT_ENGINE_PORT)
+        fails += _must_block("APP→其他 MGMT 的受管 API", mgmt, MGMT_ENGINE_PORT)
+        fails += _must_block("APP→MGMT raw Loki query", mgmt, 3100)
+        fails += _must_block("APP→TARGET", target, 80)
+        return fails
+    raise ValueError(f"unsupported APP contract source: {from_zone}")
+
+
+def check_edge_paths(*, edge: str, app: str, red: str, blue: str, mgmt: str, target: str, from_zone: str) -> list[str]:
+    """Contract 5 and the narrow EDGE proxy allowlist."""
+    if from_zone == "internet":
+        return _must_reach("INTERNET→EDGE HTTPS", edge, APP_HTTPS_PORT) + _must_block(
+            "INTERNET→EDGE 非 HTTPS", edge, MGMT_DENIED_PORT
+        )
+    if from_zone == "edge":
+        fails = _must_reach("EDGE→APP HTTPS", app, APP_HTTPS_PORT)
+        fails += _must_block("EDGE→APP 非 HTTPS", app, MGMT_DENIED_PORT)
+        fails += _must_reach("EDGE→RED ttyd", red, EDGE_TTYD_PORT)
+        fails += _must_reach("EDGE→BLUE ttyd", blue, EDGE_TTYD_PORT)
+        fails += _must_block("契約5 EDGE→MGMT", mgmt, 3100)
+        fails += _must_block("EDGE→TARGET", target, 80)
+        return fails
+    if from_zone == "red":
+        return _must_block("RED→EDGE", edge, APP_HTTPS_PORT)
+    raise ValueError(f"unsupported EDGE contract source: {from_zone}")
+
+
+def check_red_seat_isolation(peer: str) -> list[str]:
+    """One RED seat must not impersonate another seat's source IP."""
+    return _must_block("RED seat→RED seat", peer, EDGE_TTYD_PORT)
+
+
+def check_blue_seat_isolation(peer: str) -> list[str]:
+    """One BLUE seat must not reach another player's defended segment.
+
+    同一條隔離規則，對象換成藍隊：#65 決策 25 把「每人一段」定為**計分歸屬的單位**，
+    所以碰得到別人那段，就等於碰得到別人的分數來源。理由與 Z-RED 那條同源
+    （WS8 spec §6.4：50+ 規模下座位之間互通會變成互相干擾對方的計分）。
+    """
+    return _must_block("BLUE seat→BLUE seat", peer, EDGE_TTYD_PORT)
 
 
 def check_source_ips_distinguishable(source_ips: list[str]) -> list[str]:

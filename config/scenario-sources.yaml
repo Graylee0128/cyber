@@ -1,0 +1,39 @@
+# Scenario 對遙測來源的期望清單（Issue #18、ADR 0001 ⑧）。
+#
+# 這是 expected 的單一定義處；不得從執行中的 container／systemd unit 反推。
+# heartbeat 只描述如何從既有 Loki telemetry 讀取「最後活著的時間」，不改變 expected。
+
+sources:
+  - id: falco
+    heartbeat:
+      provider: loki
+      # Falco 有事件或原生 30s metrics snapshot 時都會更新這個 stream。
+      query: '{job="falco"}'
+
+  - id: alloy
+    heartbeat:
+      provider: loki
+      # target app 每 30s 寫 canary；只有 Alloy 還能轉送時 Loki 才看得到。
+      query: '{app="range-target"} |= "alloy.heartbeat"'
+
+  - id: response-agent
+    heartbeat:
+      provider: loki
+      # agent 每次成功 pull 後寫一筆；Alloy 以獨立 stream 轉送。
+      query: '{job="response-agent"}'
+
+scenarios:
+  - id: sqli-01
+    expected_sources: [alloy, response-agent]
+
+  - id: bruteforce-01
+    expected_sources: [alloy, response-agent]
+
+  - id: falco-exec-01
+    expected_sources: [falco, alloy, response-agent]
+
+  - id: falco-secret-03
+    expected_sources: [falco, alloy, response-agent]
+
+  - id: falco-uncovered-01
+    expected_sources: [falco, alloy, response-agent]

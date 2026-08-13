@@ -154,13 +154,13 @@ last_heartbeat  ← 各來源每 30s 上報，90s 未報轉 stale
 - [x] 六台 kali 的來源 IP 在事件中可分辨到個別攻擊者（macvlan 獨立 IP，非 SNAT）
       —— T3 實測 `10.167.30.11`～`.16` 六個可分辨。實作用 OVS veth + VLAN tag 而非
       macvlan，目標（不被 SNAT 塌縮）達成，機制不同，見 [#13](https://github.com/Graylee0128/cyber/issues/13) 結案留言
-- [ ] Alloy／Falco／response agent 全部部署在 Z-TARGET 側
-      —— Alloy 與 Falco 已烤進 golden 靶機並實測；**response agent 尚未部署**
-      （`bake.sh` 對 `response|agent` 的 grep 為 0），由 [#44](https://github.com/Graylee0128/cyber/issues/44) 承接（原 #17 已吸收）
-- [x] `TARGET → MGMT` 三個 port 通，且反向不通（契約 2 的實測）
+- [x] Alloy／Falco／response agent 全部部署在 Z-TARGET 側
+      —— 三者均已烤進 golden 靶機；response agent 以 outbound pull 連指定
+      `MGMT_RECEIVER_IP:8000`，不開 target inbound socket
+- [x] `TARGET → MGMT` telemetry 三個 port 通，且反向不通（契約 2 的實測）
       —— T3：`:3100` 現場實證（打靶機 → Loki 60s 內收到新行）；`:9090`／`:4317` 由本顆 VM
-      開機自驗且 boot nonce 相符。**注意**：目前只驗「這三個通」，未強制「只有這三個通」，
-      見 [#19](https://github.com/Graylee0128/cyber/issues/19)
+      開機自驗且 boot nonce 相符。nftables 強制 telemetry 三埠 allowlist；response control
+      只精準放行 `MGMT_RECEIVER_IP:8000`，其他 MGMT 主機的 `:8000` 與 `:22` 有反向斷言
 - [x] `RED → MGMT` 實測 deny（契約 3 的實測）
 - [ ] 每個來源的四項欄位驗證通過（§2.3：來源 IP · 目的 · 時間 · 動作結果）
       —— **無專屬驗證**。管線測試證明事件走得完，但沒有一條測試逐來源斷言那四項可查詢與聚合，
@@ -181,8 +181,8 @@ last_heartbeat  ← 各來源每 30s 上報，90s 未報轉 stale
       現況：`evaluate_registry` 是純函式，全 repo 只有它自己與測試建構 `Registry`，
       兩份輸入都沒有生產路徑，見 [#18](https://github.com/Graylee0128/cyber/issues/18)
 
-**現況：9 項中 4 項有實測證據，5 項未完成。** 未完成的都有票在追：
-[#44](https://github.com/Graylee0128/cyber/issues/44)（第 2、7 項；原 #17 已吸收）、
+**現況：9 項中 5 項有實測證據，4 項未完成。** 未完成的都有票在追：
+[#44](https://github.com/Graylee0128/cyber/issues/44)（第 7 項；原 #17 已吸收）、
 [#18](https://github.com/Graylee0128/cyber/issues/18)（第 9 項）、
 [#29](https://github.com/Graylee0128/cyber/issues/29)（第 5、6 項；原 #30 已吸收）。
 
