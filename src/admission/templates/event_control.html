@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>會議中控 Event Control Console</title>
+<style>
+  :root {
+    --bg:#0d0e14; --panel:#161826; --panel2:#0f1120; --border:#2a2d42;
+    --text:#eef0f7; --muted:#8489a5;
+    --purple:#b794f6; --amber:#ffc94d; --red:#ff5c6c; --green:#37e08a; --blue:#4da6ff;
+    --free-bg:#232a3a;    --free-fg:#8489a5;
+    --req-bg:#3a3016;     --req-fg:#ffc94d;
+    --ready-bg:#16303a;   --ready-fg:#4dd0e1;
+    --claimed-bg:#143a26; --claimed-fg:#37e08a;
+    --rel-bg:#2a1a2e;     --rel-fg:#b794f6;
+    --failed-bg:#3a1620;  --failed-fg:#ff5c6c;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Segoe UI","Noto Sans TC",sans-serif;
+         background:var(--bg); color:var(--text); padding:24px;
+         display:flex; justify-content:center; }
+  a { color:var(--purple); }
+  .wrap { max-width:1240px; width:100%; margin:0 auto; }
+  .boundary { background:#1a1530; color:#d9cbff; border:1px solid #3a2f66; border-radius:6px;
+              padding:10px 14px; font-size:13px; margin-bottom:20px; line-height:1.6; }
+  h1 { font-size:20px; margin:0 0 4px; text-align:center; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:18px; text-align:center; }
+
+  .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:var(--panel);
+             border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin-bottom:16px; }
+  .spacer { flex:1; }
+  select, input { background:var(--panel2); color:var(--text); border:1px solid var(--border);
+                  border-radius:6px; padding:8px 12px; font-size:13px; font-family:inherit; }
+  .btn { border:1px solid var(--border); background:var(--panel2); color:var(--text);
+         padding:8px 14px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;
+         font-family:inherit; }
+  .btn:hover { border-color:var(--purple); }
+  .btn:disabled { opacity:.4; cursor:not-allowed; }
+  .btn.warn { border-color:#6b551f; color:var(--amber); }
+  .btn.danger { border-color:#6b2430; color:var(--red); }
+  .btn.tiny { padding:4px 9px; font-size:12px; font-weight:500; }
+
+  .counts { display:flex; gap:18px; align-items:center; }
+  .count { text-align:center; }
+  .count .n { font-size:20px; font-weight:700; line-height:1.1; }
+  .count .l { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+
+  /* 現場進場碼：獨立橫幅，佔滿整欄，進場碼在上、說明在下 */
+  .code-banner { background:var(--panel); border:1px solid var(--border); border-radius:10px;
+                 padding:18px; margin-bottom:16px; }
+  .code-banner .panel-title { text-align:center; margin-bottom:10px; }
+  .code-banner .code-box { background:var(--panel2); border:1px solid var(--border); border-radius:8px;
+              padding:20px; text-align:center; margin:0 0 12px; }
+  .code-banner .panel-sub { text-align:center; margin-bottom:0; }
+
+  .grid { display:grid; grid-template-columns:1.55fr 1fr; gap:16px; align-items:start; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:10px;
+           padding:18px; margin-bottom:16px; }
+  .panel-title { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em;
+                 margin-bottom:4px; font-weight:700; }
+  .panel-sub { font-size:12px; color:var(--muted); margin-bottom:14px; line-height:1.6; }
+
+  .tabs { display:flex; gap:6px; margin-bottom:12px; }
+  .tab { border:1px solid var(--border); background:var(--panel2); color:var(--muted);
+         padding:6px 14px; border-radius:6px; font-size:13px; cursor:pointer; font-family:inherit;
+         text-decoration:none; display:inline-block; }
+  .tab.on { color:var(--text); border-color:var(--purple); }
+
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  th { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.05em; font-weight:600; }
+  td.mono, .mono { font-family:ui-monospace,"Cascadia Mono",Consolas,monospace; font-size:12px; }
+  td .dash { color:var(--muted); }
+
+  .badge { display:inline-block; padding:3px 9px; border-radius:999px; font-size:12px; font-weight:500; white-space:nowrap; }
+  .badge.free      { background:var(--free-bg);    color:var(--free-fg); }
+  .badge.requested { background:var(--req-bg);     color:var(--req-fg); }
+  .badge.ready     { background:var(--ready-bg);   color:var(--ready-fg); }
+  .badge.claimed   { background:var(--claimed-bg); color:var(--claimed-fg); }
+  .badge.released  { background:var(--rel-bg);     color:var(--rel-fg); }
+  .badge.failed    { background:var(--failed-bg);  color:var(--failed-fg); }
+
+  .code { font-family:ui-monospace,Consolas,monospace; font-size:30px; font-weight:700;
+          letter-spacing:.14em; color:var(--green); }
+  .bar { height:4px; background:#232a3a; border-radius:2px; margin-top:12px; overflow:hidden; }
+  .bar > i { display:block; height:100%; background:var(--green); transition:width .95s linear; }
+  .code-meta { font-size:12px; color:var(--muted); margin-top:8px; }
+
+  .log { font-family:ui-monospace,Consolas,monospace; font-size:12px; line-height:1.9;
+         max-height:230px; overflow-y:auto; }
+  .log .t { color:var(--muted); }
+  .log .ok { color:var(--green); }
+  .log .no { color:var(--red); }
+  .log .mint { color:var(--purple); }
+
+  .note { font-size:12px; color:#c9b8ff; background:#1a1530; border:1px solid #3a2f66;
+          border-radius:6px; padding:10px 12px; margin-top:14px; line-height:1.7; }
+  .note b { color:#e0d4ff; }
+  .zone { display:flex; gap:8px; flex-wrap:wrap; font-size:12px; }
+  .zone span { border:1px solid var(--border); border-radius:6px; padding:5px 10px;
+               background:var(--panel2); font-family:ui-monospace,Consolas,monospace; }
+  .zone span.deny { border-color:#6b2430; color:var(--red); }
+  .zone span.allow { border-color:#1f6b47; color:var(--green); }
+
+  .field { flex:1; }
+  .field label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  .field input { width:100%; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="boundary">
+  <b>這頁刻意沒有的東西：分數、objective、告警、偵測。</b>
+  中控只擁有<b>身分／座位／會話</b>三件事（spec §1）——
+  exercise state 與 score 屬 WS5、telemetry 屬 WS4。
+  中控在領號那一刻把 <span class="mono">player_id</span> 交給 Range Core 就退出，
+  <b>不得成為第二個遊戲狀態的真相來源</b>。
+  藍隊不顯示個人分數／排名（spec §6.5.1）。
+</div>
+
+<h1>會議中控 Event Control Console</h1>
+<div class="sub">來賓入場 → 領號 → 拿到專屬環境。這是「人 ↔ 機器 ↔ 分數」這條綁定的唯一產生點。</div>
+
+<div class="toolbar">
+  <select>
+    <option>Exercise: {{ exercise_id }}</option>
+  </select>
+  <span class="badge claimed">{{ exercise_status }}</span>
+  <div class="spacer"></div>
+  <div class="counts">
+    <div class="count"><div class="n">{{ counts.total }}</div><div class="l">席次</div></div>
+    <div class="count"><div class="n" style="color:var(--claimed-fg)">{{ counts.claimed }}</div><div class="l">已認領</div></div>
+    <div class="count"><div class="n" style="color:var(--ready-fg)">{{ counts.ready }}</div><div class="l">ready</div></div>
+    <div class="count"><div class="n" style="color:var(--req-fg)">{{ counts.requested }}</div><div class="l">建置中</div></div>
+    <div class="count"><div class="n" style="color:var(--free-fg)">{{ counts.free }}</div><div class="l">free</div></div>
+  </div>
+</div>
+
+<!-- 現場進場碼：獨立一欄，放在 Exercise 工具列下方，進場碼在上、說明在下 -->
+<div class="code-banner">
+  <div class="panel-title">現場進場碼</div>
+  <div class="code-box">
+    <div class="code" id="code">{{ site_code }}</div>
+    <div class="bar"><i id="bar" style="width:100%"></i></div>
+    <div class="code-meta"><span id="left">60</span>s 後更新</div>
+  </div>
+  <div class="panel-sub">
+    HMAC 時間窗，60s 更新。<b>全場共用</b>——結構上不可能識別人。
+    驗證的輸出<b>只有一個 boolean</b>（可否入場），不含身分（spec §2.1）。
+  </div>
+</div>
+
+<div class="grid">
+  <!-- ── 左欄 ───────────────────────────────────────── -->
+  <div>
+
+    <!-- 池上限設定（新增區塊，demo 未畫，spec 決策17／§4.3） -->
+    <div class="panel">
+      <div class="panel-title">池上限設定</div>
+      <div class="panel-sub">
+        instructor 開場前設定。<b>紅池上限</b> = 最多可動態長到幾個座位；
+        <b>藍池上限</b> = 實到人數（點名後才能定，開場即鎖，決策25）。
+      </div>
+      <form method="post" action="/admission/{{ exercise_id }}/pool-config">
+        <div style="display:flex;gap:10px;margin-bottom:10px">
+          <div class="field">
+            <label>Red 上限</label>
+            <input type="number" name="red_cap" value="{{ pool_config.red_cap }}"
+                   {{ 'disabled' if pool_config.locked_at }}>
+          </div>
+          <div class="field">
+            <label>Blue 上限</label>
+            <input type="number" name="blue_cap" value="{{ pool_config.blue_cap }}"
+                   {{ 'disabled' if pool_config.locked_at }}>
+          </div>
+        </div>
+        <button class="btn" type="submit" {{ 'disabled' if pool_config.locked_at }}>儲存上限</button>
+        {% if not pool_config.locked_at %}
+        <button class="btn danger" formaction="/admission/{{ exercise_id }}/pool-config/lock" style="margin-top:8px;width:100%">
+          鎖池（Exercise Start）
+        </button>
+        {% endif %}
+      </form>
+      {% if pool_config.locked_at %}
+      <div class="note">
+        <b>已鎖池</b>（{{ pool_config.locked_at }}）：藍池不再開放自助領號；
+        紅池仍可持續動態領號，僅受上限限制（決策25）。
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">座位池 Seat Pool</div>
+      <div class="panel-sub">
+        紅藍分開計池、<b>不共用機器、無候補</b>（spec §3.2）——
+        <span class="mono">player_id</span> 在配位那一刻鑄造，不在驗證時。
+      </div>
+      <div class="tabs">
+        <a href="?team=red" class="tab {{ 'on' if team == 'red' else '' }}">🔴 Red（Z-RED · VLAN 30）</a>
+        <a href="?team=blue" class="tab {{ 'on' if team == 'blue' else '' }}">🔵 Blue（Z-BLUE · VLAN 60）</a>
+      </div>
+      <table>
+        <thead><tr>
+          <th>seat_id</th><th>kind</th><th>state</th><th>player_id</th>
+          <th>endpoint</th><th>claimed_at</th><th></th>
+        </tr></thead>
+        <tbody>
+          {% for s in seats %}
+          <tr>
+            <td class="mono">{{ s.seat_id }}</td>
+            <td class="mono">{{ s.kind }}</td>
+            <td><span class="badge {{ s.state }}">{{ s.state }}</span></td>
+            <td class="mono">{{ s.player_id or '—' }}</td>
+            <td class="mono">{{ s.endpoints or '— 待 provisioner 回寫' }}</td>
+            <td class="mono">{{ s.claimed_at or '—' }}</td>
+            <td>
+              {% if s.state == 'claimed' %}
+              <form method="post" action="/admission/seats/{{ s.seat_id }}/rebind" style="display:inline">
+                <button class="btn tiny warn" type="submit">改綁</button>
+              </form>
+              <form method="post" action="/admission/seats/{{ s.seat_id }}/release" style="display:inline">
+                <button class="btn tiny danger" type="submit">釋放</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if team == 'blue' %}
+      <div class="note">
+        藍隊每人<b>一段兩台</b>：對外主機 <span class="mono">a</span>（DMZ）＋ 內部主機
+        <span class="mono">b</span>（flag），紅隊只到 a，內部主機要橫向移動才碰得到。
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Provisioner Queue（pull 模式）</div>
+      <div class="panel-sub">
+        中控<b>不建容器</b>：只寫 <span class="mono">seat(state=requested)</span>，
+        由 host 側 agent 輪詢後回寫 <span class="mono">endpoint, state=ready</span>（spec §4.1）。
+        <span class="mono">failed</span> 狀態要能看到「已自動重試一次」或「已釋放並告警」。
+      </div>
+      <table>
+        <thead><tr><th>seat_id</th><th>requested 至今</th><th>階段</th></tr></thead>
+        <tbody>
+          {% for q in queue %}
+          <tr><td class="mono">{{ q.seat_id }}</td>
+              <td class="mono">{{ q.waiting_seconds }}s</td>
+              <td style="color:var(--muted)">{{ q.stage }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="note">
+        <b>建容器不是中控的責任</b>（#62，WS6）。中控只顯示狀態，不驅動 provisioner。
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">網路位置</div>
+      <div class="panel-sub">中控住哪、碰得到誰。Z-EDGE 是<b>一個區</b>（VLAN 50），不是防火牆前的一台機器（spec §5.1）。</div>
+      <div class="zone">
+        <span class="allow">EDGE → APP :443 ✓ auth_request</span>
+        <span class="allow">EDGE → RED :7681 ✓ ttyd</span>
+        <span class="allow">EDGE → BLUE :7681 ✓ ttyd</span>
+        <span class="deny">EDGE → MGMT ✗ 契約 5</span>
+        <span class="deny">EDGE → TARGET ✗</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 右欄 ───────────────────────────────────────── -->
+  <div>
+    <div class="panel">
+      <div class="panel-title">遠端一次性連結</div>
+      <div class="panel-sub">每人一份，可識別人，換裝置也回得去。</div>
+      <table>
+        <thead><tr><th>連結</th><th>狀態</th></tr></thead>
+        <tbody>
+          {% for l in links %}
+          <tr>
+            <td class="mono">{{ l.link }}</td>
+            <td>
+              {% if l.status == 'used' %}
+              <span class="badge claimed">已使用 → {{ l.seat_id }}</span>
+              {% elif l.status == 'expired' %}
+              <span class="badge released">已過期</span>
+              {% else %}
+              <span class="badge free">未使用</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <form method="post" action="/admission/{{ exercise_id }}/links/batch">
+        <button class="btn" type="submit" style="width:100%;margin-top:12px">＋ 產生 10 份連結</button>
+      </form>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">釋放／改綁座位</div>
+      <div class="panel-sub">
+        現場玩家清 cookie 或換筆電就<b>回不去自己的座位</b>（spec §2.2）。
+      </div>
+      <form method="post" id="seat-op-form" style="display:flex;gap:8px;margin-bottom:10px">
+        <select name="seat_id" style="flex:1">
+          {% for s in claimed_seats %}
+          <option value="{{ s.seat_id }}">{{ s.seat_id }}（claimed · {{ s.player_id }}）</option>
+          {% endfor %}
+        </select>
+        <button class="btn warn" formaction="/admission/seats/rebind" type="submit">改綁到本 session</button>
+      </form>
+      <button class="btn danger" form="seat-op-form" formaction="/admission/seats/release" type="submit" style="width:100%">
+        釋放座位（連帶作廢 session）
+      </button>
+      <div class="note">
+        三段失效互不連動：session 過期<b>不</b>釋放座位；座位釋放<b>一定</b>使 session 失效（spec §7.1，兩者都寫稽核）。
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Admission Log</div>
+      <div class="panel-sub">住 Z-APP，不住 Z-EDGE。</div>
+      <div class="log">
+        {% for line in log_lines %}
+        <div><span class="t">{{ line.time }}</span> <span class="{{ line.css_class }}">{{ line.message }}</span></div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+// 純前端倒數動畫，不跟後端同步。真正的 HMAC 驗證邏輯屬於代辦事項②，尚未串接。
+let left = 60;
+
+function rollCode() {
+  const cs = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const pick = (n) => Array.from({length:n}, () => cs[Math.floor(Math.random()*cs.length)]).join('');
+  document.getElementById('code').textContent = pick(3) + '-' + pick(3);
+}
+
+setInterval(() => {
+  left--;
+  if (left <= 0) {
+    left = 60;
+    rollCode();
+  }
+  document.getElementById('left').textContent = left;
+  document.getElementById('bar').style.width = (left / 60 * 100) + '%';
+}, 1000);
+</script>
+</body>
+</html>
