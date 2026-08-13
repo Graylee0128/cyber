@@ -7,13 +7,22 @@ streaming response support for that later ticket.
 
 Issue #32 adds the start/current/reset exercise lifecycle endpoints. Scoring,
 actions, events, and SSE remain outside this module until their tickets.
+
+Issue #52 B2 makes the caller identity come from a deployment-injected service
+token (``Authorization: Bearer <token>``) instead of anything the caller can
+fill in.  The exchange itself lives in ``disclosure.identity`` and is shared
+with the Evidence API: one rule, two exits.  ``range_core`` still does not
+import ``purple`` -- both sides import the shared contract package.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import logging
+import os
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 
+from disclosure import extract_token, load_service_tokens, resolve_identity
 from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -31,7 +40,14 @@ from range_core.scenarios import Scenario, ScenarioCatalog
 from range_core.scoring import derive_scores
 from range_core.telemetry import sync_telemetry_objectives
 
+log = logging.getLogger("range_core.api")
+
 DEFAULT_SCENARIO_DIRECTORY = Path(__file__).resolve().parents[2] / "scenarios"
+
+#: This service's own token namespace.  The exchange logic is shared with the
+#: Evidence API, the tokens are not: an Evidence token must not buy a Range Core
+#: identity, so a leak on one exit stays on that exit.
+TOKEN_ENV_PREFIX = "RANGE_CORE_TOKEN_"
 
 
 class StartExerciseRequest(BaseModel):
@@ -81,6 +97,7 @@ def create_app(
     exercise_store: ExerciseStore | None = None,
     conn=None,
     flag_source: FlagSource | None = None,
+    token_map: Mapping[str, str] | None = None,
 ) -> FastAPI:
     """Create the WS5 application with an injected or on-disk catalog.
 
@@ -88,13 +105,57 @@ def create_app(
     to build `exercise_store` so both see the same transaction. Production
     (`conn=None`) opens and closes its own connection per request, same as
     the pre-#33 lifecycle endpoints.
+
+    ``token_map`` maps service token -> identity.  Left unset it is loaded from
+    ``RANGE_CORE_TOKEN_<IDENTITY>`` environment variables; an empty map means no
+    caller can be identified and every request is rejected (fail closed).
+    #52 B2's service identity is a coarser gate than #33's per-player source-IP
+    attribution: a token proves the caller is a legitimate range participant
+    (e.g. ``red``/``instructor``); source IP then resolves *which* player
+    within that team, via ``_player_or_403`` below. Both checks run, in that
+    order, on every gameplay endpoint.
     """
 
     loaded_catalog = catalog or ScenarioCatalog.from_directory(
         DEFAULT_SCENARIO_DIRECTORY
     )
     resolved_flag_source: FlagSource = flag_source or SharedFileFlagSource()
-    application = FastAPI(title="Cyber Range Core")
+    tokens = dict(
+        load_service_tokens(TOKEN_ENV_PREFIX, os.environ)
+        if token_map is None
+        else token_map
+    )
+    if not tokens:
+        log.warning(
+            "no %s* configured; this service will reject every request",
+            TOKEN_ENV_PREFIX,
+        )
+
+    def require_identity(request: Request) -> str:
+        """Resolve the caller from its bearer token, or refuse to serve it.
+
+        The identity is never read from a caller-supplied field, so claiming to
+        be ``purple`` or ``instructor`` buys nothing.  Declared as an app-wide
+        dependency rather than per route: a new endpoint is protected by
+        default, and forgetting to opt in cannot silently reopen the hole.
+        The token itself is never echoed back nor logged.
+        """
+        token = extract_token(request.headers)
+        if not token:
+            raise HTTPException(
+                status_code=400, detail="missing Authorization bearer token"
+            )
+        identity = resolve_identity(token, tokens)
+        if identity is None:
+            raise HTTPException(
+                status_code=403, detail="unknown or invalid service token"
+            )
+        return identity
+
+    application = FastAPI(
+        title="Cyber Range Core",
+        dependencies=[Depends(require_identity)],
+    )
 
     def provide_conn() -> Iterator:
         if conn is not None:

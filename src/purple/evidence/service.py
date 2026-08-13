@@ -3,9 +3,13 @@
 把 #7 的 resolver 包成 `GET /evidence/{event_id}`。stdlib http.server，與 P1
 receiver 同慣例：判定/序列化是純函數，HTTP 只是薄殼。
 
-呼叫者身分由 `X-Purple-Identity` header 帶入。**clearance 由 identity 決定，
-呼叫者無法自報等級**（resolver 的 clearance 表說了算，ADR ②）。真正的部署會在
-zone 邊界以 auth/mTLS 建立 identity；v0 先信任 header。
+呼叫者身分由**部署時注入的服務 token**換出（`Authorization: Bearer <token>`，
+WS7 spec §2）。**clearance 由 token 對應的 identity 決定，呼叫者無法自報**——
+沒有任何欄位讓呼叫端直接填身分字串（resolver 的 clearance 表說了算，ADR ②）。
+token 走環境變數注入（`PURPLE_EVIDENCE_TOKEN_<IDENTITY>`），與 `deploy/` 既有
+設定注入方式一致，不引入新的機密管理機制（WS7 spec §2.4）。換出邏輯本身住
+`disclosure.identity`，與 Range Core 那個出口共用一份 —— 本檔只擁有自己的
+token 命名空間（prefix），不擁有規則。
 """
 
 from __future__ import annotations
@@ -13,9 +17,18 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import unquote, urlparse
+
+from disclosure import (
+    BEARER_PREFIX,
+    TOKEN_HEADER,
+    extract_token,
+    resolve_identity,
+)
+from disclosure import load_service_tokens as _load_service_tokens
 
 from purple.evidence.backends import BackendUnavailable, LokiBackend
 from purple.evidence.resolver import (
@@ -30,7 +43,19 @@ from purple.evidence.resolver import (
 log = logging.getLogger("purple.evidence.service")
 
 PORT = int(os.environ.get("PURPLE_ENGINE_PORT", "8001"))
-IDENTITY_HEADER = "X-Purple-Identity"
+
+#: 本服務的 token 環境變數 prefix。換出邏輯共用 `disclosure.identity`，
+#: 但 token 命名空間是本服務自己的 —— Evidence 的 token 換不出 Range Core 的身分。
+TOKEN_ENV_PREFIX = "PURPLE_EVIDENCE_TOKEN_"
+
+
+def load_service_tokens(env: Mapping[str, str] | None = None) -> dict[str, str]:
+    """由 `PURPLE_EVIDENCE_TOKEN_<IDENTITY 大寫>` 建出 token → identity 對照表。
+
+    哪個身分沒設對應變數，那個身分就沒有合法 token —— fail closed，不是
+    「沒設定就預設放行」。規則本體在 `disclosure.identity`（兩個出口共用一份）。
+    """
+    return _load_service_tokens(TOKEN_ENV_PREFIX, env)
 
 
 def render_bundle(bundle: EvidenceBundle) -> dict[str, Any]:
@@ -57,17 +82,29 @@ def render_bundle(bundle: EvidenceBundle) -> dict[str, Any]:
     }
 
 
-def handle_evidence(event_id: str, identity: str | None, resolver: Any) -> tuple[int, dict[str, Any]]:
+def handle_evidence(
+    event_id: str,
+    token: str | None,
+    resolver: Any,
+    token_map: Mapping[str, str],
+) -> tuple[int, dict[str, Any]]:
     """解析一次 evidence 請求，回傳 (HTTP status, body)（判定邏輯，可獨立測）。
 
     狀態對應是刻意明確的：
-    - 沒帶身分            → 400（不預設成某個身分，更不預設成看得到全部）
-    - 身分不認得          → 403（fail loud）
-    - 查無此 event_id     → 404
-    - 後端未就緒（無 Loki）→ 503（明確告知，不回空上下文假裝成功）
+    - 沒帶 token           → 400（不預設成某個身分，更不預設成看得到全部）
+    - token 查無對應身分   → 403（fail loud；呼叫端無法用任何欄位頂替身分）
+    - 查無此 event_id      → 404
+    - 後端未就緒（無 Loki） → 503（明確告知，不回空上下文假裝成功）
+
+    identity 的唯一來源是 `token_map[token]` —— 沒有參數讓呼叫端直接填身分，
+    錯誤訊息與 log 也都不回顯 token 本身（token 不進 log）。
     """
-    if not identity:
-        return 400, {"error": f"missing {IDENTITY_HEADER} header"}
+    if not token:
+        return 400, {"error": f"missing {TOKEN_HEADER} bearer token"}
+
+    identity = resolve_identity(token, token_map)
+    if identity is None:
+        return 403, {"error": "unknown or invalid service token"}
 
     try:
         bundle = resolver.resolve(event_id, caller=Caller(identity))
@@ -90,6 +127,7 @@ def handle_evidence(event_id: str, identity: str | None, resolver: Any) -> tuple
 
 class EvidenceHandler(BaseHTTPRequestHandler):
     resolver: Any = None  # 由 main() 注入
+    token_map: Mapping[str, str] = {}  # 由 main() 注入：token → identity
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
@@ -107,8 +145,8 @@ class EvidenceHandler(BaseHTTPRequestHandler):
             self._respond(400, {"error": "missing event_id"})
             return
 
-        identity = self.headers.get(IDENTITY_HEADER)
-        status, body = handle_evidence(event_id, identity, self.resolver)
+        token = extract_token(self.headers)
+        status, body = handle_evidence(event_id, token, self.resolver, self.token_map)
         self._respond(status, body)
 
     def _respond(self, code: int, body: dict) -> None:
@@ -139,6 +177,9 @@ def main() -> None:
         backend=backend,
     )
     EvidenceHandler.resolver = resolver
+    EvidenceHandler.token_map = load_service_tokens()
+    if not EvidenceHandler.token_map:
+        log.warning("沒有任何 PURPLE_EVIDENCE_TOKEN_* 設定；此服務會拒絕所有請求")
 
     log.info("evaluation-engine（Evidence API）就緒，listening on :%d", PORT)
     ThreadingHTTPServer(("0.0.0.0", PORT), EvidenceHandler).serve_forever()

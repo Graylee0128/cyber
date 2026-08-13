@@ -34,6 +34,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 APP_URL = os.environ.get("PURPLE_APP_URL", "http://localhost:8080")
 ENGINE_URL = os.environ.get("PURPLE_ENGINE_URL", "http://localhost:8001")
 LOKI_URL = os.environ.get("PURPLE_LOKI_URL", "http://localhost:3100")
+# #52 B2：需與 docker-compose.yml 的 evaluation-engine 服務值一致。
+EVIDENCE_TOKEN_BLUE = os.environ.get("PURPLE_EVIDENCE_TOKEN_BLUE", "dev-blue-token")
 E2E_TIMEOUT_S = 90.0
 
 
@@ -116,7 +118,8 @@ def test_p1_to_p2_handoff_within_zmgmt(events):
 
     _step(f"P2：以 blue 身分呼叫 GET /evidence/{event_id}")
     req = urllib.request.Request(
-        f"{ENGINE_URL}/evidence/{event_id}", headers={"X-Purple-Identity": "blue"}
+        f"{ENGINE_URL}/evidence/{event_id}",
+        headers={"Authorization": f"Bearer {EVIDENCE_TOKEN_BLUE}"},
     )
     with urllib.request.urlopen(req, timeout=10) as resp:
         assert resp.status == 200, f"Evidence API 回 {resp.status}"

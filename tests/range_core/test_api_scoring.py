@@ -14,6 +14,13 @@ BOB = ("10.167.30.12", 12345)
 OUTSIDER = ("10.167.30.13", 12345)
 FLAG = "flag{" + "a" * 32 + "}"
 
+# #52 B2: every range_core endpoint now also requires a service token proving
+# the caller is a legitimate range participant, on top of #33's per-player
+# source-IP roster attribution. One shared team token is enough here — which
+# *player* within the team is still resolved by source IP.
+TOKEN_MAP = {"red-secret": "red"}
+AUTH = {"Authorization": "Bearer red-secret"}
+
 
 def scenario() -> Scenario:
     return Scenario.model_validate(
@@ -50,6 +57,7 @@ def make_app(exercise_store, pg_connection, flag_source=None):
         exercise_store=exercise_store,
         conn=pg_connection,
         flag_source=flag_source or FixtureFlagSource(FLAG),
+        token_map=TOKEN_MAP,
     )
 
 
@@ -57,8 +65,10 @@ def as_actor(app, source: tuple[str, int]) -> TestClient:
     """`starlette.testclient` fixes `request.client` at construction, not
     per-request (matches production: one TCP connection = one peer
     address). Different actors against the same running exercise are
-    different `TestClient`s wrapping the same `app`/connection."""
-    return TestClient(app, client=source)
+    different `TestClient`s wrapping the same `app`/connection. The shared
+    `AUTH` header proves team membership (#52 B2); `source` still resolves
+    which player within the team, via the roster."""
+    return TestClient(app, client=source, headers=AUTH)
 
 
 def start(app) -> dict:
