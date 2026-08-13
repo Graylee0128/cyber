@@ -189,9 +189,16 @@ def derive_blue_scores(
     truth: TechniqueTruth,
     evidence: ExecutionEvidence,
 ) -> BlueScoreboard:
-    """整場的藍隊分數。歸屬是 **event 級**，粗粒度統計由這裡聚合（WS5 spec §1.2）。"""
+    """整場的藍隊分數。歸屬是 **event 級**，粗粒度統計由這裡聚合（WS5 spec §1.2）。
+
+    只列 `log` 裡藍隊**有動作**的事件，不是 `observed_at_by_event` 的每一筆
+    ——一場演練會有遠多於藍隊實際處理量的 Core Event（紅隊自己觸發、
+    detection.miss 等），把每一筆都攤成一列零分紀錄只是噪音，還會讓這份
+    分數隨著「跟藍隊完全無關的事件量」變動，那不是藍隊的表現。
+    `observed_at_by_event` 純粹是查表用的，不是迭代的驅動來源。
+    """
     events = tuple(
-        score_event(event_id, observed_at, log, config, truth, evidence)
-        for event_id, observed_at in observed_at_by_event.items()
+        score_event(event_id, observed_at_by_event[event_id], log, config, truth, evidence)
+        for event_id in log.event_ids()
     )
     return BlueScoreboard(total=sum(e.awarded for e in events), events=events)

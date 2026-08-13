@@ -60,4 +60,5 @@ class TestPolicyIsData:
         assert set(ENDPOINT_MIN_CLEARANCE) == {
             ("POST", "/api/exercises/start"),
             ("POST", "/api/exercises/reset"),
+            ("POST", "/api/blue-actions"),
         }

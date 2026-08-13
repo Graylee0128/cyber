@@ -8,6 +8,11 @@ VISIBILITY_BY_EVENT_TYPE = {
     "response.executed": "blue",
     "response.failed": "purple",
 }
+
+#: Core Events that represent a detection starting point. Shared by P2
+#: coverage and WS5 Blue reaction scoring so a response/exercise event cannot
+#: be counted as a detection by one consumer but not the other.
+DETECTION_EVENT_TYPES = ("attack.detected", "detection.hit")
 #: `exercise.*` 一律 instructor。
 EXERCISE_PREFIX = "exercise."
 EXERCISE_VISIBILITY = "instructor"
