@@ -7,7 +7,7 @@ from purple.evaluation.action_registry import (
     RegistryFrozen,
     RegistryNotFrozen,
 )
-from purple.receiver.whitelist import load_whitelist
+from purple.receiver.whitelist import TechniqueRejected, load_whitelist
 
 
 @pytest.fixture
@@ -37,7 +37,7 @@ def test_seed_is_queryable_and_ordered(seeded):
 
 def test_unknown_technique_is_rejected(registry):
     registry.create("ex-21", "sqli-01")
-    with pytest.raises(ValueError, match="T9999"):
+    with pytest.raises(TechniqueRejected, match="T9999"):
         registry.add("ex-21", RegisteredAction("a-1", "T9999", "unknown"))
 
 
