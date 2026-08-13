@@ -52,7 +52,12 @@ def test_metric_alert_produces_core_event(stores):
     events, records = stores
     mark = events.now()
 
-    ingest_alert(GRAFANA_METRIC_WEBHOOK, events=events, records=records)
+    ingest_alert(
+        GRAFANA_METRIC_WEBHOOK,
+        events=events,
+        records=records,
+        exercise_id="ex-current",
+    )
 
     core = wait_for_event(
         fetch=lambda: events.since(mark),
@@ -68,7 +73,12 @@ def test_metric_alert_produces_core_event(stores):
 def test_promql_stays_out_of_the_core_event(stores):
     """PromQL 是 backend 細節 —— 只進 Alert Record，不進 Core Event。"""
     events, records = stores
-    [event_id] = ingest_alert(GRAFANA_METRIC_WEBHOOK, events=events, records=records)
+    [event_id] = ingest_alert(
+        GRAFANA_METRIC_WEBHOOK,
+        events=events,
+        records=records,
+        exercise_id="ex-current",
+    )
 
     core = events.by_id(event_id)[0]
     assert "promql" not in repr(core).lower()

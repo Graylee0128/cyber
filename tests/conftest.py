@@ -22,6 +22,10 @@ import pytest
 from purple.clock.config import ConfigError, load_config
 from purple.clock.runner import check
 from purple.store.db import connect, dsn, ensure_schema, truncate_all
+from range_core.exercises import (
+    ensure_schema as ensure_exercise_schema,
+    truncate_all as truncate_exercises,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CLOCK_CONFIG = REPO_ROOT / "config" / "clock-nodes.yaml"
@@ -77,6 +81,7 @@ def pg() -> psycopg.Connection:
         )
 
     ensure_schema(conn)
+    ensure_exercise_schema(conn)
     yield conn
     conn.close()
 
@@ -90,6 +95,7 @@ def _require_postgres(pg):
 def pg_connection(pg) -> psycopg.Connection:
     """每個測試拿到乾淨的表。"""
     truncate_all(pg)
+    truncate_exercises(pg)
     return pg
 
 

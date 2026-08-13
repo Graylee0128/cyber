@@ -33,6 +33,7 @@ def ingest_alert(
     adapter: CoreEventAdapter | None = None,
     response_queue: CommandQueue | None = None,
     fingerprints: Any = None,
+    exercise_id: str,
     auto_response: bool = False,
 ) -> list[str]:
     """把一個 Grafana webhook 轉成 Core Event，回傳鑄造出的 event_id 清單。
@@ -67,7 +68,12 @@ def ingest_alert(
         # 先在記憶體裡建 Core Event（會驗白名單）。白名單外的 technique 在此被擋，
         # 記錄後跳過 —— 不得靜默通過，也不會留下孤兒 Alert Record。
         try:
-            core = build_core_event(alert, event_id, lifecycle)
+            core = build_core_event(
+                alert,
+                event_id,
+                lifecycle,
+                exercise_id=exercise_id,
+            )
         except TechniqueRejected as exc:
             log.warning("拒收 alert：%s（rule=%s）", exc, alert.get("labels", {}).get("alertname"))
             continue

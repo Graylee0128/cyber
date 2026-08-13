@@ -52,7 +52,14 @@ def wired(pg_connection):
 class TestIngest:
     def test_one_alert_produces_one_core_event(self, wired):
         events, records, adapter, queue = wired
-        ids = ingest_alert(FIRING, events=events, records=records, adapter=adapter, response_queue=queue)
+        ids = ingest_alert(
+            FIRING,
+            events=events,
+            records=records,
+            adapter=adapter,
+            response_queue=queue,
+            exercise_id="ex-current",
+        )
         assert len(ids) == 1
         assert events.count() == 1
 
@@ -60,7 +67,8 @@ class TestIngest:
         """順序不可顛倒：Core Event 存在時，對應的 Alert Record 必已存在。"""
         events, records, adapter, queue = wired
         [event_id] = ingest_alert(
-            FIRING, events=events, records=records, adapter=adapter, response_queue=queue
+            FIRING, events=events, records=records, adapter=adapter,
+            response_queue=queue, exercise_id="ex-current",
         )
         assert records.exists(event_id)
         assert records.by_id(event_id)["backend"] == "loki"
@@ -68,14 +76,18 @@ class TestIngest:
     def test_event_id_is_shared_by_both_records(self, wired):
         events, records, adapter, queue = wired
         [event_id] = ingest_alert(
-            FIRING, events=events, records=records, adapter=adapter, response_queue=queue
+            FIRING, events=events, records=records, adapter=adapter,
+            response_queue=queue, exercise_id="ex-current",
         )
         assert events.by_id(event_id)[0]["event_id"] == event_id
         assert records.by_id(event_id)["event_id"] == event_id
 
     def test_downstream_adapter_receives_the_core_event(self, wired):
         events, records, adapter, queue = wired
-        ingest_alert(FIRING, events=events, records=records, adapter=adapter, response_queue=queue)
+        ingest_alert(
+            FIRING, events=events, records=records, adapter=adapter,
+            response_queue=queue, exercise_id="ex-current",
+        )
         assert len(adapter.delivered) == 1
         assert adapter.delivered[0]["scenario_id"] == "sqli-01"
 
@@ -90,6 +102,7 @@ class TestIngest:
             records=records,
             adapter=adapter,
             response_queue=queue,
+            exercise_id="ex-current",
             auto_response=True,
         )
         commands = queue.claim()
@@ -108,6 +121,7 @@ class TestIngest:
             records=records,
             adapter=adapter,
             response_queue=queue,
+            exercise_id="ex-current",
             auto_response=True,
         )
         [command] = queue.claim()
@@ -118,7 +132,14 @@ class TestIngest:
         建議就是這筆事件本身，真正的 enqueue 由藍隊動作觸發（#51）。把降級邏輯
         拿掉（讓 auto_response 預設值失去作用）時，這條測試必須變紅。"""
         events, records, adapter, queue = wired
-        ingest_alert(FIRING, events=events, records=records, adapter=adapter, response_queue=queue)
+        ingest_alert(
+            FIRING,
+            events=events,
+            records=records,
+            adapter=adapter,
+            response_queue=queue,
+            exercise_id="ex-current",
+        )
         assert queue.claim() == []
         assert events.count() == 1  # 事件本身還是照常入庫，只是沒有自動封鎖
 
@@ -144,6 +165,7 @@ class TestIngest:
             adapter=adapter,
             response_queue=queue,
             fingerprints=fingerprints,
+            exercise_id="ex-current",
             auto_response=True,
         )
         ingest_alert(
@@ -153,6 +175,7 @@ class TestIngest:
             adapter=adapter,
             response_queue=queue,
             fingerprints=fingerprints,
+            exercise_id="ex-current",
             auto_response=True,
         )
         commands = queue.claim()
@@ -160,6 +183,9 @@ class TestIngest:
 
     def test_pending_produces_nothing(self, wired):
         events, records, adapter, queue = wired
-        ids = ingest_alert(PENDING, events=events, records=records, adapter=adapter, response_queue=queue)
+        ids = ingest_alert(
+            PENDING, events=events, records=records, adapter=adapter,
+            response_queue=queue, exercise_id="ex-current",
+        )
         assert ids == []
         assert events.count() == 0

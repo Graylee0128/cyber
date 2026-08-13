@@ -15,6 +15,13 @@ from purple.response.direct_block import RecordingBlocker
 from purple.response.http_link import HttpLink
 from purple.response.queue import InMemoryCommandQueue
 from purple.store.events import CoreEventStore
+from range_core.exercises import (
+    ExerciseStore,
+    PlayerRegistration,
+    ensure_schema as ensure_exercise_schema,
+    truncate_all as truncate_exercises,
+)
+from range_core.scenarios import Scenario
 
 
 FIRING = {
@@ -56,6 +63,37 @@ def _post(url: str, body: dict) -> dict:
 
 
 def test_webhook_to_agent_pull_to_response_core_event(pg_connection):
+    # server.py 的 /webhook 現在會查真正在跑的 exercise（不信 alert 自帶的
+    # exercise_id label）；這是唯一打真 HTTP server 的測試，所以只有這裡需要
+    # 先在 DB 種一個 running 的 exercise，其餘測試都直接把 exercise_id 傳給
+    # ingest_alert/build_core_event，繞過這個查詢。
+    ensure_exercise_schema(pg_connection)
+    truncate_exercises(pg_connection)
+    ExerciseStore(pg_connection).start(
+        Scenario.model_validate(
+            {
+                "id": "falco-exec-01",
+                "name": "Command Exec",
+                "difficulty": "easy",
+                "duration": "30m",
+                "objectives": [
+                    {"id": "capture_flag", "evaluation": "submission", "points": 500}
+                ],
+                "targets": [{"host": "target-01", "surfaces": ["shell"]}],
+                "expected_sources": ["falco"],
+                "attack_chain": [
+                    {
+                        "id": "execute-command",
+                        "technique": "T1059",
+                        "description": "Execute a target command.",
+                    }
+                ],
+                "reset_scope": "exercise",
+            }
+        ),
+        (PlayerRegistration(player_id="red-alice", source_ip="10.167.30.11"),),
+    )
+
     command_queue = InMemoryCommandQueue()
 
     class Handler(WebhookHandler):
