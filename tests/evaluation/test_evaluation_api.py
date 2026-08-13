@@ -192,6 +192,7 @@ def test_latency_reads_back_empty_before_anything_is_computed(pg_connection):
 
 def test_latency_compute_rejects_fewer_than_twenty_runs(pg_connection):
     api = client(telemetry())
+    register_and_freeze(api)
     ActionExecutionStore(pg_connection).record(EXERCISE, "a-1", EXECUTED, MARKER)
     # 只有 1 筆執行 → 遠少於 20 → 不得當最終量測交付。
     response = api.post(f"/api/exercises/{EXERCISE}/latency")
