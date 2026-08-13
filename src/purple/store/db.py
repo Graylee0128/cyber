@@ -59,6 +59,41 @@ CREATE TABLE IF NOT EXISTS alert_fingerprints (
     event_id    text        NOT NULL,
     created_at  timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS action_registries (
+    exercise_id text        PRIMARY KEY,
+    scenario_id text        NOT NULL,
+    frozen_at   timestamptz
+);
+
+CREATE TABLE IF NOT EXISTS registered_actions (
+    exercise_id text NOT NULL REFERENCES action_registries(exercise_id) ON DELETE CASCADE,
+    action_id   text NOT NULL,
+    technique   text NOT NULL,
+    description text NOT NULL,
+    PRIMARY KEY (exercise_id, action_id)
+);
+
+CREATE OR REPLACE FUNCTION reject_frozen_action_registry_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE registry_id text;
+BEGIN
+    registry_id := COALESCE(NEW.exercise_id, OLD.exercise_id);
+    IF EXISTS (
+        SELECT 1 FROM action_registries
+        WHERE exercise_id = registry_id AND frozen_at IS NOT NULL
+    ) THEN
+        RAISE EXCEPTION 'action registry % is frozen', registry_id
+            USING ERRCODE = '55000';
+    END IF;
+    RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+DROP TRIGGER IF EXISTS registered_actions_reject_frozen ON registered_actions;
+CREATE TRIGGER registered_actions_reject_frozen
+BEFORE INSERT OR UPDATE OR DELETE ON registered_actions
+FOR EACH ROW EXECUTE FUNCTION reject_frozen_action_registry_mutation();
 """
 
 
@@ -87,4 +122,7 @@ def ensure_schema(conn: psycopg.Connection) -> None:
 
 def truncate_all(conn: psycopg.Connection) -> None:
     """測試之間清空。TRUNCATE 而非 DROP —— 保留 schema，快得多。"""
-    conn.execute("TRUNCATE core_events, alert_records, alert_fingerprints")
+    conn.execute(
+        "TRUNCATE registered_actions, action_registries, "
+        "core_events, alert_records, alert_fingerprints"
+    )
