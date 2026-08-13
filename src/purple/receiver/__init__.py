@@ -34,6 +34,7 @@ def ingest_alert(
     response_queue: CommandQueue | None = None,
     fingerprints: Any = None,
     exercise_id: str,
+    auto_response: bool = False,
 ) -> list[str]:
     """把一個 Grafana webhook 轉成 Core Event，回傳鑄造出的 event_id 清單。
 
@@ -44,9 +45,15 @@ def ingest_alert(
       3. **先**寫 Alert Record
       4. **再**發 Core Event 到 P1 儲存
       5. 外送給下游（可插拔 adapter）
-      6. attack.detected 把封鎖需求**放進佇列**（票 09 的 contract）。
-         不再直寫 ipset —— 直寫需要連入 target，會破壞 TARGET→MGMT 單向。
-         實際封鎖由 target 側 agent 主動拉取佇列後執行（response/agent.py）。
+      6. attack.detected 把封鎖需求**放進佇列**（票 09 的 contract）——但只在
+         `auto_response=True`（測試載具／demo，票 48）時才自動 enqueue，且標記
+         `triggered_by="auto"`，計分（#33）不採計。
+         演練預設 `auto_response=False`：這裡只產生「待處置建議」（就是這筆
+         attack.detected 事件本身，Blue SOC Console 讀得到），真正 enqueue
+         由藍隊按下動作觸發（#51），佇列/agent pull/ipset 這條鏈完全不變。
+         不管哪個模式都不直寫 ipset —— 直寫需要連入 target，會破壞
+         TARGET→MGMT 單向。實際封鎖永遠由 target 側 agent 主動拉取佇列後執行
+         （response/agent.py）。
     """
     adapter = adapter or NoopAdapter()
 
@@ -81,9 +88,14 @@ def ingest_alert(
         # 這次是真的新事件時才 enqueue：重送不該讓同一次攻擊被重複封鎖、重複產生
         # response.executed（#17 real-range 觀測到 repeat_interval=15s 下同一個
         # attack_event_id 十幾秒內連續 enqueue 好幾次）。
-        if is_new and core["event_type"] == "attack.detected" and response_queue is not None:
+        if (
+            auto_response
+            and is_new
+            and core["event_type"] == "attack.detected"
+            and response_queue is not None
+        ):
             try:
-                response_queue.enqueue(ResponseCommand.from_core_event(core))
+                response_queue.enqueue(ResponseCommand.from_core_event(core, triggered_by="auto"))
             except ValueError as exc:
                 # 沒有可信來源 IP 就不封；拿 service 名或猜測值下 ipset 會製造假成功。
                 log.warning("不建立 response command：%s（event_id=%s）", exc, event_id)

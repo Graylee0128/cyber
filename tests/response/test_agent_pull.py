@@ -167,3 +167,13 @@ class TestQueueIsPullNotPush:
             assert "source_ip" in str(exc)
         else:
             raise AssertionError("缺 source_ip 的 Core Event 不得產生封鎖命令")
+
+    def test_as_dict_round_trips_through_from_dict(self):
+        """票 09 的傳輸邊界：agent 只透過 as_dict()／from_dict() 收命令（見
+        http_link.py），沒有進 wire 的欄位 from_dict 會直接 KeyError——
+        新增欄位務必兩邊都改，這條測試就是為了不讓下一個欄位重演 triggered_by
+        漏寫 as_dict 的事故（票 48）。"""
+        original = response_command()
+        restored = ResponseCommand.from_dict(original.as_dict())
+        assert restored == original
+        assert restored.triggered_by == "manual"
