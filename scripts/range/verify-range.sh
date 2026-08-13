@@ -137,6 +137,10 @@ else
       echo "  ✗ console 沒有指定 receiver:8000 正向證據 —— 舊版探測腳本不採信"; fails=1
     elif ! grep -q "非 receiver MGMT $MGMT:8000 不通" "$CONSOLE" 2>/dev/null; then
       echo "  ✗ console 沒有其他 MGMT:8000 反向證據 —— 最小權限未獲證明"; fails=1
+    elif ! grep -q "VM-CLOCK-SKEW-MS:" "$CONSOLE" 2>/dev/null; then
+      echo "  ✗ console 沒有 VM 對獨立 MGMT Date clock 的偏移證據 —— 舊版 VM 不採信"; fails=1
+    elif grep -q "VM-CLOCK-SKEW-FAIL:" "$CONSOLE" 2>/dev/null; then
+      echo "  ✗ VM clock probe 失敗（見 console）"; fails=1
     elif ! grep -q "Z-APP OK: TARGET(VM) -> APP $APP:443 通" "$CONSOLE" 2>/dev/null; then
       echo "  ✗ console 沒有 TARGET→APP:443 正向證據"; fails=1
     elif ! grep -q "Z-APP OK: TARGET(VM) -> APP $APP:22 不通" "$CONSOLE" 2>/dev/null; then
@@ -343,11 +347,9 @@ PY
 fi
 
 if [ "$TARGET_MODE" = vm ] && [ -f "$REPO/scripts/range/verify-p1-fields.py" ]; then
-  echo "=== P1 最終驗收：range-target/Falco 四欄 + 無憑證 VM clock ==="
+  echo "=== P1 最終驗收：range-target/Falco 四欄（VM clock 已由 nonce console 證明） ==="
   PYTHONPATH="$REPO/src" python3 "$REPO/scripts/range/verify-p1-fields.py" \
     --loki-url "$LOKI_URL" --app range-target --falco || fails=1
-  PURPLE_LOKI_URL="$LOKI_URL" PYTHONPATH="$REPO/src" python3 -m purple.clock.cli \
-    --config "$REPO/config/clock-nodes-vm.yaml" || fails=1
 fi
 
 if [ "$fails" -ne 0 ]; then

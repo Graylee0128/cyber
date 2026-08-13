@@ -26,6 +26,25 @@ class SourceFieldContract:
     queries: dict[str, str]
 
 
+NORMALIZED_FIELDS = frozenset({"source_ip", "destination", "time", "action_result"})
+
+# Registry entries describe liveness sources, not necessarily discrete attack logs.
+# Every non-action source must be explicit here so a new source cannot silently
+# escape the P1 field decision.
+NON_ACTION_SOURCE_EXCLUSIONS = {
+    "alloy": "transport heartbeat; it proves delivery, not a discrete action",
+    "response-agent": "control-plane pull heartbeat; no attack destination/result row",
+    "prometheus": "sampled OTLP counter, not a discrete action log",
+}
+
+
+def validate_app_record(record: dict) -> None:
+    producer_fields = set(APP_FIELDS.values())
+    missing = sorted(producer_fields - record.keys())
+    if missing:
+        raise FieldContractError(f"app record missing producer fields: {', '.join(missing)}")
+
+
 APP_FIELDS = {
     "source_ip": "source_ip",
     "destination": "path",

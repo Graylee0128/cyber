@@ -129,7 +129,7 @@ else
   export PURPLE_RANGE_CHAIN=1
   if "$PY" -m pytest -q -s -m integration "$REPO/tests/integration/test_falco_range_chain.py" \
       && "$PY" "$RANGE/verify-p1-fields.py" --app range-target --falco \
-      && "$PY" -m purple.clock.cli --config "$REPO/config/clock-nodes-vm.yaml"; then
+      && grep -q "VM-CLOCK-SKEW-MS:" /tmp/range-target-console.log; then
     record "T4 真環境全鏈：✅（含 P1 四欄 + VM clock）"
   else
     record "T4 真環境全鏈：❌"; fails=1

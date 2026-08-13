@@ -1,7 +1,7 @@
 # 時鐘同步檢查的節點清單（票 01）
 #
 # 無服務的 CI 基線只驗 checker host。T2 使用 clock-nodes-compose.yaml
-# 直接進容器讀秒；T4 使用 clock-nodes-vm.yaml 的 Loki ingestion 上界探測。
+# 直接進容器讀秒；T4 由 VM 開機 probe 對 MGMT Loki HTTP Date 讀獨立時鐘。
 #
 # 每加一個遙測來源，就要在這裡加一個節點 —— 沒列進來的節點不會被檢查，
 # 而不被檢查的時鐘遲早會漂。

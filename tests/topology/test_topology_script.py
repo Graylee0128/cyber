@@ -195,8 +195,9 @@ def test_vm_contract1_probe_passes_three_ports_and_blocked_canary(monkeypatch, c
     monkeypatch.setattr(
         probe.sys,
         "argv",
-        ["contract1_probe.py", "mgmt", "receiver", "app", "nonce"],
+        ["contract1_probe.py", "mgmt", "receiver", "app", "loki", "nonce"],
     )
+    monkeypatch.setattr(probe, "probe_mgmt_clock", lambda _host: 250.0)
     probe.main()
     output = capsys.readouterr().out
     for port in MGMT_PORTS:
@@ -206,6 +207,7 @@ def test_vm_contract1_probe_passes_three_ports_and_blocked_canary(monkeypatch, c
     assert f":{MGMT_DENIED_PORT} 不通" in output
     assert "APP app:443 通" in output
     assert "APP app:22 不通" in output
+    assert "VM-CLOCK-SKEW-MS: +250" in output
     assert "SLICE2A-RESULT: PASS" in output
 
 
@@ -226,12 +228,30 @@ def test_vm_contract1_probe_fails_when_deny_canary_is_reachable(monkeypatch, cap
     monkeypatch.setattr(
         probe.sys,
         "argv",
-        ["contract1_probe.py", "mgmt", "receiver", "app", "nonce"],
+        ["contract1_probe.py", "mgmt", "receiver", "app", "loki", "nonce"],
     )
+    monkeypatch.setattr(probe, "probe_mgmt_clock", lambda _host: 250.0)
     probe.main()
     output = capsys.readouterr().out
     assert "非 receiver MGMT mgmt:8000 竟然通了" in output
     assert f":{MGMT_DENIED_PORT} 竟然通了" in output
+    assert "SLICE2A-RESULT: FAIL" in output
+
+
+def test_vm_contract1_probe_fails_when_independent_mgmt_clock_is_skewed(monkeypatch, capsys):
+    probe = _load_contract1_probe()
+    allowed = {("mgmt", port) for port in MGMT_PORTS} | {
+        ("receiver", MGMT_RESPONSE_PORT), ("app", 443)
+    }
+    monkeypatch.setattr(probe, "socket", SimpleNamespace(socket=lambda: _ProbeSocket(allowed)))
+    monkeypatch.setattr(
+        probe.sys, "argv",
+        ["contract1_probe.py", "mgmt", "receiver", "app", "loki", "nonce"],
+    )
+    monkeypatch.setattr(probe, "probe_mgmt_clock", lambda _host: 6001.0)
+    probe.main()
+    output = capsys.readouterr().out
+    assert "VM-CLOCK-SKEW-MS: +6001" in output
     assert "SLICE2A-RESULT: FAIL" in output
 
 
@@ -241,6 +261,7 @@ def test_vm_verifier_rejects_old_probe_without_deny_evidence():
         'elif ! grep -q "非 telemetry :22 不通"',
         'elif ! grep -q "response receiver $RECEIVER:8000 通"',
         'elif ! grep -q "非 receiver MGMT $MGMT:8000 不通"',
+        'elif ! grep -q "VM-CLOCK-SKEW-MS:"',
     )
     accepts_pass = 'elif grep -q "SLICE2A-RESULT: PASS"'
     for evidence in required_evidence:

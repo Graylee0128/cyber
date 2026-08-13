@@ -1,6 +1,6 @@
 # T2 compose sources are directly readable with docker exec, so retain the
 # platform's precise 100ms threshold. Falco is optional on kernel 7 hosts and
-# is covered by the VM/Loki contract in clock-nodes-vm.yaml.
+# is covered by the VM boot probe against MGMT Loki's independent HTTP Date.
 threshold_ms: 100
 reference: checker-host
 nodes:
