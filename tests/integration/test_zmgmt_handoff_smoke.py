@@ -126,10 +126,12 @@ def test_p1_to_p2_handoff_within_zmgmt(events):
         body = json.loads(resp.read())
 
     print(
-        f"       ↳ handoff：event_id={body['event_id']} rule={body['rule']} "
+        f"       ↳ handoff：event_id={body['event_id']} rule={body.get('rule')} "
         f"line_count={body['line_count']}",
         flush=True,
     )
+    # #49：藍隊身分拿到的是匿名標籤，不是真實 rule 名稱。
+    assert "technique" not in body
     assert body["event_id"] == event_id, "Evidence API 回的 event_id 與 P1 落地的不符"
     assert body["line_count"] >= 1, "P2 沒取回任何上下文行 —— handoff 斷了"
     _ok("P1→P2 handoff 成立：Core Event 落地後 Evidence API 就該事件取回上下文窗")

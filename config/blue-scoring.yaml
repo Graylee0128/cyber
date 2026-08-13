@@ -1,0 +1,22 @@
+# 藍隊計分參數 —— 平台級，所有 scenario 一致（WS3 spec §4.3）。
+#
+# 這份檔案刻意**不在** scenario 目錄底下，也刻意沒有「scenario 可覆寫」的機制：
+#
+#   - WS2 spec §0.1：紅方的東西 scenario 擁有；藍方與平台的東西 scenario 只引用
+#   - WS1 spec §4 已經指定過藍隊難度的旋鈕，而且不是分數 —— 想讓藍隊在能見度不足
+#     下作戰，就在該 scenario 的 Source Registry 少放幾個 expected 來源
+#   - 再給一個「改分數門檻」的旋鈕＝同一件事兩個開關，而第二個開關會讓跨 scenario
+#     的藍隊分數不可比（plan §3.2）
+#
+# Contain 的門檻量的是人的反應速度，而人的反應速度不該因為題目換了就換一把尺。
+
+objectives:
+  # SA §9 的四個 Blue objective。點數不變，語意由 WS3 spec §1.3 重寫。
+  detect_attack: 100      # 藍隊接手／確認告警（acknowledge）
+  identify_technique: 100 # 藍隊提交判讀且正確（classify）
+  contain: 150            # 在門檻內觸發封鎖（contain）
+  resolve_incident: 100   # 收尾（resolve）
+
+# Contain < 60 sec（SA §9）。起點是 Core Event 的 observed_at，不是 acknowledge
+# —— 兩段共用同一個起點，不是接力（WS3 spec §4.5）。
+contain_threshold_seconds: 60

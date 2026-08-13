@@ -190,7 +190,7 @@ def test_evidence_api_returns_context_from_real_loki(events):
         body = json.loads(resp.read())
 
     print(
-        f"       ↳ Evidence: rule={body['rule']} line_count={body['line_count']} "
+        f"       ↳ Evidence: rule={body.get('rule')} line_count={body['line_count']} "
         f"window={body['window_start']}..{body['window_end']}",
         flush=True,
     )
@@ -198,6 +198,16 @@ def test_evidence_api_returns_context_from_real_loki(events):
     assert body["line_count"] >= 1, "上下文窗應至少有一行（真 Loki 取回）"
     assert "backend" not in json.dumps(body).lower()
     _ok(f"取回 {body['line_count']} 行上下文，無 backend 洩漏")
+
+    # #49：真 HTTP 邊界上的欄位級遮蔽。rule 名稱就是技法的白話版
+    # （`SQLInjectionBurst` ＝ T1190），所以藍隊拿到的必須是匿名標籤。
+    blob = json.dumps(body)
+    assert "SQLInjection" not in blob, "藍隊拿到了真實 rule 名稱 —— 判讀變成白送的"
+    assert "technique" not in body, "藍隊的回應不得含 technique"
+    assert body.get("rule", "").startswith("Detection #"), (
+        f"藍隊應拿到匿名標籤，實得 {body.get('rule')!r}"
+    )
+    _ok(f"欄位級遮蔽成立：rule={body['rule']}，無 technique")
 
     _step("等這次攻擊的 alert 自然 resolve，避免留下 firing 狀態污染後面的 lifecycle 測試")
     wait_for_event(

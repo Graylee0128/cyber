@@ -22,7 +22,12 @@ import os
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 
-from disclosure import extract_token, load_service_tokens, resolve_identity
+from disclosure import (
+    CALLER_CLEARANCE,
+    extract_token,
+    load_service_tokens,
+    resolve_identity,
+)
 from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -54,6 +59,22 @@ DEFAULT_SCENARIO_DIRECTORY = Path(__file__).resolve().parents[2] / "scenarios"
 #: Evidence API, the tokens are not: an Evidence token must not buy a Range Core
 #: identity, so a leak on one exit stays on that exit.
 TOKEN_ENV_PREFIX = "RANGE_CORE_TOKEN_"
+
+#: Endpoints that need more than "any valid participant token" (#49, raised
+#: reviewing #33 against #52 B2).  B2 only ever promised that identity cannot be
+#: self-reported; it deliberately left *which identity may call what* to WS5.
+#: #33 makes that concrete: source-IP attribution means the Kali hosts talk to
+#: Range Core directly, so a red player's machine holds a red token -- and with
+#: no policy here, that token also resets the running exercise and wipes every
+#: recorded objective completion.
+#:
+#: Data, not scattered ifs: a new privileged endpoint is one row.  Endpoints
+#: absent from the table need any valid token, which is the gameplay default
+#: (submissions and hints are exactly what red players are supposed to call).
+ENDPOINT_MIN_CLEARANCE: dict[tuple[str, str], int] = {
+    ("POST", "/api/exercises/start"): CALLER_CLEARANCE["instructor"],
+    ("POST", "/api/exercises/reset"): CALLER_CLEARANCE["instructor"],
+}
 
 
 class StartExerciseRequest(BaseModel):
@@ -152,6 +173,11 @@ def create_app(
         dependency rather than per route: a new endpoint is protected by
         default, and forgetting to opt in cannot silently reopen the hole.
         The token itself is never echoed back nor logged.
+
+        Two gates, in order: a valid token proves the caller is a legitimate
+        participant; ``ENDPOINT_MIN_CLEARANCE`` then decides whether *this*
+        participant may call *this* endpoint.  Per-player attribution within a
+        team stays with ``_source_ip`` -- clearance is a team-level property.
         """
         token = extract_token(request.headers)
         if not token:
@@ -162,6 +188,12 @@ def create_app(
         if identity is None:
             raise HTTPException(
                 status_code=403, detail="unknown or invalid service token"
+            )
+
+        required = ENDPOINT_MIN_CLEARANCE.get((request.method, request.url.path))
+        if required is not None and CALLER_CLEARANCE.get(identity, 0) < required:
+            raise HTTPException(
+                status_code=403, detail="this endpoint requires a higher clearance"
             )
         return identity
 

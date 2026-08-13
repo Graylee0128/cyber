@@ -5,12 +5,17 @@ render_bundle 與 handle_evidence 的判定邏輯用 stub resolver 測（不需 
 
 B2：identity 由部署時注入的服務 token 換出，呼叫端無法自報（WS7 spec §2）。
 `TestSelfReportProtection` 是驗收條件那條「拿掉檢查時測試必須變紅」的測試。
+
+#49：回應的組裝套用欄位級遮蔽 —— `TestFieldMaskingAtTheApiBoundary` 驗的是
+「同一個 event，不同 clearance 拿到不同的欄位集合」。
 """
 
 import logging
 from datetime import datetime, timedelta, timezone
 
 import pytest
+
+from disclosure import CALLER_CLEARANCE, build_label_map
 
 from purple.evidence import (
     BackendUnavailable,
@@ -44,15 +49,25 @@ def _bundle(lines=()) -> EvidenceBundle:
     )
 
 
+#: #49：`render_bundle` 的 clearance 是必填的。這兩條驗序列化形狀，用全知身分。
+OMNISCIENT = CALLER_CLEARANCE["instructor"]
+
+
 class TestRenderBundle:
     def test_shape_has_no_backend_or_query(self):
-        body = render_bundle(_bundle([ContextLine(T0, "req [blue]", "blue", "vulnerable-app")]))
+        body = render_bundle(
+            _bundle([ContextLine(T0, "req [blue]", "blue", "vulnerable-app")]),
+            caller_clearance=OMNISCIENT,
+        )
         assert set(body) == {"event_id", "rule", "window_start", "window_end", "line_count", "lines"}
         blob = repr(body).lower()
         assert "backend" not in blob and "logql" not in blob and "promql" not in blob
 
     def test_lines_serialized_with_visibility(self):
-        body = render_bundle(_bundle([ContextLine(T0, "x", "purple", "vulnerable-app")]))
+        body = render_bundle(
+            _bundle([ContextLine(T0, "x", "purple", "vulnerable-app")]),
+            caller_clearance=OMNISCIENT,
+        )
         assert body["line_count"] == 1
         assert body["lines"][0]["visibility"] == "purple"
         assert body["lines"][0]["timestamp"].startswith("2026-08-08")
@@ -126,6 +141,51 @@ class TestSelfReportProtection:
 
         assert status == 200
         assert stub.last_caller == Caller("blue")
+
+
+class TestFieldMaskingAtTheApiBoundary:
+    """#49：遮蔽發生在 API 回應的組裝，不是前端渲染。
+
+    驗的是**回應的欄位集合**，不是某個內部函式回了什麼 —— 前端遮是假的，
+    所以測試要盯著呼叫者真的拿到什麼。
+    """
+
+    TOKENS = {
+        "red-secret": "red",
+        "blue-secret": "blue",
+        "purple-secret": "purple",
+        "instructor-secret": "instructor",
+    }
+    LABELS = {"rule": build_label_map(["SQLInjectionBurst", "SSHBruteForce"], "Detection")}
+
+    def _body(self, token):
+        status, body = handle_evidence(
+            "evt-1", token, _StubResolver(result=_bundle()), self.TOKENS, self.LABELS
+        )
+        assert status == 200
+        return body
+
+    @pytest.mark.parametrize("token", ["red-secret", "blue-secret"])
+    def test_red_and_blue_never_see_the_real_rule_name(self, token):
+        """`SQLInjectionBurst` 就是 T1190 的白話版 —— 它到得了藍隊，判讀就是白送的。"""
+        assert "SQLInjectionBurst" not in str(self._body(token))
+
+    @pytest.mark.parametrize("token", ["red-secret", "blue-secret"])
+    def test_red_and_blue_get_the_anonymous_label(self, token):
+        assert self._body(token)["rule"] == "Detection #1"
+
+    @pytest.mark.parametrize("token", ["purple-secret", "instructor-secret"])
+    def test_purple_and_instructor_get_the_real_rule(self, token):
+        assert self._body(token)["rule"] == "SQLInjectionBurst"
+
+    def test_same_event_different_clearance_different_field_values(self):
+        assert self._body("blue-secret")["rule"] != self._body("purple-secret")["rule"]
+
+    def test_bundle_itself_is_untouched(self):
+        """落地／領域物件不變，只有投影出去的那份被遮。"""
+        bundle = _bundle()
+        handle_evidence("evt-1", "blue-secret", _StubResolver(result=bundle), self.TOKENS, self.LABELS)
+        assert bundle.rule == "SQLInjectionBurst"
 
 
 class TestStatusMapping:

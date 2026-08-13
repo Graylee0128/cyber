@@ -11,7 +11,7 @@ from disclosure.event_visibility import (
     VISIBILITY_BY_EVENT_TYPE,
     expected_visibility,
 )
-from disclosure.fields import FIELD_MASKING
+from disclosure.fields import FIELD_MASKING, FieldPolicy, MaskStrategy
 from disclosure.identity import (
     BEARER_PREFIX,
     TOKEN_HEADER,
@@ -19,6 +19,7 @@ from disclosure.identity import (
     load_service_tokens,
     resolve_identity,
 )
+from disclosure.projection import build_label_map, project_fields
 
 __all__ = [
     "BEARER_PREFIX",
@@ -26,7 +27,11 @@ __all__ = [
     "EXERCISE_PREFIX",
     "EXERCISE_VISIBILITY",
     "FIELD_MASKING",
+    "FieldPolicy",
+    "MaskStrategy",
     "TOKEN_HEADER",
+    "build_label_map",
+    "project_fields",
     "VISIBILITY_BY_EVENT_TYPE",
     "VISIBILITY_RANK",
     "expected_visibility",
