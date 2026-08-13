@@ -7,7 +7,9 @@ receiver 同慣例：判定/序列化是純函數，HTTP 只是薄殼。
 WS7 spec §2）。**clearance 由 token 對應的 identity 決定，呼叫者無法自報**——
 沒有任何欄位讓呼叫端直接填身分字串（resolver 的 clearance 表說了算，ADR ②）。
 token 走環境變數注入（`PURPLE_EVIDENCE_TOKEN_<IDENTITY>`），與 `deploy/` 既有
-設定注入方式一致，不引入新的機密管理機制（WS7 spec §2.4）。
+設定注入方式一致，不引入新的機密管理機制（WS7 spec §2.4）。換出邏輯本身住
+`disclosure.identity`，與 Range Core 那個出口共用一份 —— 本檔只擁有自己的
+token 命名空間（prefix），不擁有規則。
 """
 
 from __future__ import annotations
@@ -20,7 +22,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from disclosure import CALLER_CLEARANCE
+from disclosure import (
+    BEARER_PREFIX,
+    TOKEN_HEADER,
+    extract_token,
+    resolve_identity,
+)
+from disclosure import load_service_tokens as _load_service_tokens
 
 from purple.evidence.backends import BackendUnavailable, LokiBackend
 from purple.evidence.resolver import (
@@ -35,42 +43,19 @@ from purple.evidence.resolver import (
 log = logging.getLogger("purple.evidence.service")
 
 PORT = int(os.environ.get("PURPLE_ENGINE_PORT", "8001"))
-TOKEN_HEADER = "Authorization"
-BEARER_PREFIX = "Bearer "
+
+#: 本服務的 token 環境變數 prefix。換出邏輯共用 `disclosure.identity`，
+#: 但 token 命名空間是本服務自己的 —— Evidence 的 token 換不出 Range Core 的身分。
+TOKEN_ENV_PREFIX = "PURPLE_EVIDENCE_TOKEN_"
 
 
 def load_service_tokens(env: Mapping[str, str] | None = None) -> dict[str, str]:
-    """由部署環境變數建出 token → identity 對照表（純函數，env 可注入好測）。
+    """由 `PURPLE_EVIDENCE_TOKEN_<IDENTITY 大寫>` 建出 token → identity 對照表。
 
-    命名慣例：`PURPLE_EVIDENCE_TOKEN_<IDENTITY 大寫>`。哪個身分沒設對應變數，
-    那個身分就沒有合法 token —— fail closed，不是「沒設定就預設放行」。
+    哪個身分沒設對應變數，那個身分就沒有合法 token —— fail closed，不是
+    「沒設定就預設放行」。規則本體在 `disclosure.identity`（兩個出口共用一份）。
     """
-    source = env if env is not None else os.environ
-    tokens: dict[str, str] = {}
-    for identity in CALLER_CLEARANCE:
-        value = source.get(f"PURPLE_EVIDENCE_TOKEN_{identity.upper()}")
-        if value:
-            tokens[value] = identity
-    return tokens
-
-
-def extract_token(headers: Mapping[str, str]) -> str | None:
-    """由 `Authorization: Bearer <token>` 取出 token；其餘欄位一律忽略 ——
-
-    身分只能經 token 換出，沒有任何「呼叫端直接填身分」的欄位（舊的
-    `X-Purple-Identity` 就算送了也沒有作用，見 `TestSelfReportProtection`）。
-    """
-    value = headers.get(TOKEN_HEADER, "")
-    if value.startswith(BEARER_PREFIX):
-        return value[len(BEARER_PREFIX):] or None
-    return None
-
-
-def resolve_identity(token: str | None, token_map: Mapping[str, str]) -> str | None:
-    """token 換出 identity。查無此 token → None，絕不回退成任何預設身分。"""
-    if not token:
-        return None
-    return token_map.get(token)
+    return _load_service_tokens(TOKEN_ENV_PREFIX, env)
 
 
 def render_bundle(bundle: EvidenceBundle) -> dict[str, Any]:

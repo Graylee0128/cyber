@@ -7,14 +7,23 @@ streaming response support for that later ticket.
 
 Issue #32 adds the start/current/reset exercise lifecycle endpoints. Scoring,
 actions, events, and SSE remain outside this module until their tickets.
+
+Issue #52 B2 makes the caller identity come from a deployment-injected service
+token (``Authorization: Bearer <token>``) instead of anything the caller can
+fill in.  The exchange itself lives in ``disclosure.identity`` and is shared
+with the Evidence API: one rule, two exits.  ``range_core`` still does not
+import ``purple`` -- both sides import the shared contract package.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import logging
+import os
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from disclosure import extract_token, load_service_tokens, resolve_identity
+from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from range_core.exercises import (
@@ -27,7 +36,14 @@ from range_core.exercises import (
 )
 from range_core.scenarios import Scenario, ScenarioCatalog
 
+log = logging.getLogger("range_core.api")
+
 DEFAULT_SCENARIO_DIRECTORY = Path(__file__).resolve().parents[2] / "scenarios"
+
+#: This service's own token namespace.  The exchange logic is shared with the
+#: Evidence API, the tokens are not: an Evidence token must not buy a Range Core
+#: identity, so a leak on one exit stays on that exit.
+TOKEN_ENV_PREFIX = "RANGE_CORE_TOKEN_"
 
 
 class StartExerciseRequest(BaseModel):
@@ -47,13 +63,54 @@ def create_app(
     catalog: ScenarioCatalog | None = None,
     *,
     exercise_store: ExerciseStore | None = None,
+    token_map: Mapping[str, str] | None = None,
 ) -> FastAPI:
-    """Create the WS5 application with an injected or on-disk catalog."""
+    """Create the WS5 application with an injected or on-disk catalog.
+
+    ``token_map`` maps service token -> identity.  Left unset it is loaded from
+    ``RANGE_CORE_TOKEN_<IDENTITY>`` environment variables; an empty map means no
+    caller can be identified and every request is rejected (fail closed).
+    """
 
     loaded_catalog = catalog or ScenarioCatalog.from_directory(
         DEFAULT_SCENARIO_DIRECTORY
     )
-    application = FastAPI(title="Cyber Range Core")
+    tokens = dict(
+        load_service_tokens(TOKEN_ENV_PREFIX, os.environ)
+        if token_map is None
+        else token_map
+    )
+    if not tokens:
+        log.warning(
+            "no %s* configured; this service will reject every request",
+            TOKEN_ENV_PREFIX,
+        )
+
+    def require_identity(request: Request) -> str:
+        """Resolve the caller from its bearer token, or refuse to serve it.
+
+        The identity is never read from a caller-supplied field, so claiming to
+        be ``purple`` or ``instructor`` buys nothing.  Declared as an app-wide
+        dependency rather than per route: a new endpoint is protected by
+        default, and forgetting to opt in cannot silently reopen the hole.
+        The token itself is never echoed back nor logged.
+        """
+        token = extract_token(request.headers)
+        if not token:
+            raise HTTPException(
+                status_code=400, detail="missing Authorization bearer token"
+            )
+        identity = resolve_identity(token, tokens)
+        if identity is None:
+            raise HTTPException(
+                status_code=403, detail="unknown or invalid service token"
+            )
+        return identity
+
+    application = FastAPI(
+        title="Cyber Range Core",
+        dependencies=[Depends(require_identity)],
+    )
 
     def provide_exercise_store() -> Iterator[ExerciseStore]:
         if exercise_store is not None:

@@ -12,14 +12,26 @@ from disclosure.event_visibility import (
     expected_visibility,
 )
 from disclosure.fields import FIELD_MASKING
+from disclosure.identity import (
+    BEARER_PREFIX,
+    TOKEN_HEADER,
+    extract_token,
+    load_service_tokens,
+    resolve_identity,
+)
 
 __all__ = [
+    "BEARER_PREFIX",
     "CALLER_CLEARANCE",
     "EXERCISE_PREFIX",
     "EXERCISE_VISIBILITY",
     "FIELD_MASKING",
+    "TOKEN_HEADER",
     "VISIBILITY_BY_EVENT_TYPE",
     "VISIBILITY_RANK",
     "expected_visibility",
+    "extract_token",
+    "load_service_tokens",
+    "resolve_identity",
     "visibility_rank",
 ]

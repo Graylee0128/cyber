@@ -5,6 +5,13 @@ from fastapi.testclient import TestClient
 from range_core.api import create_app
 from range_core.scenarios import Scenario, ScenarioCatalog
 
+# #52 B2: every endpoint resolves its caller from a deployment-injected service
+# token, so these tests carry one.  Identity self-reporting is covered in
+# tests/range_core/test_api_identity.py.
+INSTRUCTOR_TOKEN = "instructor-secret"
+TOKEN_MAP = {INSTRUCTOR_TOKEN: "instructor"}
+AUTH = {"Authorization": f"Bearer {INSTRUCTOR_TOKEN}"}
+
 
 def test_get_scenarios_returns_the_loaded_catalog(tmp_path: Path):
     scenario_root = tmp_path / "scenarios"
@@ -54,9 +61,9 @@ reset_scope: environment
         detection_rules_path=rules,
         techniques_path=techniques,
     )
-    app = create_app(catalog)
+    app = create_app(catalog, token_map=TOKEN_MAP)
 
-    response = TestClient(app).get("/api/scenarios")
+    response = TestClient(app).get("/api/scenarios", headers=AUTH)
 
     assert response.status_code == 200
     assert response.json() == [
@@ -118,7 +125,12 @@ def test_start_and_current_exercise_are_available_over_http(exercise_store) -> N
         }
     )
     client = TestClient(
-        create_app(ScenarioCatalog((scenario,)), exercise_store=exercise_store)
+        create_app(
+            ScenarioCatalog((scenario,)),
+            exercise_store=exercise_store,
+            token_map=TOKEN_MAP,
+        ),
+        headers=AUTH,
     )
 
     started = client.post(
@@ -170,9 +182,9 @@ def test_start_and_current_exercise_are_available_over_http(exercise_store) -> N
 
 
 def test_get_scenarios_returns_empty_list_during_pre_first_scenario_migration():
-    response = TestClient(create_app(ScenarioCatalog(scenarios=()))).get(
-        "/api/scenarios"
-    )
+    response = TestClient(
+        create_app(ScenarioCatalog(scenarios=()), token_map=TOKEN_MAP)
+    ).get("/api/scenarios", headers=AUTH)
 
     assert response.status_code == 200
     assert response.json() == []
