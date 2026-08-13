@@ -17,9 +17,12 @@ import ``purple`` -- both sides import the shared contract package.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
-from collections.abc import Iterator, Mapping
+import time
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
+from datetime import datetime
 from pathlib import Path
 
 import psycopg
@@ -29,8 +32,27 @@ from disclosure import (
     load_service_tokens,
     resolve_identity,
 )
+from disclosure.detection_rules import load_rule_titles
+from disclosure.fields import FIELD_MASKING
+from disclosure import build_label_map
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
+
+from range_core.blue_action_store import (
+    AlreadyJudged,
+    BlueActionStore,
+    StoredExecutionEvidence,
+    UnknownEvent,
+)
+from range_core.blue_actions import BlueActionRejected, MappingTechniqueTruth
+from range_core.blue_scoring import BlueScoringConfig, derive_blue_scores
+from range_core.event_stream import (
+    CoreEventStream,
+    comment_frame,
+    frames_for,
+    parse_last_event_id,
+)
 
 from range_core.exercises import (
     AdmissionPlayer,
@@ -52,7 +74,14 @@ from range_core.flags import (
     is_valid_flag_shape,
     matches,
 )
-from range_core.objectives import HintIndexOutOfRange, HintService, ObjectiveStore, PlayerLookup
+from range_core.objectives import (
+    Clock as ActionClock,
+    HintIndexOutOfRange,
+    HintService,
+    ObjectiveStore,
+    PlayerLookup,
+    SystemClock as ActionSystemClock,
+)
 from range_core.scenarios import Scenario, ScenarioCatalog
 from range_core.scoring import derive_scores
 from range_core.telemetry import sync_telemetry_objectives
@@ -77,9 +106,27 @@ TOKEN_ENV_PREFIX = "RANGE_CORE_TOKEN_"
 #: Data, not scattered ifs: a new privileged endpoint is one row.  Endpoints
 #: absent from the table need any valid token, which is the gameplay default
 #: (submissions and hints are exactly what red players are supposed to call).
+#: SSE 的輪詢間隔與 keep-alive 間隔（#36）。輪詢而非 LISTEN/NOTIFY：一場演練的
+#: 事件數以個位數計，200ms 的輪詢對 Postgres 是零負擔，而 LISTEN 會把「誰負責
+#: 通知」這件事塞進 P1 的寫入路徑 —— 那是為了不存在的規模付跨區耦合的錢。
+POLL_INTERVAL_S = 0.2
+#: 中介設備會砍掉太久沒有位元組的長連線；SSE 註解行不是事件，不動 Last-Event-ID。
+KEEPALIVE_INTERVAL_S = 15.0
+#: 一條串流連線的壽命上限（#36）。到期就自然結束，不是錯誤 —— 瀏覽器的
+#: EventSource 收到連線關閉會帶著上次的 `Last-Event-ID` 自動重連，續傳機制本來
+#: 就是為這件事存在的。**這是唯一保證每條連線都會結束的機制**：偵測「客戶端斷線」
+#: 依賴 ASGI 層的 `request.is_disconnected()`，那條路徑值得留著當優化（早點放手
+#: 資源），但不能是唯一的出口 —— 沒有它，一個沒有正常收到斷線訊號的連線（某些
+#: reverse proxy／測試環境會吃掉這個訊號）就會佔著一條資料庫連線耗到演練結束。
+DEFAULT_MAX_STREAM_SECONDS = 300.0
+
 ENDPOINT_MIN_CLEARANCE: dict[tuple[str, str], int] = {
     ("POST", "/api/exercises/start"): CALLER_CLEARANCE["instructor"],
     ("POST", "/api/exercises/reset"): CALLER_CLEARANCE["instructor"],
+    # Blue Actions carry no per-user identity (WS3 spec §5.1 — "who" is
+    # always the team). Gating the endpoint at blue clearance is therefore
+    # the *only* enforcement that a red player's token can't submit them.
+    ("POST", "/api/blue-actions"): CALLER_CLEARANCE["blue"],
 }
 
 
@@ -117,6 +164,14 @@ class HintRequest(BaseModel):
     hint_index: int = Field(ge=0)
 
 
+class BlueActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    event_id: str = Field(min_length=1)
+    action: str = Field(min_length=1)
+    technique: str | None = None
+
+
 def _source_ip(request: Request) -> str:
     """The TCP peer address only — **never** `X-Forwarded-For`.
 
@@ -145,6 +200,8 @@ def create_app(
     conn=None,
     flag_source: FlagSource | None = None,
     token_map: Mapping[str, str] | None = None,
+    max_stream_seconds: float = DEFAULT_MAX_STREAM_SECONDS,
+    action_clock: ActionClock | None = None,
 ) -> FastAPI:
     """Create the WS5 application with an injected or on-disk catalog.
 
@@ -152,6 +209,12 @@ def create_app(
     to build `exercise_store` so both see the same transaction. Production
     (`conn=None`) opens and closes its own connection per request, same as
     the pre-#33 lifecycle endpoints.
+
+    ``max_stream_seconds`` bounds how long a single `/api/events/live`
+    connection stays open before closing on its own (see the constant's
+    docstring). Tests pass a small value so a stream test's own connection
+    always terminates deterministically, independent of whether the test
+    transport actually propagates client disconnection.
 
     ``token_map`` maps service token -> identity.  Left unset it is loaded from
     ``RANGE_CORE_TOKEN_<IDENTITY>`` environment variables; an empty map means no
@@ -178,6 +241,18 @@ def create_app(
         admission_token = os.environ.get(f"{TOKEN_ENV_PREFIX}ADMISSION")
         if admission_token:
             tokens[admission_token] = "admission"
+    # #49 的 rule 匿名標籤。**與 Evidence API 共用同一份排序來源**，否則同一條
+    # 規則在 SSE 與 Evidence 兩個畫面會是不同號碼，藍隊會以為那是兩條規則。
+    detection_labels = {
+        "rule": build_label_map(
+            load_rule_titles(), FIELD_MASKING["rule"].label_prefix or "Detection"
+        )
+    }
+    # 平台級藍隊計分參數（WS3 spec §4.3）。載入一次，不隨每個請求重讀 ——
+    # 與 tokens／detection_labels 同一個理由：這份設定在演練期間不該變動。
+    blue_scoring_config = BlueScoringConfig.load()
+    resolved_action_clock = action_clock or ActionSystemClock()
+    lifecycle_now = exercise_store.now if exercise_store is not None else ActionSystemClock().now
     if not tokens:
         log.warning(
             "no %s* configured; this service will reject every request",
@@ -513,6 +588,39 @@ def create_app(
             ],
         }
 
+    @application.post("/api/blue-actions", status_code=201)
+    def submit_blue_action(
+        body: BlueActionRequest,
+        store: ExerciseStore = Depends(provide_exercise_store),
+        conn=Depends(provide_conn),
+    ) -> dict:
+        """Blue Action ingest (#36 Phase 2, WS3 spec §4).
+
+        No player attribution: the clearance gate on this route
+        (`ENDPOINT_MIN_CLEARANCE`) is the only identity check — "who" is
+        always the team `blue`, never a person (WS3 spec §5.1).
+        """
+        exercise, _ = _running_exercise_and_scenario(store)
+        try:
+            recorded = BlueActionStore(conn, clock=resolved_action_clock).record(
+                # The timestamp is generated inside Range Core, never accepted
+                # from the caller.  The injectable clock only exists so the
+                # Core Event -> arrival threshold is deterministic in tests.
+                exercise.exercise_id, body.action, body.event_id, body.technique
+            )
+        except UnknownEvent as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except AlreadyJudged as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except BlueActionRejected as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "team": "blue",
+            "action": recorded.action.value,
+            "event_id": recorded.event_id,
+            "submitted_at": recorded.submitted_at.isoformat(),
+        }
+
     @application.get("/api/score")
     def get_score(
         store: ExerciseStore = Depends(provide_exercise_store),
@@ -538,9 +646,146 @@ def create_app(
         hint_usages = tuple(
             usage for usage in hint_usages if usage.player_id in active_players
         )
-        return derive_scores(scenario, completions, hint_usages).as_dict()
+        red = derive_scores(scenario, completions, hint_usages).as_dict()
+
+        action_store = BlueActionStore(conn, clock=resolved_action_clock)
+        blue = derive_blue_scores(
+            action_store.observed_at_by_event(exercise.exercise_id),
+            action_store.for_exercise(exercise.exercise_id),
+            blue_scoring_config,
+            MappingTechniqueTruth(action_store.technique_by_event(exercise.exercise_id)),
+            StoredExecutionEvidence(conn, exercise.exercise_id),
+        ).as_dict()
+        return {**red, **blue}
+
+    @application.get("/api/events/live")
+    def live_events(
+        request: Request,
+        identity: str = Depends(require_identity),
+        store: ExerciseStore = Depends(provide_exercise_store),
+    ) -> StreamingResponse:
+        """演練事件的 SSE 串流（#36）。
+
+        每則事件的 ``id:`` 是 ``core_events.seq``；瀏覽器斷線重連會把它當
+        ``Last-Event-ID`` 送回來，於是續傳就是「seq 大於它的那些」。不帶
+        ``Last-Event-ID`` 的新訂閱者從**當下最大 seq 之後**開始收 —— 一連上線
+        就把整場歷史灌給他不是即時推送，是回放。
+
+        每個訂閱者有自己的游標與自己的 clearance，彼此不共用狀態；過濾在伺服器
+        端發生，不是叫前端自己別顯示。
+
+        **這個端點刻意不吃 ``Depends(provide_conn)``**：那個依賴的連線活到
+        「端點函式回傳」為止，而 ``live_events`` 一回傳 ``StreamingResponse``
+        函式就結束了 —— 串流實際發生在那之後，連線早被收回。串流是長壽命的，
+        需要一條專屬自己、活到 generator 結束才關閉的連線，不能借用請求級的
+        那條（借用還會讓這條連線同時被別的請求執行緒使用，psycopg 的連線不是
+        執行緒安全的並行對象）。
+
+        **generator 是 async，用 ``await request.is_disconnected()`` 判斷
+        客戶端還在不在** —— 這是 ASGI 原生支援的斷線偵測，Starlette 收到客戶端
+        關閉連線會正確地把這件事傳達到這裡；換成 sync generator + 輪詢會漏接
+        這個訊號，串流永遠不會自己結束。DB 呼叫是同步的 psycopg，直接在 async
+        generator 裡呼叫會佔用 event loop 一小段時間 —— 在一場演練事件數以個位
+        數計、輪詢間隔 200ms 的規模下可接受，換 asyncpg 之類的非同步驅動是為
+        不存在的併發規模付錢。
+        """
+        exercise, _ = _running_exercise_and_scenario(store)
+        clearance = CALLER_CLEARANCE.get(identity, 0)
+        exercise_id = exercise.exercise_id
+        last_event_id_header = request.headers.get("Last-Event-ID")
+
+        async def generate() -> AsyncIterator[str]:
+            # 專屬連線，活到這個 generator 結束才關閉 —— 不借用請求級的
+            # `provide_conn`（那條連線在端點函式回傳當下就可能被收回）也不
+            # 借用外層的 `store`（那會讓同一條連線被輪詢與其他請求並行使用，
+            # psycopg 的連線不是執行緒安全的並行對象）。
+            stream_conn = connect()
+            try:
+                stream = CoreEventStream(stream_conn)
+                # **只有標頭整個沒出現**才是全新訂閱者，跳過歷史從當下開始。
+                # 標頭出現但值是 "0"（或任何解析不出來的垃圾值）是客戶端
+                # *主動*告訴我們一個游標 —— `parse_last_event_id` 把它們都
+                # 收斂成 0，語意是「給我 seq > 0 的所有事件」，不是「跳過歷史」。
+                # 兩者混為一談會讓「帶著 Last-Event-ID: 0 重連」的客戶端漏收
+                # 到斷線前就已經存在、還沒送達的事件。
+                cursor = parse_last_event_id(last_event_id_header)
+                if last_event_id_header is None:
+                    cursor = stream.latest_seq(exercise_id)
+                async for frame in _stream_events(
+                    request,
+                    stream_conn,
+                    stream,
+                    exercise_id,
+                    cursor,
+                    clearance,
+                    detection_labels,
+                    max_stream_seconds,
+                    lifecycle_now,
+                ):
+                    yield frame
+            finally:
+                stream_conn.close()
+
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
 
     return application
+
+
+def _exercise_still_running(
+    conn: psycopg.Connection, exercise_id: str, now: datetime
+) -> bool:
+    """Observe both explicit state and natural lifecycle expiry.
+
+    The caller supplies the same lifecycle clock used by ``ExerciseStore``;
+    this keeps deterministic test clocks valid while ensuring a quiet
+    exercise closes its stream at ``ends_at`` without waiting for another API
+    request to perform lazy state expiration.
+    """
+    row = conn.execute(
+        "SELECT 1 FROM exercises "
+        "WHERE exercise_id = %s AND state = 'running' AND ends_at > %s",
+        (exercise_id, now),
+    ).fetchone()
+    return row is not None
+
+
+async def _stream_events(
+    request: Request,
+    conn: psycopg.Connection,
+    stream: CoreEventStream,
+    exercise_id: str,
+    cursor: int,
+    clearance: int,
+    labels: Mapping[str, Mapping[str, str]],
+    max_stream_seconds: float,
+    lifecycle_now: Callable[[], datetime],
+) -> AsyncIterator[str]:
+    idle = 0.0
+    deadline = time.monotonic() + max_stream_seconds
+    while time.monotonic() < deadline and not await request.is_disconnected():
+        if not _exercise_still_running(conn, exercise_id, lifecycle_now()):
+            # 演練結束（或已被別場取代）→ 乾淨關閉，不留懸掛連線。
+            return
+
+        batch = stream.after(exercise_id, cursor)
+        if batch:
+            for _, frame in frames_for(batch, clearance, labels):
+                yield frame
+            # 游標推進到整批最大 seq，不是最後一個推出去的 —— 一批全被
+            # 過濾掉時才不會卡在原地反覆重讀。
+            cursor = batch[-1].seq
+            idle = 0.0
+            continue
+
+        idle += POLL_INTERVAL_S
+        if idle >= KEEPALIVE_INTERVAL_S:
+            idle = 0.0
+            yield comment_frame("keep-alive")
+        await asyncio.sleep(POLL_INTERVAL_S)
 
 
 app = create_app()

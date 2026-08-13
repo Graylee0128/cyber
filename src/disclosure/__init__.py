@@ -6,6 +6,7 @@ from disclosure.clearance import (
     visibility_rank,
 )
 from disclosure.event_visibility import (
+    DETECTION_EVENT_TYPES,
     EXERCISE_PREFIX,
     EXERCISE_VISIBILITY,
     VISIBILITY_BY_EVENT_TYPE,
@@ -24,6 +25,7 @@ from disclosure.projection import build_label_map, project_fields
 __all__ = [
     "BEARER_PREFIX",
     "CALLER_CLEARANCE",
+    "DETECTION_EVENT_TYPES",
     "EXERCISE_PREFIX",
     "EXERCISE_VISIBILITY",
     "FIELD_MASKING",
