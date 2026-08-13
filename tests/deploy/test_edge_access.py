@@ -41,7 +41,9 @@ def test_terminal_proxy_preserves_websocket_upgrade():
 
 
 def test_revocation_contract_is_next_handshake_not_force_disconnect():
-    integration = (ROOT / "tests" / "integration" / "test_admission_access.py").read_text(
+    integration = (
+        ROOT / "tests" / "access_integration" / "test_admission_access.py"
+    ).read_text(
         encoding="utf-8"
     )
 

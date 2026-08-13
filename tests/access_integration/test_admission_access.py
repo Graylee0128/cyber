@@ -65,7 +65,8 @@ def _claim(exercise_id: str, team: str) -> tuple[dict, str]:
     )
     assert status == 201, result
     parsed = SimpleCookie()
-    parsed.load(headers["Set-Cookie"])
+    set_cookie = next(value for key, value in headers.items() if key.lower() == "set-cookie")
+    parsed.load(set_cookie)
     return result, f"admission_session={parsed['admission_session'].value}"
 
 
