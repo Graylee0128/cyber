@@ -70,7 +70,17 @@ def scenario() -> Scenario:
     )
 
 
-def make_app(exercise_store, pg_connection, flag_source=None):
+class _FakeDispatcher:
+    """#51 測試接縫：不真的打 HTTP，直接回傳設定好的結果。"""
+
+    def __init__(self, outcome: bool):
+        self.outcome = outcome
+
+    def dispatch(self, exercise_id: str, event_id: str) -> bool:
+        return self.outcome
+
+
+def make_app(exercise_store, pg_connection, flag_source=None, dispatch_outcome=None):
     return create_app(
         ScenarioCatalog((scenario(),)),
         exercise_store=exercise_store,
@@ -78,6 +88,9 @@ def make_app(exercise_store, pg_connection, flag_source=None):
         flag_source=flag_source or FixtureFlagSource(FLAG),
         token_map=TOKEN_MAP,
         action_clock=FixedClock(),
+        response_dispatcher_factory=(
+            None if dispatch_outcome is None else lambda conn: _FakeDispatcher(dispatch_outcome)
+        ),
     )
 
 
@@ -328,7 +341,7 @@ class TestScore:
         from purple.evaluation.action_registry import ActionRegistryStore, RegisteredAction
         from purple.receiver.whitelist import default_whitelist
 
-        app = make_app(exercise_store, pg_connection)
+        app = make_app(exercise_store, pg_connection, dispatch_outcome=True)
         started = start(app)
         alice = as_actor(app, ALICE)
         alice.post("/api/submissions", json={"objective_id": "capture_flag", "flag": FLAG})
