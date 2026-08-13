@@ -2,7 +2,7 @@
 
 - **文件版本**：v0.1
 - **上位文件**：[資安攻防平台_系統架構設計文件_v0.1.md](./資安攻防平台_系統架構設計文件_v0.1.md) §4、§6
-- **拓樸依據**：[demo_network_topology_v0_2_1.svg](./demo_network_topology_v0_2_1.svg)
+- **拓樸依據**：[demo_network_topology_v0_3.svg](./demo_network_topology_v0_3.svg)
 - **架構依據**：[cyber_range_platform_layered_architecture.svg](./cyber_range_platform_layered_architecture.svg)
 - **UI 構想來源**：[discuss.md](./discuss.md)（見文末附錄）
 - **契約決策**：[ADR 0001](./docs/adr/0001-p1-output-contract.md) ／ 規格 `cyber/docs/p1-output-contract.md`
