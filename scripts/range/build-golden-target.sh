@@ -67,6 +67,15 @@ write_files:
   - path: /opt/range-target/app.py
     encoding: b64
     content: $(b64 "$REPO/deploy/range-target/app.py")
+  # 票 #44：計分攻擊面的 DB 種子與開機注入 flag 腳本。seed 進 golden（結構靜態），
+  # flag 值不進 golden（inject-flag 在每次開機時從 cloud-init 注入檔讀）。
+  - path: /opt/range-target/seed.sql
+    encoding: b64
+    content: $(b64 "$REPO/deploy/range-target/seed.sql")
+  - path: /opt/range-target/inject-flag.sh
+    permissions: '0755'
+    encoding: b64
+    content: $(b64 "$REPO/deploy/range-target/inject-flag.sh")
   - path: /opt/purplescope/purple/__init__.py
     encoding: b64
     content: $(b64 "$REPO/src/purple/__init__.py")
@@ -156,6 +165,9 @@ grep -q "GOLDEN-FALCO-STATE: active" "$CONSOLE" || { echo "❌ falco 未 active"
 grep -q "GOLDEN-ALLOY-STATE: active" "$CONSOLE" || { echo "❌ alloy 未 active"; bake_fail=1; }
 grep -q "GOLDEN-APP-STATE: active"   "$CONSOLE" || { echo "❌ 靶機 app 未 active"; bake_fail=1; }
 grep -q "GOLDEN-RESPONSE-STATE: active" "$CONSOLE" || { echo "❌ response agent 未 active"; bake_fail=1; }
+# 票 #44：DB 起來 + 授權邊界成立才算 golden 有效。
+grep -q "GOLDEN-DB-STATE: products=1 credentials=1" "$CONSOLE" || { echo "❌ 靶機 DB 未就緒（products/credentials 讀不到）"; bake_fail=1; }
+grep -q "GOLDEN-FLAG-GUARD: webapp_can_read_flag=0" "$CONSOLE" || { echo "❌ 授權邊界破了：webapp 讀得到 vault.flag（SQLi 一跳就拿 flag）"; bake_fail=1; }
 if grep -qE "GOLDEN-RULE-HITS: exec=[1-9][0-9]* secret=[1-9][0-9]* uncovered=[1-9][0-9]*" "$CONSOLE"; then
   echo "   ✅ Falco 三條 rule（T1059 exec / T1005 敏感檔 / uncovered）在 VM 內實際命中"
 else

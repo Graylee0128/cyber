@@ -13,6 +13,8 @@ golden_stamp() {
   local repo="$1"
   cat "$repo/deploy/range-target/bake.sh" \
       "$repo/deploy/range-target/app.py" \
+      "$repo/deploy/range-target/seed.sql" \
+      "$repo/deploy/range-target/inject-flag.sh" \
       "$repo/deploy/range-target/config.alloy" \
       "$repo/deploy/falco/rules.d/purplescope.yaml" \
       "$repo/scripts/range/zones.env" \

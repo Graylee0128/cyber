@@ -26,7 +26,8 @@ jobs:
           shellcheck -x -S warning \
             deploy.sh test.sh \
             scripts/*.sh scripts/range/*.sh \
-            deploy/range-target/bake.sh
+            deploy/range-target/bake.sh \
+            deploy/range-target/inject-flag.sh
 
   test:
     runs-on: ubuntu-latest
