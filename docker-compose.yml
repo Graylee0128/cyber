@@ -191,6 +191,12 @@ services:
       PURPLE_LOKI_URL: http://loki:3100
       # #52 B2：Console 的 identity 由這個 token 換出，不接受呼叫端自填。
       PURPLE_EVIDENCE_TOKEN_BLUE: "dev-blue-token"
+      # #49：`Detection #N` 標籤的排序來源。image 只帶 src/ 與 config/，
+      # 規則檔因此用 volume 掛進來。掛不到 → 標籤全空 → rule 欄位對紅藍完全拿掉
+      # （fail closed：少一個欄位，不會多一個答案）。
+      PURPLE_DETECTION_RULES_PATH: /app/detection-rules.yaml
+    volumes:
+      - ./deploy/grafana/provisioning/alerting/rules.yaml:/app/detection-rules.yaml:ro
     ports:
       - "8001:8001"
     networks:

@@ -17,18 +17,23 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import unquote, urlparse
 
 from disclosure import (
     BEARER_PREFIX,
+    CALLER_CLEARANCE,
     TOKEN_HEADER,
+    build_label_map,
     extract_token,
+    project_fields,
     resolve_identity,
 )
 from disclosure import load_service_tokens as _load_service_tokens
+from disclosure.detection_rules import load_rule_titles
+from disclosure.fields import FIELD_MASKING
 
 from purple.evidence.backends import BackendUnavailable, LokiBackend
 from purple.evidence.resolver import (
@@ -58,13 +63,23 @@ def load_service_tokens(env: Mapping[str, str] | None = None) -> dict[str, str]:
     return _load_service_tokens(TOKEN_ENV_PREFIX, env)
 
 
-def render_bundle(bundle: EvidenceBundle) -> dict[str, Any]:
+def render_bundle(
+    bundle: EvidenceBundle,
+    *,
+    caller_clearance: int,
+    labels: Mapping[str, Mapping[str, str]] | None = None,
+) -> dict[str, Any]:
     """把 EvidenceBundle 序列化成 JSON-able dict（純函數）。
 
     刻意只吐 bundle 帶的欄位 —— 沒有 backend、沒有原始 query。遙測細節不外流
     （ADR ④）；bundle 本身就已經不帶那些。
+
+    `caller_clearance` 是**必填**的：套用 `disclosure` 的欄位級遮蔽（#49）需要它，
+    而給它預設值等於讓「忘記傳」變成一次靜默的完整揭露 —— 正是本票要消滅的那種
+    「漏遮不會有錯誤訊號」。**遮蔽在這裡發生，也就是 API 回應的組裝**，不是前端
+    渲染 —— 前端遮是假的，devtools 打開就看到。
     """
-    return {
+    body = {
         "event_id": bundle.event_id,
         "rule": bundle.rule,
         "window_start": bundle.window_start.isoformat(),
@@ -81,12 +96,22 @@ def render_bundle(bundle: EvidenceBundle) -> dict[str, Any]:
         ],
     }
 
+    return project_fields(body, caller_clearance, labels=labels)
+
+
+def build_detection_labels(titles: Sequence[str] | None = None) -> dict[str, dict[str, str]]:
+    """`rule` 欄位的匿名標籤表。標題來源與排序見 `disclosure.detection_rules`。"""
+    policy = FIELD_MASKING["rule"]
+    names = load_rule_titles() if titles is None else titles
+    return {"rule": build_label_map(names, policy.label_prefix or "Detection")}
+
 
 def handle_evidence(
     event_id: str,
     token: str | None,
     resolver: Any,
     token_map: Mapping[str, str],
+    labels: Mapping[str, Mapping[str, str]] | None = None,
 ) -> tuple[int, dict[str, Any]]:
     """解析一次 evidence 請求，回傳 (HTTP status, body)（判定邏輯，可獨立測）。
 
@@ -122,12 +147,17 @@ def handle_evidence(
         log.exception("evidence 解析非預期失敗 event_id=%s", event_id)
         return 500, {"error": "internal error"}
 
-    return 200, render_bundle(bundle)
+    # 查不到 clearance 就當最低一級（0）—— resolver 早該擋下這種身分，萬一沒有，
+    # 少看見一點永遠好過多看見一點。
+    return 200, render_bundle(
+        bundle, caller_clearance=CALLER_CLEARANCE.get(identity, 0), labels=labels
+    )
 
 
 class EvidenceHandler(BaseHTTPRequestHandler):
     resolver: Any = None  # 由 main() 注入
     token_map: Mapping[str, str] = {}  # 由 main() 注入：token → identity
+    labels: Mapping[str, Mapping[str, str]] = {}  # 由 main() 注入：欄位匿名標籤
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
@@ -146,7 +176,9 @@ class EvidenceHandler(BaseHTTPRequestHandler):
             return
 
         token = extract_token(self.headers)
-        status, body = handle_evidence(event_id, token, self.resolver, self.token_map)
+        status, body = handle_evidence(
+            event_id, token, self.resolver, self.token_map, self.labels
+        )
         self._respond(status, body)
 
     def _respond(self, code: int, body: dict) -> None:
@@ -180,6 +212,10 @@ def main() -> None:
     EvidenceHandler.token_map = load_service_tokens()
     if not EvidenceHandler.token_map:
         log.warning("沒有任何 PURPLE_EVIDENCE_TOKEN_* 設定；此服務會拒絕所有請求")
+
+    EvidenceHandler.labels = build_detection_labels()
+    if not EvidenceHandler.labels["rule"]:
+        log.warning("偵測規則清單是空的；clearance 不足的呼叫者將完全看不到 rule 欄位")
 
     log.info("evaluation-engine（Evidence API）就緒，listening on :%d", PORT)
     ThreadingHTTPServer(("0.0.0.0", PORT), EvidenceHandler).serve_forever()
