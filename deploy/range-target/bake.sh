@@ -220,7 +220,10 @@ echo "seed 灌完：$(mysql --protocol=socket -u root -N -e "SELECT COUNT(*) FRO
 
 # 開機注入 flag 的 oneshot：mariadb 起來後跑一次，讀 cloud-init 注入的 flag 檔並 UPDATE。
 # RemainAfterExit：oneshot 跑完保持 active，狀態檢查看得到它成功過。
-install -D -m 0755 /opt/range-target/inject-flag.sh /opt/range-target/inject-flag.sh
+# 檔案本身已由 cloud-init 以 0755 寫到這個路徑（build-golden-target.sh 的
+# write_files），這裡不必也不能再 install 一次 —— 來源與目的地是同一個路徑，
+# install/cp 會直接拒絕「複製到自己」而 exit 1，把整個 bake 拖垮。
+chmod 0755 /opt/range-target/inject-flag.sh
 cat > /etc/systemd/system/purplescope-flag-inject.service <<'UNIT'
 [Unit]
 Description=PurpleScope inject per-range flag into vault.flag
