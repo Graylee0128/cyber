@@ -28,9 +28,12 @@ class ResponseCommand:
     technique: str
     service: str
     action: str = "block"
+    # "manual"（藍隊動作觸發，#51）或 "auto"（測試載具，#48）。
+    # 計分（#33）只認 "manual"——這個欄位是唯一的判準，不得另外猜。
+    triggered_by: str = "manual"
 
     @classmethod
-    def from_core_event(cls, event: dict[str, Any]) -> "ResponseCommand":
+    def from_core_event(cls, event: dict[str, Any], *, triggered_by: str = "manual") -> "ResponseCommand":
         target = event.get("target") or {}
         source_ip = target.get("source_ip")
         if not source_ip:
@@ -43,6 +46,7 @@ class ResponseCommand:
             severity=event["severity"],
             technique=event["technique"],
             service=target["service"],
+            triggered_by=triggered_by,
         )
 
     def as_dict(self) -> dict[str, str]:
@@ -55,6 +59,7 @@ class ResponseCommand:
             "technique": self.technique,
             "service": self.service,
             "action": self.action,
+            "triggered_by": self.triggered_by,
         }
 
     @classmethod
