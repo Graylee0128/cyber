@@ -6,10 +6,13 @@ fake 過不了的東西正是選 PG 的理由：timestamptz 的時區保真、js
 
 from datetime import datetime, timedelta, timezone
 
+import psycopg
 import pytest
 
 from purple.harness.schema import assert_core_event
+from purple.store.db import dsn
 from purple.store.events import CoreEventStore
+from psycopg.types.json import Jsonb
 
 FIRING = {
     "event_id": "evt-01J000000000000000000001",
@@ -68,6 +71,44 @@ class TestLifecyclePair:
         assert store.append(FIRING) is True
         assert store.append(FIRING) is False
         assert store.append(RESOLVED) is True
+
+
+class TestStreamCursorCommitOrder:
+    def test_later_writer_cannot_allocate_a_cursor_before_earlier_commit(self):
+        """The DB default locks before nextval, so visibility order and SSE
+        cursor order cannot diverge under concurrent receiver requests."""
+
+        def insert(conn, event):
+            return conn.execute(
+                """
+                INSERT INTO core_events
+                    (event_id, lifecycle, event_type, exercise_id, scenario_id,
+                     observed_at, action_id, event)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING seq
+                """,
+                (
+                    event["event_id"], event["lifecycle"], event["event_type"],
+                    event["exercise_id"], event["scenario_id"], event["observed_at"],
+                    event["action_id"], Jsonb(event),
+                ),
+            ).fetchone()[0]
+
+        first = {**FIRING, "event_id": "evt-cursor-first"}
+        second = {**FIRING, "event_id": "evt-cursor-second"}
+        with psycopg.connect(dsn()) as writer_one, psycopg.connect(dsn()) as writer_two:
+            seq_one = insert(writer_one, first)  # holds the xact advisory lock
+            writer_two.execute("SET LOCAL statement_timeout = '200ms'")
+
+            with pytest.raises(psycopg.errors.QueryCanceled):
+                insert(writer_two, second)
+
+            writer_two.rollback()
+            writer_one.commit()
+            seq_two = insert(writer_two, second)
+            writer_two.commit()
+
+        assert seq_one < seq_two
 
 
 class TestSince:

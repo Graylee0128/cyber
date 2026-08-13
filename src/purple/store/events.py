@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Any
 
 import psycopg
+from disclosure import DETECTION_EVENT_TYPES
 from psycopg.types.json import Jsonb
 
 INSERT = """
@@ -20,12 +21,6 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (event_id, lifecycle) DO NOTHING
 RETURNING event_id
 """
-
-#: 算「這次動作被偵測到了」的事件型別。`detection.miss` 顯然不算；`response.*`
-#: 是反應不是偵測；`exercise.*` 是流程事件。這份清單是判準本身，不得在呼叫端
-#: 各自用字串比對重寫一次。
-DETECTION_EVENT_TYPES = ("attack.detected", "detection.hit")
-
 
 @dataclass
 class CoreEventStore:

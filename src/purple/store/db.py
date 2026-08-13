@@ -50,6 +50,21 @@ CREATE TABLE IF NOT EXISTS core_events (
 ALTER TABLE core_events ADD COLUMN IF NOT EXISTS action_id text;
 ALTER TABLE core_events ADD COLUMN IF NOT EXISTS seq bigserial;
 
+-- A serial value by itself is monotonic in allocation order, not commit
+-- order. With concurrent receiver requests, transaction B could allocate 2
+-- and commit before transaction A (which already allocated 1); an SSE reader
+-- would advance to 2 and permanently skip 1. Put the transaction-scoped lock
+-- *before* nextval in the DEFAULT expression, so allocation and commit are
+-- serialized for every writer, including direct SQL writers.
+CREATE OR REPLACE FUNCTION next_core_event_stream_seq()
+RETURNS bigint LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM pg_advisory_xact_lock(1129270853); -- "CORE"-scoped fixed key
+    RETURN nextval('core_events_seq_seq');
+END;
+$$;
+ALTER TABLE core_events ALTER COLUMN seq SET DEFAULT next_core_event_stream_seq();
+
 CREATE UNIQUE INDEX IF NOT EXISTS core_events_seq_idx ON core_events (seq);
 CREATE INDEX IF NOT EXISTS core_events_recorded_at_idx ON core_events (recorded_at);
 CREATE INDEX IF NOT EXISTS core_events_exercise_idx    ON core_events (exercise_id, observed_at);

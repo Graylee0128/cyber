@@ -13,10 +13,11 @@ HTTP 那一層薄到只剩 `StreamingResponse`，判定與格式化都在這裡�
 **gap 是允許的**：`ON CONFLICT DO NOTHING` 吃掉的重送仍會消耗一個序號。游標只
 需要嚴格遞增，不需要連續。
 
-**單寫者假設（明講，不是默認）**：`core_events` 的唯一寫入者是 P1 receiver，
-一筆事件一個交易，所以不會出現「較小的 seq 在較大的 seq 之後才可見」。哪天
-receiver 變成多實例並行寫入，這裡要改成等 gap 關閉再推進 —— 寫下來，免得那天
-靠通靈發現。
+P1 receiver 會並行處理 webhook，所以單靠 sequence 還不夠：sequence 保證配置順序，
+不保證 commit 順序。`purple.store.db` 的 `next_core_event_stream_seq()` 在配置號碼前
+取得 transaction advisory lock，讓「配置 seq → commit」成為序列化區段；因此讀者
+看見較大的 seq 時，所有較小 seq 都已可見。這個保證落在資料庫 default，不依賴
+每個寫入者記得手動加鎖。
 
 `range_core` 讀 `core_events` 是**唯讀的已發布表契約**，與 `telemetry.py` 的
 `CoreEventFeed` 同一個手法：不 import `purple`（`tests/range_core/test_boundary.py`

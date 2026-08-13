@@ -21,7 +21,8 @@ import asyncio
 import logging
 import os
 import time
-from collections.abc import AsyncIterator, Iterator, Mapping
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
+from datetime import datetime
 from pathlib import Path
 
 import psycopg
@@ -233,6 +234,7 @@ def create_app(
     # 與 tokens／detection_labels 同一個理由：這份設定在演練期間不該變動。
     blue_scoring_config = BlueScoringConfig.load()
     resolved_action_clock = action_clock or ActionSystemClock()
+    lifecycle_now = exercise_store.now if exercise_store is not None else ActionSystemClock().now
     if not tokens:
         log.warning(
             "no %s* configured; this service will reject every request",
@@ -581,6 +583,7 @@ def create_app(
                     clearance,
                     detection_labels,
                     max_stream_seconds,
+                    lifecycle_now,
                 ):
                     yield frame
             finally:
@@ -595,19 +598,20 @@ def create_app(
     return application
 
 
-def _exercise_still_running(conn: psycopg.Connection, exercise_id: str) -> bool:
-    """單純觀察 `exercises` 表的 state，**不觸發到期判定**。
+def _exercise_still_running(
+    conn: psycopg.Connection, exercise_id: str, now: datetime
+) -> bool:
+    """Observe both explicit state and natural lifecycle expiry.
 
-    到期判定（`ExerciseStore._expire_due`）需要一個「現在」，而測試會注入
-    `FixedClock` 讓 `ends_at` 落在測試自訂的時間軸上。串流若自己另建一個
-    `ExerciseStore` 來查 `current()`，用的會是預設的 `SystemClock`（真實
-    wall-clock）—— 對著一個用假時鐘算出來的 `ends_at` 比對真實時間，會把
-    測試中「還在跑」的演練誤判成早已過期。到期判定交給其他有正確時鐘設定的
-    路徑（`/api/exercises/current`、`/api/score` 等）；串流只負責讀當下狀態。
+    The caller supplies the same lifecycle clock used by ``ExerciseStore``;
+    this keeps deterministic test clocks valid while ensuring a quiet
+    exercise closes its stream at ``ends_at`` without waiting for another API
+    request to perform lazy state expiration.
     """
     row = conn.execute(
-        "SELECT 1 FROM exercises WHERE exercise_id = %s AND state = 'running'",
-        (exercise_id,),
+        "SELECT 1 FROM exercises "
+        "WHERE exercise_id = %s AND state = 'running' AND ends_at > %s",
+        (exercise_id, now),
     ).fetchone()
     return row is not None
 
@@ -621,11 +625,12 @@ async def _stream_events(
     clearance: int,
     labels: Mapping[str, Mapping[str, str]],
     max_stream_seconds: float,
+    lifecycle_now: Callable[[], datetime],
 ) -> AsyncIterator[str]:
     idle = 0.0
     deadline = time.monotonic() + max_stream_seconds
     while time.monotonic() < deadline and not await request.is_disconnected():
-        if not _exercise_still_running(conn, exercise_id):
+        if not _exercise_still_running(conn, exercise_id, lifecycle_now()):
             # 演練結束（或已被別場取代）→ 乾淨關閉，不留懸掛連線。
             return
 

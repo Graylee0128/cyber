@@ -23,6 +23,7 @@ from datetime import datetime
 from typing import Any
 
 import psycopg
+from disclosure import DETECTION_EVENT_TYPES
 
 from range_core.blue_actions import (
     BlueAction,
@@ -35,7 +36,7 @@ from range_core.objectives import Clock, SystemClock
 
 
 class UnknownEvent(BlueActionRejected):
-    """`event_id` has no Core Event on record for this exercise.
+    """`event_id` has no detection Core Event on record for this exercise.
 
     A Blue Action must point at something that actually happened — accepting
     one against an unknown `event_id` would let a client fabricate a reaction
@@ -73,7 +74,7 @@ class BlueActionStore:
 
         if not self._event_exists(exercise_id, event_id):
             raise UnknownEvent(
-                f"event {event_id!r} has no Core Event on record for this exercise"
+                f"event {event_id!r} has no detection Core Event on record for this exercise"
             )
 
         try:
@@ -99,8 +100,10 @@ class BlueActionStore:
 
     def _event_exists(self, exercise_id: str, event_id: str) -> bool:
         row = self.conn.execute(
-            "SELECT 1 FROM core_events WHERE exercise_id = %s AND event_id = %s",
-            (exercise_id, event_id),
+            "SELECT 1 FROM core_events "
+            "WHERE exercise_id = %s AND event_id = %s AND lifecycle = 'firing' "
+            "AND event_type = ANY(%s)",
+            (exercise_id, event_id, list(DETECTION_EVENT_TYPES)),
         ).fetchone()
         return row is not None
 
@@ -144,8 +147,8 @@ class BlueActionStore:
         """
         rows = self.conn.execute(
             "SELECT event_id, observed_at FROM core_events "
-            "WHERE exercise_id = %s AND lifecycle = 'firing'",
-            (exercise_id,),
+            "WHERE exercise_id = %s AND lifecycle = 'firing' AND event_type = ANY(%s)",
+            (exercise_id, list(DETECTION_EVENT_TYPES)),
         ).fetchall()
         return {row[0]: row[1] for row in rows}
 
@@ -158,8 +161,9 @@ class BlueActionStore:
         the real value directly, same as it must to grade anything.
         """
         rows = self.conn.execute(
-            "SELECT event_id, event FROM core_events WHERE exercise_id = %s AND lifecycle = 'firing'",
-            (exercise_id,),
+            "SELECT event_id, event FROM core_events WHERE exercise_id = %s "
+            "AND lifecycle = 'firing' AND event_type = ANY(%s)",
+            (exercise_id, list(DETECTION_EVENT_TYPES)),
         ).fetchall()
         result: dict[str, str] = {}
         for event_id, event in rows:

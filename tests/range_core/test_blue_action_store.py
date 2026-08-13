@@ -64,12 +64,13 @@ def _core_event(
     technique: str = "T1190",
     lifecycle: str = "firing",
     action_id: str | None = None,
+    event_type: str = "attack.detected",
 ) -> dict:
     return {
         "event_id": event_id,
         "exercise_id": exercise_id,
         "scenario_id": "scn-1",
-        "event_type": "attack.detected",
+        "event_type": event_type,
         "lifecycle": lifecycle,
         "severity": "high",
         "source": "grafana",
@@ -100,6 +101,20 @@ class TestRecordRequiresARealEvent:
         CoreEventStore(pg_connection).append(_core_event(running_exercise.exercise_id, "evt-1"))
         recorded = store.record(running_exercise.exercise_id, "acknowledge", "evt-1")
         assert recorded.event_id == "evt-1"
+
+    def test_non_detection_event_cannot_be_used_as_a_reaction_origin(
+        self, store, pg_connection, running_exercise
+    ):
+        CoreEventStore(pg_connection).append(
+            _core_event(
+                running_exercise.exercise_id,
+                "evt-response",
+                event_type="response.executed",
+            )
+        )
+
+        with pytest.raises(UnknownEvent):
+            store.record(running_exercise.exercise_id, "acknowledge", "evt-response")
 
 
 class TestShapeValidationIsRejectedBeforeAnyWrite:

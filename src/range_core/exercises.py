@@ -212,6 +212,15 @@ class ExerciseStore:
         self._conn = conn
         self._clock = clock or SystemClock()
 
+    def now(self) -> datetime:
+        """The lifecycle clock used for this store.
+
+        Streaming owns a separate DB connection, but must use the same clock
+        as lifecycle writes (including deterministic test clocks) when it
+        decides whether ``ends_at`` has passed.
+        """
+        return self._clock.now()
+
     def start(
         self,
         scenario: Scenario,

@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 
-from range_core.api import create_app
+from range_core.api import _exercise_still_running, create_app
 from range_core.exercises import PlayerRegistration
 from range_core.scenarios import Scenario, ScenarioCatalog
 
@@ -230,6 +230,20 @@ class TestLifecycle:
             exercise_store.reset_current()
             # 迭代器自然結束（不是 timeout、不是例外）就是乾淨關閉。
             assert list(lines) is not None
+
+    def test_natural_expiry_closes_without_another_lifecycle_request(
+        self, exercise, pg_connection
+    ):
+        """The stored row may still say running because expiry is normally
+        lazy; SSE must independently honor ends_at."""
+        state = pg_connection.execute(
+            "SELECT state FROM exercises WHERE exercise_id = %s",
+            (exercise.exercise_id,),
+        ).fetchone()[0]
+        assert state == "running"
+        assert _exercise_still_running(
+            pg_connection, exercise.exercise_id, exercise.ends_at
+        ) is False
 
     def test_connection_closes_on_its_own_after_the_bound(
         self, exercise_store, pg_connection
