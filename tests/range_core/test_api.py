@@ -66,18 +66,13 @@ reset_scope: environment
             "difficulty": "custom-label",
             "duration": "45m",
             "objectives": [
-                {"id": "capture_flag", "evaluation": "submission", "points": 500}
-            ],
-            "targets": [{"host": "target-01", "surfaces": ["web"]}],
-            "expected_sources": ["falco"],
-            "attack_chain": [
                 {
-                    "id": "exploit-web",
-                    "technique": "T1190",
-                    "description": "Exploit the target.",
+                    "id": "capture_flag",
+                    "evaluation": "submission",
+                    "points": 500,
+                    "telemetry_signal": None,
                 }
             ],
-            "reset_scope": "exercise",
             "hints": [],
             "targets": [{"host": "target-01", "surfaces": ["web"]}],
             "expected_sources": ["falco"],
@@ -93,6 +88,64 @@ reset_scope: environment
             "reset_scope": "environment",
         }
     ]
+
+
+def test_get_scenarios_never_leaks_hint_text(tmp_path: Path):
+    """#33 review finding: `/api/scenarios` is unauthenticated and Red can
+    reach it directly. If hint text rode along, nobody would ever need the
+    recorded `POST /api/hints` path — the penalty would be optional."""
+    scenario_root = tmp_path / "scenarios"
+    scenario_root.mkdir()
+    package = scenario_root / "hinted-scenario"
+    package.mkdir()
+    (package / "metadata.yaml").write_text(
+        """
+id: hinted-scenario
+name: Hinted Scenario
+difficulty: custom-label
+duration: 45m
+objectives:
+  - id: capture_flag
+    evaluation: submission
+    points: 500
+hints:
+  - objective_id: capture_flag
+    text: Inspect local application data.
+    penalty_percent: 50
+targets:
+  - host: target-01
+    surfaces: [web]
+expected_sources: [falco]
+attack_chain:
+  - id: exploit-web
+    technique: T1190
+    description: Exploit the target.
+reset_scope: exercise
+""".strip(),
+        encoding="utf-8",
+    )
+    (package / "briefing.md").write_text("Capture the flag.", encoding="utf-8")
+    sources = tmp_path / "sources.yaml"
+    sources.write_text("sources:\n  - id: falco\n", encoding="utf-8")
+    rules = tmp_path / "rules.yaml"
+    rules.write_text("groups: []\n", encoding="utf-8")
+    techniques = tmp_path / "techniques.yaml"
+    techniques.write_text("techniques:\n  - id: T1190\n", encoding="utf-8")
+    catalog = ScenarioCatalog.from_directory(
+        scenario_root,
+        source_definitions_path=sources,
+        detection_rules_path=rules,
+        techniques_path=techniques,
+    )
+    app = create_app(catalog)
+
+    response = TestClient(app).get("/api/scenarios")
+
+    assert response.status_code == 200
+    hints = response.json()[0]["hints"]
+    assert hints == [{"objective_id": "capture_flag", "penalty_percent": 50}]
+    assert "text" not in hints[0]
+    assert "Inspect local application data." not in response.text
 
 
 def test_start_and_current_exercise_are_available_over_http(exercise_store) -> None:
