@@ -73,3 +73,11 @@ def test_every_registered_liveness_source_is_covered_or_explicitly_excluded():
     action_contracts = {"falco"}
     assert registered <= action_contracts | NON_ACTION_SOURCE_EXCLUSIONS.keys()
     assert all(NON_ACTION_SOURCE_EXCLUSIONS.values())
+
+
+def test_stale_falco_counts_cannot_satisfy_fresh_action(monkeypatch):
+    verifier = load_module("verify_p1_fields", "scripts/range/verify-p1-fields.py")
+    baseline = {field: 3 for field in NORMALIZED_FIELDS}
+    monkeypatch.setattr(verifier, "read_counts", lambda *_args: baseline.copy())
+    with pytest.raises(FieldContractError, match="fresh action did not increase"):
+        verifier.wait_for_increase(falco_contract(), "http://loki", baseline, 0)

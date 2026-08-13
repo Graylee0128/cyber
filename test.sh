@@ -80,7 +80,9 @@ elif docker compose -f "$REPO/docker-compose.yml" ps --status running -q 2>/dev/
   fi
   if "$PY" -m pytest -q -s -m integration \
       --ignore="$REPO/tests/integration/test_falco_range_chain.py"; then
-    if "$PY" "$RANGE/verify-p1-fields.py" --app vulnerable-app \
+    P1_ARGS=(--app vulnerable-app)
+    if [ "$FALCO_MODE" = "container" ]; then P1_ARGS+=(--falco); fi
+    if "$PY" "$RANGE/verify-p1-fields.py" "${P1_ARGS[@]}" \
         && "$PY" -m purple.clock.cli --config "$REPO/config/clock-nodes-compose.yaml"; then
       record "T2 compose 整合：✅（含 P1 四欄 + 全來源 clock）"
     else

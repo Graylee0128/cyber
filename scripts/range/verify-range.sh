@@ -46,10 +46,14 @@ path = sys.argv[2] if len(sys.argv) > 2 else "/probe"
 try:
     request = f"GET {path} HTTP/1.1\r\nHost: range-target\r\nConnection: close\r\n\r\n"
     s.sendall(request.encode())
-    s.recv(256)
+    response = s.recv(256)
 except OSError:
-    pass
+    response = b""
 s.close()
+if path == "/exec" and not response.startswith(b"HTTP/1."):
+    raise SystemExit(1)
+if path == "/exec" and b" 200 " not in response.split(b"\r\n", 1)[0]:
+    raise SystemExit(1)
 PY
 trap 'rm -f "$PROBE_PY"' EXIT
 
@@ -351,9 +355,16 @@ fi
 if [ "$TARGET_MODE" = vm ] && [ -f "$REPO/scripts/range/verify-p1-fields.py" ]; then
   echo "=== P1 最終驗收：range-target/Falco 四欄（VM clock 已由 nonce console 證明） ==="
   # 欄位驗收必須自己製造本輪 Falco action，不能靠 Loki 裡碰巧殘留的舊事件。
-  probe_target_from_red "${RED_NS_PREFIX}1" /exec || true
+  FALCO_BASELINE="$(mktemp)"
   PYTHONPATH="$REPO/src" python3 "$REPO/scripts/range/verify-p1-fields.py" \
-    --loki-url "$LOKI_URL" --app range-target --falco --wait-seconds 30 || fails=1
+    --loki-url "$LOKI_URL" --app range-target --capture-falco-baseline "$FALCO_BASELINE" || fails=1
+  if ! probe_target_from_red "${RED_NS_PREFIX}1" /exec; then
+    echo "  ✗ 本輪 Falco /exec action 未成功回 HTTP 200"; fails=1
+  fi
+  PYTHONPATH="$REPO/src" python3 "$REPO/scripts/range/verify-p1-fields.py" \
+    --loki-url "$LOKI_URL" --app range-target --falco --wait-seconds 30 \
+    --falco-baseline "$FALCO_BASELINE" || fails=1
+  rm -f "$FALCO_BASELINE"
 fi
 
 if [ "$fails" -ne 0 ]; then

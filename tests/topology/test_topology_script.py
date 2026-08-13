@@ -287,7 +287,15 @@ def test_build_range_enforces_contract1_allowlist_and_runs_deny_canary():
 def test_vm_p1_verifier_generates_fresh_falco_action_and_waits_for_delivery():
     text = VERIFY_RANGE.read_text(encoding="utf-8")
     assert 'probe_target_from_red "${RED_NS_PREFIX}1" /exec' in text
-    assert "--falco --wait-seconds 30" in text
+    assert '--capture-falco-baseline "$FALCO_BASELINE"' in text
+    assert '--falco-baseline "$FALCO_BASELINE"' in text
+    assert "本輪 Falco /exec action 未成功回 HTTP 200" in text
+
+
+def test_t2_container_falco_runs_four_field_contract():
+    text = (ROOT / "test.sh").read_text(encoding="utf-8")
+    assert 'if [ "$FALCO_MODE" = "container" ]; then P1_ARGS+=(--falco); fi' in text
+    assert 'verify-p1-fields.py" "${P1_ARGS[@]}"' in text
 
 
 def test_six_kali_must_be_distinguishable():
