@@ -140,11 +140,19 @@ class ActionRegistryStore:
             actions=tuple(RegisteredAction(*action) for action in actions),
         )
 
-    def denominator(self, exercise_id: str) -> tuple[str, ...]:
+    def frozen_actions(self, exercise_id: str) -> tuple[RegisteredAction, ...]:
+        """凍結後的完整動作清單。**未凍結即拒絕**。
+
+        評分要的不只是 id，還要 technique（T1005 之類的證據上限判定要用）。
+        與 `denominator` 走同一道凍結檢查，兩者不會各自漂移。
+        """
         snapshot = self.get(exercise_id)
         if snapshot.frozen_at is None:
             raise RegistryNotFrozen("coverage denominator requires a frozen registry")
-        return tuple(action.id for action in snapshot.actions)
+        return snapshot.actions
+
+    def denominator(self, exercise_id: str) -> tuple[str, ...]:
+        return tuple(action.id for action in self.frozen_actions(exercise_id))
 
     def _require_mutable(self, exercise_id: str) -> None:
         row = self.conn.execute(

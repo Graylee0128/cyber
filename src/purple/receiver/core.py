@@ -51,6 +51,10 @@ def build_core_event(
 
     technique 必須在白名單內，否則拋 `TechniqueRejected`（ADR ⑤）——
     白名單外的值不得靜默通過，由呼叫端記錄。
+
+    `action_id` 只從 label 讀，**永不**由 technique ＋ 時間窗鄰近性推導（#90）：
+    同一個 technique 可以有多個註冊動作，靠「最近的那個」猜會把證據配到錯的動作上，
+    而且錯得無聲無息。沒有 label 就是 `None`。
     """
     labels = alert["labels"]
     event_type = labels["event_type"]
@@ -77,11 +81,25 @@ def build_core_event(
         "observed_at": alert["startsAt"],
         # 由對照表推導，不讀 labels["visibility"]
         "visibility": expected_visibility(event_type),
+        "action_id": _action_id_of(labels),
     }
 
     # 防禦性：離開 core 前就保證合約。不合法的東西不該有機會落地。
     assert_core_event(event)
     return event
+
+
+def _action_id_of(labels: dict[str, Any]) -> str | None:
+    """label 帶的註冊動作 id。缺席或空白 → `None`（不對應任何註冊動作）。
+
+    只做「去空白」這一種正規化。不查 registry、不驗存在性 —— receiver 在
+    Z-MGMT 邊界上只負責忠實搬運，「這個 id 有沒有註冊過」是 Evaluation 的判斷，
+    在這裡先擋掉會讓一筆真實事件因為分母還沒凍結而永久消失。
+    """
+    raw = labels.get("action_id")
+    if not isinstance(raw, str):
+        return None
+    return raw.strip() or None
 
 
 def build_alert_record(alert: dict[str, Any], event_id: str) -> dict[str, Any]:

@@ -102,6 +102,7 @@ CORE_EVENT = {
     "source": "grafana", "team": "red", "technique": "T1190",
     "target": {"service": "vulnerable-app"}, "observed_at": T0.isoformat(),
     "visibility": "public",
+    "action_id": None,
 }
 ALERT_RECORD = {
     "event_id": EVENT_ID, "grafana_rule": "SQLInjectionBurst",

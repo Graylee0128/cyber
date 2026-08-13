@@ -125,11 +125,15 @@ def _parse_observed_at(value: object) -> datetime:
     return parsed
 
 
-def _telemetry_source(labels: Mapping[str, str]) -> str:
+def telemetry_source(labels: Mapping[str, str]) -> str:
     """要對哪個遙測來源查。
 
     注意：Core Event 的 `source` 是 "grafana"（告警來源），不是遙測來源。
     遙測來源住在 Alert Record 的 labels 裡：優先 `source`，退而求其次 `service`。
+
+    公開的原因：#90 的證據組裝要用同一條規則判斷「這筆偵測來自哪個 collector」。
+    C3 需要兩個**獨立**來源，若兩處各自解讀 labels，同一個 collector 可能被
+    數成兩個來源而假性升級。
     """
     return labels.get("source") or labels.get("service") or "unknown"
 
@@ -147,7 +151,7 @@ def build_query(
     observed_at = _parse_observed_at(reference["observed_at"])
     labels = record.get("labels") or {}
     return EvidenceQuery(
-        source=_telemetry_source(labels),
+        source=telemetry_source(labels),
         start=observed_at - window,
         end=observed_at + window,
         labels=dict(labels),

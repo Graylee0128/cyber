@@ -23,6 +23,10 @@ REQUIRED_FIELDS = frozenset(
         "target",
         "observed_at",
         "visibility",
+        # Action↔Evidence 的唯一關聯鍵（#90 Phase 1）。**鍵必須在，值可以是 null**：
+        # null 明說「這筆事件不對應任何註冊動作」，而缺鍵會讓「還沒接線」與
+        # 「確定無對應」看起來一樣。P2 的分母不容許這種分不清。
+        "action_id",
     }
 )
 
@@ -66,6 +70,7 @@ def assert_core_event(event: dict) -> None:
     _check_enums(event)
     _check_visibility(event)
     _check_observed_at(event["observed_at"])
+    _check_action_id(event["action_id"])
     _reject_backend_vocabulary(event)
 
 
@@ -119,6 +124,21 @@ def _check_observed_at(value: object) -> None:
         raise SchemaViolation(f"observed_at {value!r} is not ISO-8601") from exc
     if parsed.tzinfo is None:
         raise SchemaViolation(f"observed_at {value!r} has no timezone")
+
+
+def _check_action_id(value: object) -> None:
+    """`None`（無對應動作）或非空字串（註冊動作 id）。空字串一律回絕。
+
+    空字串是最危險的第三態：它讓「有帶但帶了個空的」在 truthiness 判斷下等同
+    `None`，於是漏帶 label 的事件會被當成「確定無對應」而靜靜通過。
+    """
+    if value is None:
+        return
+    if not isinstance(value, str) or not value.strip():
+        raise SchemaViolation(
+            f"action_id must be null or a non-empty string, got {value!r} —— "
+            f"空字串不是「沒有動作」，是漏帶（#90 Phase 1）"
+        )
 
 
 def _reject_backend_vocabulary(event: dict) -> None:

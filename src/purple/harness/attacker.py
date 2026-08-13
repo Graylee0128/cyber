@@ -33,10 +33,19 @@ class AttackResult:
     status_code: int
     elapsed_ms: float
     marker: str = field(compare=False, default="")
+    #: 這次攻擊實現的**已註冊**動作（#90 Phase 1）。`None` 代表這是一次不計分的
+    #: 探測，不是「忘了填」——計分路徑一律要求呼叫端明寫。
+    action_id: str | None = None
 
 
-def make_marker(attack_id: str) -> str:
-    """埋進 payload 的可追蹤標記。用 SQL 註解語法，讓它在多數靶機上無害地被吞掉。"""
+def make_marker(attack_id: str, action_id: str | None = None) -> str:
+    """埋進 payload 的可追蹤標記。用 SQL 註解語法，讓它在多數靶機上無害地被吞掉。
+
+    帶 `action_id` 時一併埋進去：raw 遙測因此自帶關聯鍵，Evaluation 不必靠
+    技法＋時間窗猜這行 log 屬於哪個動作（#90 的關聯契約）。
+    """
+    if action_id:
+        return f"-- purple:{attack_id} action:{action_id}"
     return f"-- purple:{attack_id}"
 
 
@@ -47,14 +56,18 @@ def inject_sqli(
     payload: str = DEFAULT_PAYLOAD,
     timeout_s: float = DEFAULT_TIMEOUT_S,
     opener: urllib.request.OpenerDirector | None = None,
+    action_id: str | None = None,
 ) -> AttackResult:
     """對 base_url+path 送一次帶 SQLi payload 的 GET，回傳可追蹤的結果。
 
     刻意不要求回應成功：靶機是脆弱的，重點在注入送達，不在它回什麼。
     連請求都送不出去（連線被拒、逾時）才是失敗，會拋 AttackFailed。
+
+    `action_id` 是這次攻擊實現的註冊動作；給了就會埋進 marker，讓後續遙測與
+    Core Event 帶得回同一個關聯鍵。
     """
     attack_id = uuid.uuid4().hex
-    marker = make_marker(attack_id)
+    marker = make_marker(attack_id, action_id)
     injected = f"{payload} {marker}"
     query = urllib.parse.urlencode({param: injected})
     url = f"{base_url.rstrip('/')}{path}?{query}"
@@ -81,6 +94,7 @@ def inject_sqli(
         status_code=status,
         elapsed_ms=elapsed_ms,
         marker=marker,
+        action_id=action_id,
     )
 
 

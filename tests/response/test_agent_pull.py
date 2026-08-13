@@ -45,6 +45,7 @@ ATTACK_CORE_EVENT = {
     "target": {"service": "range-target", "source_ip": "10.167.30.11"},
     "observed_at": "2026-08-08T14:30:00+00:00",
     "visibility": "public",
+    "action_id": None,
 }
 
 

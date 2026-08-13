@@ -117,6 +117,10 @@ class ResponseAgent:
             # response.executed 的 observed_at 是 ipset 成功回傳後才取值，正是 ADR ⑦ 的 MTTR 終點。
             "observed_at": observed_at,
             "visibility": visibility,
+            # response 不是「對某個註冊動作的偵測」，所以不直接掛 action_id ——
+            # 掛上去會讓它被算進該動作的偵測證據，把反應誤計成偵測。
+            # 要回溯是哪個動作，走 target.attack_event_id → 那筆攻擊事件的 action_id。
+            "action_id": None,
         }
         assert visibility == expected_visibility(event_type)
         assert_core_event(event)
