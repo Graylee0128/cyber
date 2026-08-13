@@ -1,6 +1,6 @@
 <svg width="2120" height="1360" viewBox="0 0 2120 1360" role="img" xmlns="http://www.w3.org/2000/svg">
-<title>demo-network 拓樸 v0.3 草案 — 六區：於 v0.2.1 四區之上新增 Z-EDGE 會議中控平面與 Z-BLUE 防守平面</title>
-<desc>在 v0.2.1 四區隔離之上新增兩區：Z-EDGE（VLAN 50）承載 TLS 終結與 ttyd 反向代理、零持久化；Z-BLUE（VLAN 60）承載藍隊每人一段的受限 shell 主機。新增第五條跨世代契約 EDGE→MGMT deny all。領號與身分鑄造住 Z-APP 的 Admission Service，不住 Z-EDGE。ttyd 跑在容器內以避免經由 host mgmt NIC 觸及 Z-MGMT。</desc>
+<title>demo-network 拓樸 v0.3 — 六區：於 v0.2.1 四區之上新增 Z-EDGE 會議中控平面與 Z-BLUE 防守平面</title>
+<desc>在 v0.2.1 四區隔離之上新增兩區：Z-EDGE（VLAN 50）承載 TLS 終結與 ttyd 反向代理、零持久化；Z-BLUE（VLAN 60）承載藍隊每人一段的受限 shell 主機，以容器加 host 層單一 Falco 達成結構性可信。新增第五條跨世代契約 EDGE→MGMT deny all。領號與身分鑄造住 Z-APP 的 Admission Service，不住 Z-EDGE。ttyd 跑在容器內以避免經由 host mgmt NIC 觸及 Z-MGMT；藍隊一段兩台各跑一個 ttyd，不走跳板。紅池動態配置、藍池於 start 時依實到人數一次全建。</desc>
 <style>
   text { font-family: "Noto Sans CJK TC", "PingFang TC", "Microsoft JhengHei", "Helvetica Neue", Arial, sans-serif; }
   .th  { font-size: 13px;   font-weight: 600; }
@@ -66,7 +66,7 @@
 <text class="tp"  x="46" y="120">3 · 新增契約 5：EDGE → MGMT deny all</text>
 <text class="tp"  x="46" y="141">4 · ttyd 下放進容器；seat 之間 DOCKER-USER DROP</text>
 <text class="tp"  x="46" y="162">5 · 座位動態配置（50+ 規模）→ 四區變六區</text>
-<text class="tnote" x="46" y="186">草案，尚未取代 demo_network_topology_v0_2_1.svg</text>
+<text class="tnote" x="46" y="186">現行版本，取代 v0.2.1。已納入 #65 決策（2026-08-12）</text>
 
 <!-- ===== 右上：對外發布方式 ===== -->
 <rect class="panel" x="1740" y="30" width="350" height="172" rx="8"/>
@@ -175,8 +175,8 @@
 
 <g class="n-purple">
   <rect x="46" y="708" width="348" height="52" rx="7"/>
-  <text class="th" x="60" y="729">Admission Service</text>
-  <text class="ts" x="60" y="748">憑據驗證 · 領號 · session↔seat</text>
+  <text class="th" x="60" y="729">Admission Service ＋ 中控畫面</text>
+  <text class="ts" x="60" y="748">憑據驗證 · 領號 · 釋放／改綁座位</text>
   <text class="ts" x="380" y="729" text-anchor="end">.16</text>
 </g>
 <g class="n-purple">
@@ -194,7 +194,7 @@
 <g class="n-purple">
   <rect x="46" y="888" width="348" height="52" rx="7"/>
   <text class="th" x="60" y="909">Battleboard · Instructor</text>
-  <text class="ts" x="60" y="928">sanitized event · 釋放／改綁座位</text>
+  <text class="ts" x="60" y="928">sanitized event · raw event · override</text>
   <text class="ts" x="380" y="909" text-anchor="end">.13</text>
 </g>
 <g class="n-purple">
@@ -316,15 +316,16 @@
   <text class="ts" x="1566" y="880" text-anchor="middle">flag · 須橫向移動</text>
 </g>
 
-<text class="tnote" x="1306" y="928">… × N seat（動態配置，一人一段）</text>
-<text class="tnew"  x="1306" y="956">受限帳號 ＋ sudo allowlist，不是 root</text>
-<text class="denys" x="1306" y="976">allowlist 不得含 Falco／Alloy 設定與 unit</text>
-<text class="tnote" x="1306" y="994">被評分的人若能關掉 collector，coverage 分母</text>
-<text class="tnote" x="1306" y="1012">就由被評分者自己決定 —— 數字失去公信力。</text>
-<text class="tnote" x="1306" y="1036">遙測可信度＝約定式（靠 allowlist），非結構式</text>
-<text class="denys" x="1306" y="1066">seat 之間 DOCKER-USER DROP</text>
-<text class="tnote" x="1306" y="1084">RED → BLUE 只到 DMZ；內部主機須橫向移動</text>
-<text class="tnote" x="1306" y="1108">ttyd :7681 跑在各自容器內</text>
+<text class="tnote" x="1306" y="928">… × N seat（start 時依實到人數一次全建，非動態）</text>
+<text class="tnew"  x="1306" y="956">容器 ＋ host 層單一 Falco —— 結構性可信</text>
+<text class="tnote" x="1306" y="974">玩家在容器內碰不到 collector，非靠 allowlist 約定</text>
+<text class="denys" x="1306" y="996">部署前提：host kernel ≤ 6.8，否則 Falco 起不來</text>
+<text class="tnote" x="1306" y="1014">受限帳號 ＋ sudo allowlist 保留，降為第二層防線</text>
+<text class="tnote" x="1306" y="1032">被評分者若能關掉 collector，分母就由他自己決定</text>
+<text class="denys" x="1306" y="1058">seat 之間 DOCKER-USER DROP</text>
+<text class="tnote" x="1306" y="1076">RED → BLUE 只到 DMZ；內部主機須橫向移動</text>
+<text class="tnew"  x="1306" y="1100">a／b 各跑一個 ttyd :7681 —— 不走跳板</text>
+<text class="tnote" x="1306" y="1118">b 從 a ssh 過去＝紅隊拿下 a 就沒收藍隊的工具</text>
 
 <!-- ===== Z-RED ===== -->
 <rect class="zone" x="1710" y="652" width="380" height="474" rx="12"/>

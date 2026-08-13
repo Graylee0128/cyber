@@ -6,7 +6,7 @@
 - **上位文件**：[SA](../../資安攻防平台_系統架構設計文件_v0.1.md) §4.2、§5.5、§12
 - **上游依賴**：[WS1 spec §1.3](../ws1-game-design/spec.md)（個人計分）、[WS5 spec §2.1／§2.3](../ws5-range-core/spec.md)（PG 慣例、權限邊界）
 - **下游影響**：WS6（動態配置）、WS3（藍隊動作）、WS7（Player Portal 嵌入 shell）
-- **草案拓樸圖**：[topology-v0_3-draft.svg](./topology-v0_3-draft.svg)
+- **拓樸圖**：[demo_network_topology_v0_3.svg](../../demo_network_topology_v0_3.svg)（2026-08-13 升正，取代 v0.2.1；原草案由本 workstream 產出）
 - **中控畫面 demo**：[demo.html](./demo.html)（零依賴單檔、資料寫死；視覺提案，不代表 WS8 開工）
 - **玩家旅程圖**：[player-journey-v0_1-draft.svg](./player-journey-v0_1-draft.svg)
   —— 七階段 × 六泳道，本檔 §2／§3／§4 的時間軸版本。流程圖 A。

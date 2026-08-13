@@ -175,7 +175,7 @@ response-agent 的 registry streams 是 transport/control-plane heartbeat，不�
 | [資安攻防平台_系統架構設計文件_v0.1.md](./資安攻防平台_系統架構設計文件_v0.1.md) | 系統架構設計（SA），單一真相來源 |
 | [purple_platform_plan.md](./purple_platform_plan.md) | 紫隊 P1／P2 工作規劃、計分模型、缺口分類 |
 | [docs/adr/](./docs/adr/) | 架構決策紀錄，含 trade-off 與被放棄的選項 |
-| [demo_network_topology_v0_2_1.svg](./demo_network_topology_v0_2_1.svg) | **現行架構**網路拓樸（G3 六區＋中控；檔名沿用）—— 畫空間 |
+| [demo_network_topology_v0_3.svg](./demo_network_topology_v0_3.svg) | **現行架構**網路拓樸（G3 六區＋中控，已納入 #65 決策）—— 畫空間 |
 | [cyber_range_platform_layered_architecture.svg](./cyber_range_platform_layered_architecture.svg) | 分層架構圖 —— 畫空間 |
 | [attack_chain_sequence_v0_1.svg](./attack_chain_sequence_v0_1.svg) | **單次攻防的跨元件時序**（流程圖 B）—— 畫時間。整條鏈由 T4 守著，圖上每一步都是實作 |
 | [.scratch/ws8-event-control/player-journey-v0_1-draft.svg](./.scratch/ws8-event-control/player-journey-v0_1-draft.svg) | **玩家旅程**（流程圖 A，七階段 × 六泳道）—— 畫時間。多數為草案，虛線框＝未實作 |
