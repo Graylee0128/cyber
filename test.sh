@@ -34,6 +34,7 @@ export PURPLE_PG_DSN="${PURPLE_PG_DSN:-postgresql://purple:purple@localhost:5432
 export PURPLE_APP_URL="${PURPLE_APP_URL:-http://localhost:8080}"
 export PURPLE_ENGINE_URL="${PURPLE_ENGINE_URL:-http://localhost:8001}"
 export PURPLE_LOKI_URL="${PURPLE_LOKI_URL:-http://localhost:3100}"
+export PURPLE_EVIDENCE_TOKEN_BLUE="${PURPLE_EVIDENCE_TOKEN_BLUE:-dev-blue-token}"
 
 fails=0
 declare -a SUMMARY

@@ -189,6 +189,8 @@ services:
       PURPLE_PG_DSN: postgresql://purple:purple@postgres:5432/purple
       PURPLE_ENGINE_PORT: "8001"
       PURPLE_LOKI_URL: http://loki:3100
+      # #52 B2：Console 的 identity 由這個 token 換出，不接受呼叫端自填。
+      PURPLE_EVIDENCE_TOKEN_BLUE: "dev-blue-token"
     ports:
       - "8001:8001"
     networks:
