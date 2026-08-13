@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from collections.abc import AsyncIterator, Iterator, Mapping
 from pathlib import Path
 
@@ -90,6 +91,13 @@ TOKEN_ENV_PREFIX = "RANGE_CORE_TOKEN_"
 POLL_INTERVAL_S = 0.2
 #: 中介設備會砍掉太久沒有位元組的長連線；SSE 註解行不是事件，不動 Last-Event-ID。
 KEEPALIVE_INTERVAL_S = 15.0
+#: 一條串流連線的壽命上限（#36）。到期就自然結束，不是錯誤 —— 瀏覽器的
+#: EventSource 收到連線關閉會帶著上次的 `Last-Event-ID` 自動重連，續傳機制本來
+#: 就是為這件事存在的。**這是唯一保證每條連線都會結束的機制**：偵測「客戶端斷線」
+#: 依賴 ASGI 層的 `request.is_disconnected()`，那條路徑值得留著當優化（早點放手
+#: 資源），但不能是唯一的出口 —— 沒有它，一個沒有正常收到斷線訊號的連線（某些
+#: reverse proxy／測試環境會吃掉這個訊號）就會佔著一條資料庫連線耗到演練結束。
+DEFAULT_MAX_STREAM_SECONDS = 300.0
 
 ENDPOINT_MIN_CLEARANCE: dict[tuple[str, str], int] = {
     ("POST", "/api/exercises/start"): CALLER_CLEARANCE["instructor"],
@@ -152,6 +160,7 @@ def create_app(
     conn=None,
     flag_source: FlagSource | None = None,
     token_map: Mapping[str, str] | None = None,
+    max_stream_seconds: float = DEFAULT_MAX_STREAM_SECONDS,
 ) -> FastAPI:
     """Create the WS5 application with an injected or on-disk catalog.
 
@@ -159,6 +168,12 @@ def create_app(
     to build `exercise_store` so both see the same transaction. Production
     (`conn=None`) opens and closes its own connection per request, same as
     the pre-#33 lifecycle endpoints.
+
+    ``max_stream_seconds`` bounds how long a single `/api/events/live`
+    connection stays open before closing on its own (see the constant's
+    docstring). Tests pass a small value so a stream test's own connection
+    always terminates deterministically, independent of whether the test
+    transport actually propagates client disconnection.
 
     ``token_map`` maps service token -> identity.  Left unset it is loaded from
     ``RANGE_CORE_TOKEN_<IDENTITY>`` environment variables; an empty map means no
@@ -477,7 +492,14 @@ def create_app(
                 if cursor == 0:
                     cursor = stream.latest_seq(exercise_id)
                 async for frame in _stream_events(
-                    request, stream_conn, stream, exercise_id, cursor, clearance, detection_labels
+                    request,
+                    stream_conn,
+                    stream,
+                    exercise_id,
+                    cursor,
+                    clearance,
+                    detection_labels,
+                    max_stream_seconds,
                 ):
                     yield frame
             finally:
@@ -517,9 +539,11 @@ async def _stream_events(
     cursor: int,
     clearance: int,
     labels: Mapping[str, Mapping[str, str]],
+    max_stream_seconds: float,
 ) -> AsyncIterator[str]:
     idle = 0.0
-    while not await request.is_disconnected():
+    deadline = time.monotonic() + max_stream_seconds
+    while time.monotonic() < deadline and not await request.is_disconnected():
         if not _exercise_still_running(conn, exercise_id):
             # 演練結束（或已被別場取代）→ 乾淨關閉，不留懸掛連線。
             return

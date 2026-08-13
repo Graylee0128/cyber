@@ -50,6 +50,10 @@ def app(exercise_store, pg_connection):
         exercise_store=exercise_store,
         conn=pg_connection,
         token_map=TOKEN_MAP,
+        # #36: bound every test's own stream so it always terminates on its
+        # own, independent of whether the test transport propagates client
+        # disconnection (some don't).
+        max_stream_seconds=2.0,
     )
 
 
@@ -226,6 +230,30 @@ class TestLifecycle:
             exercise_store.reset_current()
             # 迭代器自然結束（不是 timeout、不是例外）就是乾淨關閉。
             assert list(lines) is not None
+
+    def test_connection_closes_on_its_own_after_the_bound(
+        self, exercise_store, pg_connection
+    ):
+        """驗收條件的另一半：即使演練仍在跑、client 也沒斷線，連線本身有壽命
+        上限（見 `DEFAULT_MAX_STREAM_SECONDS` 的說明）—— 不留懸掛連線不能只
+        靠「等對方斷線」這一條路。"""
+        app = create_app(
+            ScenarioCatalog((scenario(),)),
+            exercise_store=exercise_store,
+            conn=pg_connection,
+            token_map=TOKEN_MAP,
+            max_stream_seconds=0.3,
+        )
+        exercise_store.start(
+            scenario(),
+            (PlayerRegistration(player_id="red-alice", source_ip="10.167.30.11"),),
+        )
+
+        with _client(app, "blue").stream(
+            "GET", "/api/events/live", headers={"Last-Event-ID": "0"}, timeout=5.0
+        ) as resp:
+            # 沒有主動斷線、也沒有寫任何事件 —— 純粹等連線自己到期關閉。
+            assert list(resp.iter_lines()) is not None
 
 
 class TestStreamRequiresIdentity:
