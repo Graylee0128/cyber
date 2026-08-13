@@ -59,6 +59,7 @@ class ResponseCommand:
             "technique": self.technique,
             "service": self.service,
             "action": self.action,
+            "triggered_by": self.triggered_by,
         }
 
     @classmethod
