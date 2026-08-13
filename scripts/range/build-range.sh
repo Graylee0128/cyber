@@ -174,7 +174,8 @@ NFT
 echo "▶ 起 policy listeners（所有 deny canary 都真的 listen）"
 # nohup + disown：脫離腳本的行程群組，build 腳本 exit 後仍存活給 verify 用。
 nohup ip netns exec ns-mgmt python3 "$DIR/stub_listener.py" \
-  --ports 3100,9090,4317,22,8000,8001 >/tmp/range-mgmt-listener.log 2>&1 &
+  --ports 3100,9090,4317,22,8000,8001 --http-date-port 3100 \
+  >/tmp/range-mgmt-listener.log 2>&1 &
 echo $! > /tmp/range-mgmt-listener.pid
 disown || true
 nohup ip netns exec ns-receiver python3 "$DIR/stub_listener.py" \

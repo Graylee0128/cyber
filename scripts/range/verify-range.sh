@@ -40,19 +40,25 @@ cat > "$PROBE_PY" <<'PY'
 import socket, sys
 s = socket.socket(); s.settimeout(3)
 s.connect((sys.argv[1], 80))   # 連得上是唯一的硬條件
+path = sys.argv[2] if len(sys.argv) > 2 else "/probe"
 # 送不出去不算失敗：netns 模式的 stub listener accept 完就 conn.close()，
 # 這個 sendall 可能撞上 RST；但 source IP 在 accept 當下就記下來了。
 try:
-    s.sendall(b"GET /probe HTTP/1.1\r\nHost: range-target\r\nConnection: close\r\n\r\n")
-    s.recv(256)
+    request = f"GET {path} HTTP/1.1\r\nHost: range-target\r\nConnection: close\r\n\r\n"
+    s.sendall(request.encode())
+    response = s.recv(256)
 except OSError:
-    pass
+    response = b""
 s.close()
+if path == "/exec" and not response.startswith(b"HTTP/1."):
+    raise SystemExit(1)
+if path == "/exec" and b" 200 " not in response.split(b"\r\n", 1)[0]:
+    raise SystemExit(1)
 PY
 trap 'rm -f "$PROBE_PY"' EXIT
 
-probe_target_from_red() {  # probe_target_from_red <紅隊節點名>
-  ip netns exec "$1" python3 "$PROBE_PY" "$TARGET" 2>/dev/null
+probe_target_from_red() {  # probe_target_from_red <紅隊節點名> [path]
+  ip netns exec "$1" python3 "$PROBE_PY" "$TARGET" "${2:-/probe}" 2>/dev/null
 }
 
 # 查 Loki：某個 selector 在 <since_s> 秒內有幾行。用於「現在這一刻通不通」的實證。
@@ -137,6 +143,10 @@ else
       echo "  ✗ console 沒有指定 receiver:8000 正向證據 —— 舊版探測腳本不採信"; fails=1
     elif ! grep -q "非 receiver MGMT $MGMT:8000 不通" "$CONSOLE" 2>/dev/null; then
       echo "  ✗ console 沒有其他 MGMT:8000 反向證據 —— 最小權限未獲證明"; fails=1
+    elif ! grep -q "VM-CLOCK-SKEW-MS:" "$CONSOLE" 2>/dev/null; then
+      echo "  ✗ console 沒有 VM 對獨立 MGMT Date clock 的偏移證據 —— 舊版 VM 不採信"; fails=1
+    elif grep -q "VM-CLOCK-SKEW-FAIL:" "$CONSOLE" 2>/dev/null; then
+      echo "  ✗ VM clock probe 失敗（見 console）"; fails=1
     elif ! grep -q "Z-APP OK: TARGET(VM) -> APP $APP:443 通" "$CONSOLE" 2>/dev/null; then
       echo "  ✗ console 沒有 TARGET→APP:443 正向證據"; fails=1
     elif ! grep -q "Z-APP OK: TARGET(VM) -> APP $APP:22 不通" "$CONSOLE" 2>/dev/null; then
@@ -340,6 +350,21 @@ if msgs:
     sys.exit(1)
 print(f"  ✓ {EXPECTED_KALI} 台 red 各自可分辨，未被 SNAT 塌縮")
 PY
+fi
+
+if [ "$TARGET_MODE" = vm ] && [ -f "$REPO/scripts/range/verify-p1-fields.py" ]; then
+  echo "=== P1 最終驗收：range-target/Falco 四欄（VM clock 已由 nonce console 證明） ==="
+  # 欄位驗收必須自己製造本輪 Falco action，不能靠 Loki 裡碰巧殘留的舊事件。
+  FALCO_BASELINE="$(mktemp)"
+  PYTHONPATH="$REPO/src" python3 "$REPO/scripts/range/verify-p1-fields.py" \
+    --loki-url "$LOKI_URL" --app range-target --capture-falco-baseline "$FALCO_BASELINE" || fails=1
+  if ! probe_target_from_red "${RED_NS_PREFIX}1" /exec; then
+    echo "  ✗ 本輪 Falco /exec action 未成功回 HTTP 200"; fails=1
+  fi
+  PYTHONPATH="$REPO/src" python3 "$REPO/scripts/range/verify-p1-fields.py" \
+    --loki-url "$LOKI_URL" --app range-target --falco --wait-seconds 30 \
+    --falco-baseline "$FALCO_BASELINE" || fails=1
+  rm -f "$FALCO_BASELINE"
 fi
 
 if [ "$fails" -ne 0 ]; then

@@ -80,7 +80,7 @@ sudo bash scripts/range/teardown-range.sh  # 拆掉（冪等，Reset 雛形）
 - `lib-cloudimg.sh` — 共用：cloud image 下載 + `qemu-img check` 完整性把關（防半截 image）
 - `range-ovs.xml` — libvirt 接 OVS（br-range）的 network 定義，四區 VLAN portgroup
 - `teardown-range.sh` — 拆除 netns / VM / red 容器 / golden（可重複跑，Reset 基礎）
-- `stub_listener.py` — mgmt/receiver 佔正向與 deny-canary port；target 聽 :80 記錄 red source IP
+- `stub_listener.py` — mgmt/receiver 佔正向與 deny-canary port；MGMT :3100 回獨立 HTTP `Date` 供 VM clock 驗證；target 聽 :80 記錄 red source IP
 
 契約判定邏輯在 `src/purple/topology_check.py`（已單元測試），CLI 在
 `scripts/verify_topology.py`。

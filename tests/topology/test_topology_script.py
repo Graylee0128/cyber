@@ -195,8 +195,9 @@ def test_vm_contract1_probe_passes_three_ports_and_blocked_canary(monkeypatch, c
     monkeypatch.setattr(
         probe.sys,
         "argv",
-        ["contract1_probe.py", "mgmt", "receiver", "app", "nonce"],
+        ["contract1_probe.py", "mgmt", "receiver", "app", "loki", "nonce"],
     )
+    monkeypatch.setattr(probe, "probe_mgmt_clock", lambda _host: 250.0)
     probe.main()
     output = capsys.readouterr().out
     for port in MGMT_PORTS:
@@ -206,6 +207,7 @@ def test_vm_contract1_probe_passes_three_ports_and_blocked_canary(monkeypatch, c
     assert f":{MGMT_DENIED_PORT} 不通" in output
     assert "APP app:443 通" in output
     assert "APP app:22 不通" in output
+    assert "VM-CLOCK-SKEW-MS: +250" in output
     assert "SLICE2A-RESULT: PASS" in output
 
 
@@ -226,12 +228,30 @@ def test_vm_contract1_probe_fails_when_deny_canary_is_reachable(monkeypatch, cap
     monkeypatch.setattr(
         probe.sys,
         "argv",
-        ["contract1_probe.py", "mgmt", "receiver", "app", "nonce"],
+        ["contract1_probe.py", "mgmt", "receiver", "app", "loki", "nonce"],
     )
+    monkeypatch.setattr(probe, "probe_mgmt_clock", lambda _host: 250.0)
     probe.main()
     output = capsys.readouterr().out
     assert "非 receiver MGMT mgmt:8000 竟然通了" in output
     assert f":{MGMT_DENIED_PORT} 竟然通了" in output
+    assert "SLICE2A-RESULT: FAIL" in output
+
+
+def test_vm_contract1_probe_fails_when_independent_mgmt_clock_is_skewed(monkeypatch, capsys):
+    probe = _load_contract1_probe()
+    allowed = {("mgmt", port) for port in MGMT_PORTS} | {
+        ("receiver", MGMT_RESPONSE_PORT), ("app", 443)
+    }
+    monkeypatch.setattr(probe, "socket", SimpleNamespace(socket=lambda: _ProbeSocket(allowed)))
+    monkeypatch.setattr(
+        probe.sys, "argv",
+        ["contract1_probe.py", "mgmt", "receiver", "app", "loki", "nonce"],
+    )
+    monkeypatch.setattr(probe, "probe_mgmt_clock", lambda _host: 6001.0)
+    probe.main()
+    output = capsys.readouterr().out
+    assert "VM-CLOCK-SKEW-MS: +6001" in output
     assert "SLICE2A-RESULT: FAIL" in output
 
 
@@ -241,6 +261,7 @@ def test_vm_verifier_rejects_old_probe_without_deny_evidence():
         'elif ! grep -q "非 telemetry :22 不通"',
         'elif ! grep -q "response receiver $RECEIVER:8000 通"',
         'elif ! grep -q "非 receiver MGMT $MGMT:8000 不通"',
+        'elif ! grep -q "VM-CLOCK-SKEW-MS:"',
     )
     accepts_pass = 'elif grep -q "SLICE2A-RESULT: PASS"'
     for evidence in required_evidence:
@@ -259,7 +280,22 @@ def test_build_range_enforces_contract1_allowlist_and_runs_deny_canary():
         "tcp dport 8000 accept"
     ) in text
     assert "--ports 3100,9090,4317,22,8000" in text
+    assert "--http-date-port 3100" in text
     assert 'ip netns exec ns-receiver python3 "$DIR/stub_listener.py"' in text
+
+
+def test_vm_p1_verifier_generates_fresh_falco_action_and_waits_for_delivery():
+    text = VERIFY_RANGE.read_text(encoding="utf-8")
+    assert 'probe_target_from_red "${RED_NS_PREFIX}1" /exec' in text
+    assert '--capture-falco-baseline "$FALCO_BASELINE"' in text
+    assert '--falco-baseline "$FALCO_BASELINE"' in text
+    assert "本輪 Falco /exec action 未成功回 HTTP 200" in text
+
+
+def test_t2_container_falco_runs_four_field_contract():
+    text = SCRIPT.parents[1].joinpath("test.sh").read_text(encoding="utf-8")
+    assert 'if [ "$FALCO_MODE" = "container" ]; then P1_ARGS+=(--falco); fi' in text
+    assert 'verify-p1-fields.py" "${P1_ARGS[@]}"' in text
 
 
 def test_six_kali_must_be_distinguishable():

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """靶機 VM 開機時自驗契約 1 與 response receiver 最小權限例外。
 
-    python3 contract1_probe.py <mgmt_ip> <receiver_ip> <app_ip> <boot_nonce>
+    python3 contract1_probe.py <mgmt_ip> <receiver_ip> <app_ip> <clock_ip> <boot_nonce>
 
 為什麼是獨立檔案而不是塞在 build-vm-target.sh 的 heredoc 裡：位址要代進去就得用
 不引號 heredoc，那會連整段 Python 一起做 shell 展開 —— 今天剛好沒有 `$`，明天加一個
@@ -16,23 +16,61 @@ VM** 留下的，而不是上一輪的殘骸。沒有這道，契約 1 的證據
 
 from __future__ import annotations
 
+import email.utils
+import http.client
 import socket
 import sys
+from datetime import datetime, timezone
 
 PORTS = {3100: "Loki", 9090: "Prometheus", 4317: "OTLP"}
 RESPONSE_PORT = 8000
 DENIED_PORT = 22
 APP_PORT = 443
+CLOCK_THRESHOLD_MS = 5000
+
+
+def probe_mgmt_clock(host: str, now=lambda: datetime.now(timezone.utc)) -> float:
+    """Compare the VM clock with the independent MGMT stub HTTP Date clock."""
+    before = now()
+    conn = http.client.HTTPConnection(host, 3100, timeout=3)
+    try:
+        conn.request("GET", "/ready")
+        response = conn.getresponse()
+        response.read()
+        date_header = response.getheader("Date")
+    finally:
+        conn.close()
+    after = now()
+    if not date_header:
+        raise RuntimeError("MGMT clock response has no Date header")
+    mgmt_time = email.utils.parsedate_to_datetime(date_header)
+    if mgmt_time.tzinfo is None:
+        mgmt_time = mgmt_time.replace(tzinfo=timezone.utc)
+    midpoint = before + (after - before) / 2
+    return (midpoint - mgmt_time).total_seconds() * 1000
 
 
 def main() -> None:
     mgmt = sys.argv[1]
     receiver = sys.argv[2]
     app = sys.argv[3]
-    nonce = sys.argv[4] if len(sys.argv) > 4 else "no-nonce"
+    clock_host = sys.argv[4]
+    nonce = sys.argv[5] if len(sys.argv) > 5 else "no-nonce"
 
     print(f"=== SLICE2A-BEGIN（從真 VM 測契約 1）nonce={nonce} ===", flush=True)
     bad = []
+    try:
+        clock_skew_ms = probe_mgmt_clock(clock_host)
+        print(
+            f"VM-CLOCK-SKEW-MS: {clock_skew_ms:+.0f} "
+            f"(threshold {CLOCK_THRESHOLD_MS}ms; source=MGMT-stub-Date)",
+            flush=True,
+        )
+        if abs(clock_skew_ms) > CLOCK_THRESHOLD_MS:
+            bad.append("vm-clock")
+    except (OSError, RuntimeError, ValueError) as exc:
+        bad.append("vm-clock")
+        print(f"VM-CLOCK-SKEW-FAIL: {exc}", flush=True)
     for port, name in PORTS.items():
         sock = socket.socket()
         sock.settimeout(3)

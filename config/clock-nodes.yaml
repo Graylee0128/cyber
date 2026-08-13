@@ -1,7 +1,7 @@
 # 時鐘同步檢查的節點清單（票 01）
 #
-# 現況：Z-TARGET / Z-MGMT 網段尚未建置（workstream 6），所以這裡只有檢查主機
-# 自己。等 Alloy / Falco / Loki / Grafana 容器起來，把 docker 節點取消註解。
+# 無服務的 CI 基線只驗 checker host。T2 使用 clock-nodes-compose.yaml
+# 直接進容器讀秒；T4 由 VM 開機 probe 對 MGMT Loki HTTP Date 讀獨立時鐘。
 #
 # 每加一個遙測來源，就要在這裡加一個節點 —— 沒列進來的節點不會被檢查，
 # 而不被檢查的時鐘遲早會漂。
@@ -14,20 +14,3 @@ reference: checker-host
 nodes:
   - name: checker-host
     probe: local
-
-  # --- 環境就位後啟用 -------------------------------------------------
-  # - name: alloy
-  #   probe: docker
-  #   container: alloy
-  # - name: falco
-  #   probe: docker
-  #   container: falco
-  # - name: loki
-  #   probe: docker
-  #   container: loki
-  # - name: grafana
-  #   probe: docker
-  #   container: grafana
-  # - name: vulnerable-app
-  #   probe: docker
-  #   container: vulnerable-app
