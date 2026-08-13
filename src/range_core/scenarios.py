@@ -150,6 +150,22 @@ class Scenario(BaseModel):
                     f"attack_chain action {objective.telemetry_signal.action_id!r}"
                 )
 
+        submission_objective_ids = [
+            objective.id for objective in self.objectives if objective.evaluation == "submission"
+        ]
+        if len(submission_objective_ids) > 1:
+            # #33: `flags.py`'s `FlagSource` is one rotated value for the
+            # whole environment (#45 tracks per-objective keyed flags). A
+            # second `submission` objective today would share that same
+            # expected value, so any correct submission would complete
+            # *every* submission objective, not just the one it was for.
+            # Temporary until #45 lands; then this check can widen or drop.
+            raise ValueError(
+                "scenario has more than one submission-type objective "
+                f"({', '.join(submission_objective_ids)}): the shared environment "
+                "flag (#45) can't distinguish which one a submission is for"
+            )
+
     def action_registry_seed(self) -> tuple[AttackAction, ...]:
         """Return #21 seed actions; detection declarations are not a denominator."""
         return self.attack_chain

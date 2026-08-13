@@ -99,6 +99,17 @@ def test_reads_are_not_cached_across_instances_or_calls(tmp_path):
     assert first != second
 
 
+def test_non_ascii_submission_is_rejected_not_raised():
+    """`hmac.compare_digest` raises `TypeError` on a `str` argument with
+    non-ASCII characters. A submitted flag is fully caller-controlled
+    (full-width characters, smart quotes from a pasted briefing) so this
+    must resolve to `False`, never propagate an exception (#33 review)."""
+    source = FixtureFlagSource("flag{" + "a" * 32 + "}")
+
+    assert matches("flag{全形字元}", source) is False
+    assert matches("flag{" + "a" * 31 + "é}", source) is False
+
+
 def test_flag_pattern_matches_flag_mint_script():
     """Contract test: `FLAG_PATTERN` here must stay byte-identical to
     `scripts/range/flag_mint.py`'s pattern — that script is not an

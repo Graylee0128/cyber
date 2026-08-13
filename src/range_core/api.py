@@ -34,7 +34,13 @@ from range_core.exercises import (
     connect,
     ensure_schema,
 )
-from range_core.flags import FlagSource, FlagUnavailable, SharedFileFlagSource, matches
+from range_core.flags import (
+    FlagSource,
+    FlagUnavailable,
+    SharedFileFlagSource,
+    is_valid_flag_shape,
+    matches,
+)
 from range_core.objectives import HintIndexOutOfRange, HintService, ObjectiveStore, PlayerLookup
 from range_core.scenarios import Scenario, ScenarioCatalog
 from range_core.scoring import derive_scores
@@ -85,6 +91,13 @@ def _source_ip(request: Request) -> str:
     client-settable header here would let one red player submit flags or
     request hints as another player. WS7 spec names the same threat for
     clearance and rejects header-trusted source IP for the same reason.
+
+    Deployment constraint this implies: Range Core must sit where Kali hosts
+    connect to it directly. Any reverse proxy or NAT in front of it replaces
+    every `request.client.host` with the proxy's own address, taking every
+    submission/hint/roster lookup to 403 at once (deployment topology is not
+    yet decided as of #33 -- WS6/#44 territory, flagged here so it can't be
+    discovered by surprise).
     """
     if request.client is None:
         raise HTTPException(status_code=403, detail="no client address")
@@ -168,12 +181,18 @@ def create_app(
         finally:
             opened.close()
 
-    def provide_exercise_store() -> Iterator[ExerciseStore]:
+    def provide_exercise_store(c=Depends(provide_conn)) -> Iterator[ExerciseStore]:
+        """Takes `conn` via `Depends`, not a manual call, so FastAPI's
+        per-request dependency cache hands back the *same* connection an
+        endpoint's own `conn=Depends(provide_conn)` parameter resolves to —
+        one request, one transaction. Calling `provide_conn()` directly here
+        used to open a second, independent connection per request in
+        production, so a concurrent reset between the read and the write
+        could target an exercise that no longer existed."""
         if exercise_store is not None:
             yield exercise_store
             return
-        for c in provide_conn():
-            yield ExerciseStore(c)
+        yield ExerciseStore(c)
 
     def _running_exercise_and_scenario(store: ExerciseStore) -> tuple[Exercise, Scenario]:
         exercise = store.current()
@@ -270,6 +289,13 @@ def create_app(
             raise HTTPException(
                 status_code=409, detail="objective is not a submission-type objective"
             )
+        if not is_valid_flag_shape(body.flag):
+            # Rejects obvious garbage (pasted briefing text, wrong-shaped
+            # strings) before the constant-time compare. The shape itself
+            # isn't secret -- it's published in the briefing -- so skipping
+            # the compare here leaks nothing beyond what the briefing already
+            # tells every player.
+            return {"accepted": False}
         try:
             correct = matches(body.flag, resolved_flag_source)
         except FlagUnavailable as exc:

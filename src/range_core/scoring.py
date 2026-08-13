@@ -104,6 +104,11 @@ def derive_scores(
     for usage in hint_usages:
         hints = scenario.hints_for(usage.objective_id)
         if usage.hint_index >= len(hints):
+            # Skipped for penalty only, not for `hints_used` above: a usage
+            # record stays truthful even if the scenario file later drops
+            # the hint it pointed at. This intentionally makes `hints_used`
+            # and the penalty inconsistent in that edge case (recorded fact
+            # vs. derivable-today penalty) rather than losing the record.
             continue
         key = (usage.player_id, usage.objective_id)
         candidate = hints[usage.hint_index].penalty_percent
@@ -121,6 +126,11 @@ def derive_scores(
         for completion in completions_by_player[player_id]:
             points = points_by_objective.get(completion.objective_id)
             if points is None:
+                # Deliberately silent: an edited scenario file can drop an
+                # objective a player already completed under the old
+                # version. There's no correct point value to award for an
+                # objective that no longer exists, so it's dropped from the
+                # total rather than erroring the whole scoreboard read.
                 continue
             key = (player_id, completion.objective_id)
             penalty = penalty_by_player_objective.get(key, 0)

@@ -210,7 +210,12 @@ class TestHintService:
                 "duration": "30m",
                 "objectives": [
                     {"id": "obj-a", "evaluation": "submission", "points": 100},
-                    {"id": "obj-b", "evaluation": "submission", "points": 100},
+                    {
+                        "id": "obj-b",
+                        "evaluation": "telemetry",
+                        "points": 100,
+                        "telemetry_signal": {"action_id": "a-1"},
+                    },
                 ],
                 "hints": [
                     {"objective_id": "obj-a", "text": "hint a0", "penalty_percent": 10},

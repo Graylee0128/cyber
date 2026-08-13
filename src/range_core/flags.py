@@ -93,6 +93,12 @@ def matches(submitted: str, source: FlagSource) -> bool:
     Raises `FlagUnavailable` (never swallowed here) when the source can't
     produce a current value — the caller decides how to surface that (503,
     per ADR/plan), not this function.
+
+    Compares `bytes`, not `str`: `hmac.compare_digest` raises `TypeError` on
+    a `str` argument containing non-ASCII characters, and a submitted flag is
+    fully caller-controlled (copy-pasted, could contain full-width chars or
+    smart quotes). `str` `compare_digest` is only constant-time for ASCII
+    anyway, so this loses nothing on the expected-value side.
     """
     expected = source.current()
-    return hmac.compare_digest(submitted, expected)
+    return hmac.compare_digest(submitted.encode("utf-8"), expected.encode("utf-8"))

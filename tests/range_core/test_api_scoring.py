@@ -152,6 +152,20 @@ class TestSubmissions:
         ).fetchone()
         assert rows[0] == 0
 
+    def test_non_ascii_submission_is_rejected_not_500(self, exercise_store, pg_connection):
+        """#33 review finding: `hmac.compare_digest` raises on non-ASCII
+        `str` input. A player pasting full-width characters or smart quotes
+        must get a normal `{"accepted": false}`, not a 500."""
+        app = make_app(exercise_store, pg_connection)
+        start(app)
+
+        resp = as_actor(app, ALICE).post(
+            "/api/submissions", json={"objective_id": "capture_flag", "flag": "flag{全形字元}"}
+        )
+
+        assert resp.status_code == 200
+        assert resp.json() == {"accepted": False}
+
     def test_repeat_correct_submission_stays_idempotent(self, exercise_store, pg_connection):
         app = make_app(exercise_store, pg_connection)
         start(app)
