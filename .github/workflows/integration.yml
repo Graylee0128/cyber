@@ -20,7 +20,58 @@ on:
       - "docs/**"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
+  admission-access-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install test deps
+        run: pip install -e ".[dev]"
+
+      - name: Validate compose and nginx configuration
+        run: |
+          docker compose --profile admission-e2e config --quiet
+          docker run --rm \
+            -v "$PWD/deploy/edge/nginx.conf:/etc/nginx/nginx.conf:ro" \
+            nginx:1.27-alpine nginx -t
+
+      - name: Bring up the narrow access plane
+        run: >-
+          docker compose --profile admission-e2e up -d --build --wait --wait-timeout 180
+          admission-edge admission-range-core admission-red-terminal admission-blue-terminal
+
+      - name: Show access-plane services
+        if: always()
+        run: docker compose --profile admission-e2e ps
+
+      - name: Run admission and WebSocket routing proof
+        env:
+          PURPLE_ACCESS_E2E: "1"
+          PURPLE_AUTO_COMPOSE: "0"
+          PURPLE_PG_DSN: postgresql://admission:admission-e2e@localhost:5433/admission
+          PURPLE_ADMISSION_URL: http://localhost:8002
+          PURPLE_RANGE_CORE_URL: http://localhost:8003
+          PURPLE_EDGE_HOST: localhost
+          PURPLE_EDGE_PORT: "8088"
+        run: python -m pytest -v -s tests/access_integration/test_admission_access.py
+
+      - name: Dump access-plane logs on failure
+        if: failure()
+        run: docker compose --profile admission-e2e logs --no-color --tail 200
+
+      - name: Tear down access plane and volumes
+        if: always()
+        run: docker compose --profile admission-e2e down -v
+
   compose-e2e:
     runs-on: ubuntu-latest
     steps:

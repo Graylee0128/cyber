@@ -26,6 +26,8 @@ from range_core.exercises import (
     ensure_schema as ensure_exercise_schema,
     truncate_all as truncate_exercises,
 )
+from admission.store.db import ensure_schema as ensure_admission_schema
+from admission.store.db import truncate_all as truncate_admission
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CLOCK_CONFIG = REPO_ROOT / "config" / "clock-nodes.yaml"
@@ -82,6 +84,7 @@ def pg() -> psycopg.Connection:
 
     ensure_schema(conn)
     ensure_exercise_schema(conn)
+    ensure_admission_schema(conn)
     yield conn
     conn.close()
 
@@ -96,6 +99,7 @@ def pg_connection(pg) -> psycopg.Connection:
     """每個測試拿到乾淨的表。"""
     truncate_all(pg)
     truncate_exercises(pg)
+    truncate_admission(pg)
     return pg
 
 

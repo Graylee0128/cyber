@@ -55,9 +55,14 @@ from range_core.event_stream import (
 )
 
 from range_core.exercises import (
+    AdmissionPlayer,
+    AdmissionPlayerRegistration,
     Exercise,
     ExerciseAlreadyRunning,
+    ExerciseNotPrepared,
     ExerciseStore,
+    PlayerRegistrationConflict,
+    PrepareExercise,
     PlayerRegistration,
     connect,
     ensure_schema,
@@ -128,8 +133,15 @@ ENDPOINT_MIN_CLEARANCE: dict[tuple[str, str], int] = {
 class StartExerciseRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    scenario_id: str | None = Field(default=None, min_length=1)
+    exercise_id: str | None = Field(default=None, min_length=1)
+    players: tuple[PlayerRegistration, ...] = ()
+
+
+class PrepareExerciseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
     scenario_id: str = Field(min_length=1)
-    players: tuple[PlayerRegistration, ...] = Field(min_length=1)
 
 
 class ResetExerciseRequest(BaseModel):
@@ -223,6 +235,12 @@ def create_app(
         if token_map is None
         else token_map
     )
+    # ``admission`` is an API scope, not a player disclosure clearance. Keep
+    # it out of CALLER_CLEARANCE while using the same fail-closed token seam.
+    if token_map is None:
+        admission_token = os.environ.get(f"{TOKEN_ENV_PREFIX}ADMISSION")
+        if admission_token:
+            tokens[admission_token] = "admission"
     # #49 的 rule 匿名標籤。**與 Evidence API 共用同一份排序來源**，否則同一條
     # 規則在 SSE 與 Evidence 兩個畫面會是不同號碼，藍隊會以為那是兩條規則。
     detection_labels = {
@@ -270,6 +288,19 @@ def create_app(
         if required is not None and CALLER_CLEARANCE.get(identity, 0) < required:
             raise HTTPException(
                 status_code=403, detail="this endpoint requires a higher clearance"
+            )
+        admission_lifecycle = request.url.path == "/api/exercises/prepare" or (
+            request.url.path.startswith("/api/exercises/")
+            and "/players/" in request.url.path
+        )
+        if admission_lifecycle and identity != "admission":
+            raise HTTPException(
+                status_code=403, detail="this endpoint requires the admission service role"
+            )
+        if identity == "admission" and not admission_lifecycle:
+            raise HTTPException(
+                status_code=403,
+                detail="the admission service role is limited to lifecycle publication",
             )
         return identity
 
@@ -353,20 +384,110 @@ def create_app(
         request: StartExerciseRequest,
         store: ExerciseStore = Depends(provide_exercise_store),
     ) -> Exercise:
+        prepared = (
+            store.preparation(request.exercise_id)
+            if request.exercise_id is not None
+            else None
+        )
+        if request.exercise_id is not None and prepared is None:
+            raise HTTPException(status_code=409, detail="exercise is not prepared")
+        scenario_id = request.scenario_id or (
+            prepared.scenario_id if prepared is not None else None
+        )
+        if scenario_id is None:
+            raise HTTPException(
+                status_code=422, detail="scenario_id or a prepared exercise_id is required"
+            )
         scenario = next(
             (
                 candidate
                 for candidate in loaded_catalog.scenarios
-                if candidate.id == request.scenario_id
+                if candidate.id == scenario_id
             ),
             None,
         )
         if scenario is None:
             raise HTTPException(status_code=404, detail="scenario not found")
         try:
+            if request.exercise_id is not None:
+                if request.players:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="players must be registered through Admission before prepared start",
+                    )
+                return store.start_prepared(request.exercise_id, scenario)
+            if not request.players:
+                raise HTTPException(status_code=422, detail="players are required")
             return store.start(scenario, request.players)
         except ExerciseAlreadyRunning as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ExerciseNotPrepared as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @application.post(
+        "/api/exercises/prepare",
+        response_model=PrepareExercise,
+        status_code=201,
+    )
+    def prepare_exercise(
+        request: PrepareExerciseRequest,
+        store: ExerciseStore = Depends(provide_exercise_store),
+    ) -> PrepareExercise:
+        scenario = next(
+            (candidate for candidate in loaded_catalog.scenarios if candidate.id == request.scenario_id),
+            None,
+        )
+        if scenario is None:
+            raise HTTPException(status_code=404, detail="scenario not found")
+        try:
+            return store.prepare(scenario)
+        except ExerciseAlreadyRunning as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @application.get(
+        "/api/exercises/{exercise_id}/players/{player_id}",
+        response_model=AdmissionPlayer,
+    )
+    def get_admission_player(
+        exercise_id: str,
+        player_id: str,
+        store: ExerciseStore = Depends(provide_exercise_store),
+    ) -> AdmissionPlayer:
+        player = store.player(exercise_id, player_id)
+        if player is None:
+            raise HTTPException(status_code=404, detail="active player not found")
+        return player
+
+    @application.put(
+        "/api/exercises/{exercise_id}/players/{player_id}",
+        response_model=AdmissionPlayer,
+    )
+    def register_admission_player(
+        exercise_id: str,
+        player_id: str,
+        request: AdmissionPlayerRegistration,
+        store: ExerciseStore = Depends(provide_exercise_store),
+    ) -> AdmissionPlayer:
+        try:
+            return store.register_player(exercise_id, player_id, request)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except ExerciseNotPrepared as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except (PlayerRegistrationConflict, psycopg.errors.UniqueViolation) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @application.delete(
+        "/api/exercises/{exercise_id}/players/{player_id}",
+        status_code=204,
+    )
+    def revoke_admission_player(
+        exercise_id: str,
+        player_id: str,
+        store: ExerciseStore = Depends(provide_exercise_store),
+    ) -> None:
+        if not store.revoke_player(exercise_id, player_id):
+            raise HTTPException(status_code=404, detail="player not found")
 
     @application.get("/api/exercises/current", response_model=Exercise | None)
     def current_exercise(
@@ -509,6 +630,22 @@ def create_app(
         sync_telemetry_objectives(conn, scenario, exercise.exercise_id)
         completions = ObjectiveStore(conn).for_exercise(exercise.exercise_id)
         hint_usages = HintService(conn).for_exercise(exercise.exercise_id)
+        active_players = {
+            row[0]
+            for row in conn.execute(
+                """SELECT player_id FROM exercise_players
+                   WHERE exercise_id = %s AND active""",
+                (exercise.exercise_id,),
+            ).fetchall()
+        }
+        completions = tuple(
+            completion
+            for completion in completions
+            if completion.player_id in active_players
+        )
+        hint_usages = tuple(
+            usage for usage in hint_usages if usage.player_id in active_players
+        )
         red = derive_scores(scenario, completions, hint_usages).as_dict()
 
         action_store = BlueActionStore(conn, clock=resolved_action_clock)

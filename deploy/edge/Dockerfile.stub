@@ -1,0 +1,5 @@
+FROM python:3.12-alpine
+WORKDIR /app
+COPY deploy/edge/ws_stub.py /app/ws_stub.py
+EXPOSE 7681
+CMD ["python", "/app/ws_stub.py"]

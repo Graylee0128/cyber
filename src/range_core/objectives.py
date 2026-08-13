@@ -74,7 +74,7 @@ class PlayerLookup:
         row = self.conn.execute(
             """
             SELECT player_id FROM exercise_players
-            WHERE exercise_id = %s AND source_ip = %s::inet
+            WHERE exercise_id = %s AND source_ip = %s::inet AND active
             """,
             (exercise_id, source_ip),
         ).fetchone()

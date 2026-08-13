@@ -1,0 +1,17 @@
+id: admission-e2e
+name: Admission access-plane integration
+difficulty: test
+duration: 5m
+objectives:
+  - id: access-ready
+    evaluation: submission
+    points: 1
+targets:
+  - host: access-stub
+    surfaces: [web]
+expected_sources: [falco]
+attack_chain:
+  - id: access-proof
+    technique: T1190
+    description: Exercise the Admission-to-Range-Core lifecycle seam.
+reset_scope: exercise

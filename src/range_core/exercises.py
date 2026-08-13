@@ -38,13 +38,63 @@ CREATE UNIQUE INDEX IF NOT EXISTS exercises_one_running_idx
     ON exercises ((state))
     WHERE state = 'running';
 
+CREATE TABLE IF NOT EXISTS exercise_preparations (
+    exercise_id text        PRIMARY KEY,
+    scenario_id text        NOT NULL,
+    state       text        NOT NULL CHECK (state IN ('prepared', 'started')),
+    prepared_at timestamptz NOT NULL,
+    started_at  timestamptz,
+    CHECK ((state = 'prepared' AND started_at IS NULL)
+        OR (state = 'started' AND started_at IS NOT NULL))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS exercise_preparations_one_prepared_idx
+    ON exercise_preparations ((state))
+    WHERE state = 'prepared';
+
+CREATE TABLE IF NOT EXISTS admission_players (
+    exercise_id  text        NOT NULL REFERENCES exercise_preparations(exercise_id),
+    player_id    text        NOT NULL,
+    team         text        NOT NULL CHECK (team IN ('red', 'blue')),
+    source_ip    inet,
+    active       boolean     NOT NULL DEFAULT true,
+    registered_at timestamptz NOT NULL,
+    revoked_at   timestamptz,
+    PRIMARY KEY (exercise_id, player_id),
+    CHECK ((team = 'red' AND source_ip IS NOT NULL)
+        OR (team = 'blue' AND source_ip IS NULL)),
+    CHECK ((active AND revoked_at IS NULL)
+        OR (NOT active AND revoked_at IS NOT NULL))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS admission_players_active_source_idx
+    ON admission_players (exercise_id, source_ip)
+    WHERE active AND source_ip IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS exercise_players (
     exercise_id text NOT NULL REFERENCES exercises(exercise_id) ON DELETE CASCADE,
     player_id   text NOT NULL,
     source_ip   inet NOT NULL,
+    active      boolean NOT NULL DEFAULT true,
+    revoked_at  timestamptz,
     PRIMARY KEY (exercise_id, player_id),
-    UNIQUE (exercise_id, source_ip)
+    CONSTRAINT exercise_players_active_revocation_check CHECK (
+        (active AND revoked_at IS NULL)
+        OR (NOT active AND revoked_at IS NOT NULL)
+    )
 );
+
+ALTER TABLE exercise_players ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true;
+ALTER TABLE exercise_players ADD COLUMN IF NOT EXISTS revoked_at timestamptz;
+ALTER TABLE exercise_players DROP CONSTRAINT IF EXISTS exercise_players_active_revocation_check;
+ALTER TABLE exercise_players ADD CONSTRAINT exercise_players_active_revocation_check CHECK (
+    (active AND revoked_at IS NULL)
+    OR (NOT active AND revoked_at IS NOT NULL)
+);
+ALTER TABLE exercise_players DROP CONSTRAINT IF EXISTS exercise_players_exercise_id_source_ip_key;
+CREATE UNIQUE INDEX IF NOT EXISTS exercise_players_active_source_idx
+    ON exercise_players (exercise_id, source_ip)
+    WHERE active;
 
 -- #33 owns the completion and scoring behavior.  #32 owns their lifecycle:
 -- every derived row is exercise-scoped and disappears with its exercise.
@@ -123,11 +173,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS blue_actions_one_judgement_idx
 """
 
 SCHEMA_LOCK_KEY = 0x52414E47  # "RANG"
+LIFECYCLE_LOCK_KEY = 0x575338  # "WS8"
 DEFAULT_DSN = "postgresql://purple:purple@localhost:5432/purple"
 _DURATION = re.compile(r"^(?P<amount>[1-9][0-9]*)(?P<unit>[smhd])$")
 _SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
-KALI_ADDRESSES = frozenset(
-    ipaddress.ip_address(f"10.167.30.{last_octet}") for last_octet in range(11, 17)
+RED_SEAT_ADDRESSES = frozenset(
+    ipaddress.ip_address(f"10.167.30.{last_octet}") for last_octet in range(11, 255)
 )
 
 
@@ -142,6 +193,14 @@ class SystemClock:
 
 class ExerciseAlreadyRunning(RuntimeError):
     """PostgreSQL rejected a second row covered by the running-only index."""
+
+
+class ExerciseNotPrepared(LookupError):
+    """The Admission exercise identifier is unknown or no longer prepared."""
+
+
+class PlayerRegistrationConflict(RuntimeError):
+    """An idempotency key was reused with different player attributes."""
 
 
 class PlayerRegistration(BaseModel):
@@ -159,9 +218,54 @@ class PlayerRegistration(BaseModel):
             address = ipaddress.ip_address(value)
         except ValueError as exc:
             raise ValueError("source_ip must be an IPv4 address") from exc
-        if address not in KALI_ADDRESSES:
-            raise ValueError("source_ip must be a Z-RED Kali address 10.167.30.11 through .16")
+        if address not in RED_SEAT_ADDRESSES:
+            raise ValueError("source_ip must be a Z-RED seat address 10.167.30.11 through .254")
         return str(address)
+
+
+class PrepareExercise(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    exercise_id: str
+    scenario_id: str
+    state: Literal["prepared", "started"]
+    prepared_at: datetime
+    started_at: datetime | None = None
+
+
+class AdmissionPlayer(BaseModel):
+    """Identity published by Admission only when its seat reaches ready."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    exercise_id: str
+    player_id: str
+    team: Literal["red", "blue"]
+    source_ip: str | None = None
+    state: Literal["active", "revoked"]
+    registered_at: datetime
+    revoked_at: datetime | None = None
+
+
+class AdmissionPlayerRegistration(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    team: Literal["red", "blue"]
+    source_ip: str | None = None
+
+    @field_validator("source_ip")
+    @classmethod
+    def source_is_a_kali_address_when_present(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return PlayerRegistration(player_id="validation", source_ip=value).source_ip
+
+    def validated(self) -> "AdmissionPlayerRegistration":
+        if self.team == "red" and self.source_ip is None:
+            raise ValueError("red players require source_ip")
+        if self.team == "blue" and self.source_ip is not None:
+            raise ValueError("blue players do not have a red source_ip")
+        return self
 
 
 class Exercise(BaseModel):
@@ -201,7 +305,8 @@ def ensure_schema(conn: psycopg.Connection) -> None:
 def truncate_all(conn: psycopg.Connection) -> None:
     conn.execute(
         "TRUNCATE exercise_blue_actions, exercise_hint_usages, "
-        "exercise_objective_completions, exercise_players, exercises"
+        "exercise_objective_completions, exercise_players, exercises, "
+        "admission_players, exercise_preparations"
     )
 
 
@@ -234,6 +339,11 @@ class ExerciseStore:
         self._expire_due(started_at)
         try:
             with self._conn.transaction():
+                self._conn.execute("SELECT pg_advisory_xact_lock(%s)", (LIFECYCLE_LOCK_KEY,))
+                if self._conn.execute(
+                    "SELECT 1 FROM exercise_preparations WHERE state = 'prepared'"
+                ).fetchone():
+                    raise ExerciseAlreadyRunning("an exercise is already prepared")
                 self._conn.execute(
                     """
                     INSERT INTO exercises
@@ -257,6 +367,194 @@ class ExerciseStore:
         current = self._by_id(exercise_id)
         assert current is not None
         return current
+
+    def prepare(self, scenario: Scenario) -> PrepareExercise:
+        """Reserve an exercise identity without making it current/running."""
+        now = self._clock.now()
+        self._expire_due(now)
+        exercise_id = "ex-" + uuid.uuid4().hex
+        try:
+            with self._conn.transaction():
+                self._conn.execute("SELECT pg_advisory_xact_lock(%s)", (LIFECYCLE_LOCK_KEY,))
+                if self._conn.execute(
+                    "SELECT 1 FROM exercises WHERE state = 'running'"
+                ).fetchone():
+                    raise ExerciseAlreadyRunning("an exercise is already running")
+                self._conn.execute(
+                    """
+                    INSERT INTO exercise_preparations
+                        (exercise_id, scenario_id, state, prepared_at)
+                    VALUES (%s, %s, 'prepared', %s)
+                    """,
+                    (exercise_id, scenario.id, now),
+                )
+        except psycopg.errors.UniqueViolation as exc:
+            if exc.diag.constraint_name == "exercise_preparations_one_prepared_idx":
+                raise ExerciseAlreadyRunning("an exercise is already prepared") from exc
+            raise
+        prepared = self.preparation(exercise_id)
+        assert prepared is not None
+        return prepared
+
+    def preparation(self, exercise_id: str) -> PrepareExercise | None:
+        row = self._conn.execute(
+            """
+            SELECT exercise_id, scenario_id, state, prepared_at, started_at
+            FROM exercise_preparations WHERE exercise_id = %s
+            """,
+            (exercise_id,),
+        ).fetchone()
+        return PrepareExercise(
+            exercise_id=row[0], scenario_id=row[1], state=row[2],
+            prepared_at=row[3], started_at=row[4]
+        ) if row is not None else None
+
+    def register_player(
+        self,
+        exercise_id: str,
+        player_id: str,
+        registration: AdmissionPlayerRegistration,
+    ) -> AdmissionPlayer:
+        registration = registration.validated()
+        now = self._clock.now()
+        with self._conn.transaction():
+            preparation = self._conn.execute(
+                "SELECT state FROM exercise_preparations WHERE exercise_id = %s FOR UPDATE",
+                (exercise_id,),
+            ).fetchone()
+            if preparation is None:
+                raise ExerciseNotPrepared("exercise is not prepared")
+            if preparation[0] == "started" and self._conn.execute(
+                "SELECT state FROM exercises WHERE exercise_id = %s",
+                (exercise_id,),
+            ).fetchone() != ("running",):
+                raise ExerciseNotPrepared("exercise is no longer running")
+            self._conn.execute(
+                """
+                INSERT INTO admission_players
+                    (exercise_id, player_id, team, source_ip, registered_at)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (exercise_id, player_id) DO NOTHING
+                """,
+                (exercise_id, player_id, registration.team, registration.source_ip, now),
+            )
+            player = self.player(exercise_id, player_id, include_revoked=True)
+            assert player is not None
+            if (
+                player.state != "active"
+                or player.team != registration.team
+                or player.source_ip != registration.source_ip
+            ):
+                raise PlayerRegistrationConflict(
+                    "player_id is already registered with different attributes or revoked"
+                )
+            if preparation[0] == "started" and registration.team == "red":
+                self._conn.execute(
+                    """
+                    INSERT INTO exercise_players (exercise_id, player_id, source_ip)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (exercise_id, player_id) DO NOTHING
+                    """,
+                    (exercise_id, player_id, registration.source_ip),
+                )
+        return player
+
+    def player(
+        self, exercise_id: str, player_id: str, *, include_revoked: bool = False
+    ) -> AdmissionPlayer | None:
+        row = self._conn.execute(
+            """
+            SELECT exercise_id, player_id, team, host(source_ip), active,
+                   registered_at, revoked_at
+            FROM admission_players
+            WHERE exercise_id = %s AND player_id = %s
+              AND (%s OR active)
+            """,
+            (exercise_id, player_id, include_revoked),
+        ).fetchone()
+        if row is None:
+            return None
+        return AdmissionPlayer(
+            exercise_id=row[0], player_id=row[1], team=row[2], source_ip=row[3],
+            state="active" if row[4] else "revoked", registered_at=row[5], revoked_at=row[6]
+        )
+
+    def revoke_player(self, exercise_id: str, player_id: str) -> bool:
+        """Revoke future attribution while retaining player and completion rows."""
+        now = self._clock.now()
+        with self._conn.transaction():
+            row = self._conn.execute(
+                """
+                UPDATE admission_players
+                SET active = false, revoked_at = %s
+                WHERE exercise_id = %s AND player_id = %s AND active
+                RETURNING player_id
+                """,
+                (now, exercise_id, player_id),
+            ).fetchone()
+            exists = row is not None or self._conn.execute(
+                "SELECT 1 FROM admission_players WHERE exercise_id = %s AND player_id = %s",
+                (exercise_id, player_id),
+            ).fetchone() is not None
+            if exists:
+                self._conn.execute(
+                    """
+                    UPDATE exercise_players
+                    SET active = false, revoked_at = COALESCE(revoked_at, %s)
+                    WHERE exercise_id = %s AND player_id = %s
+                    """,
+                    (now, exercise_id, player_id),
+                )
+        return exists
+
+    def start_prepared(self, exercise_id: str, scenario: Scenario) -> Exercise:
+        started_at = self._clock.now()
+        ends_at = started_at + parse_duration(scenario.duration)
+        self._expire_due(started_at)
+        try:
+            with self._conn.transaction():
+                self._conn.execute("SELECT pg_advisory_xact_lock(%s)", (LIFECYCLE_LOCK_KEY,))
+                prepared = self._conn.execute(
+                    """
+                    SELECT scenario_id, state FROM exercise_preparations
+                    WHERE exercise_id = %s FOR UPDATE
+                    """,
+                    (exercise_id,),
+                ).fetchone()
+                if prepared is None or prepared[1] != "prepared" or prepared[0] != scenario.id:
+                    raise ExerciseNotPrepared("exercise is not prepared for this scenario")
+                self._conn.execute(
+                    """
+                    INSERT INTO exercises
+                        (exercise_id, scenario_id, state, started_at, ends_at)
+                    VALUES (%s, %s, 'running', %s, %s)
+                    """,
+                    (exercise_id, scenario.id, started_at, ends_at),
+                )
+                self._conn.execute(
+                    """
+                    INSERT INTO exercise_players (exercise_id, player_id, source_ip)
+                    SELECT exercise_id, player_id, source_ip
+                    FROM admission_players
+                    WHERE exercise_id = %s AND team = 'red' AND active
+                    """,
+                    (exercise_id,),
+                )
+                self._conn.execute(
+                    """
+                    UPDATE exercise_preparations
+                    SET state = 'started', started_at = %s
+                    WHERE exercise_id = %s
+                    """,
+                    (started_at, exercise_id),
+                )
+        except psycopg.errors.UniqueViolation as exc:
+            if exc.diag.constraint_name == "exercises_one_running_idx":
+                raise ExerciseAlreadyRunning("an exercise is already running") from exc
+            raise
+        started = self._by_id(exercise_id)
+        assert started is not None
+        return started
 
     def current(self) -> Exercise | None:
         self._expire_due(self._clock.now())
@@ -315,7 +613,7 @@ class ExerciseStore:
             """
             SELECT player_id, host(source_ip)
             FROM exercise_players
-            WHERE exercise_id = %s
+            WHERE exercise_id = %s AND active
             ORDER BY player_id
             """,
             (row[0],),

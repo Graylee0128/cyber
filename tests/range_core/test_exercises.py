@@ -104,12 +104,21 @@ def test_every_roster_row_keeps_its_exercise_id(
     assert exercise_ids == [(started.exercise_id,), (started.exercise_id,)]
 
 
-def test_roster_rejects_source_ip_outside_the_six_kali_hosts() -> None:
-    with pytest.raises(ValueError, match=r"10\.167\.30\.11 through \.16"):
-        PlayerRegistration(player_id="red-seven", source_ip="10.167.30.17")
+def test_roster_accepts_scaled_seats_and_rejects_non_seat_addresses() -> None:
+    assert PlayerRegistration(
+        player_id="red-sixty", source_ip="10.167.30.60"
+    ).source_ip == "10.167.30.60"
 
-    with pytest.raises(ValueError, match=r"10\.167\.30\.11 through \.16"):
-        PlayerRegistration(player_id="wrong-subnet", source_ip="192.0.2.11")
+    for source_ip in (
+        "10.167.30.0",  # network
+        "10.167.30.1",  # gateway
+        "10.167.30.10",  # reserved/control range
+        "10.167.30.255",  # broadcast
+        "10.167.60.60",  # Z-BLUE, not Z-RED
+        "192.0.2.60",  # unrelated zone
+    ):
+        with pytest.raises(ValueError, match=r"10\.167\.30\.11 through \.254"):
+            PlayerRegistration(player_id="not-a-red-seat", source_ip=source_ip)
 
 
 def test_reset_deletes_exercise_scoped_state_and_allows_immediate_restart(
