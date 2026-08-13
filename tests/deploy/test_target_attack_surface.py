@@ -50,6 +50,15 @@ def test_benign_id_stays_scoped_to_one_row():
     )
 
 
+def test_local_db_connection_uses_the_unix_socket_not_tcp():
+    """webapp 是 socket-only 帳號（seed 只建 webapp@localhost）。app 若用 TCP 連
+    127.0.0.1，mariadb 認成 webapp@127.0.0.1 → 1045 access denied → HTTP hop-1 全斷。
+    在真 VM＋真 mariadb 實測過（sudo-less docker，共享 netns）。這條守本機連線必走 socket。"""
+    assert APP._DB_IS_LOCAL, "預設 DB_HOST 應是本機（127.0.0.1/localhost）"
+    assert "/mysqld.sock" in APP.DB_SOCKET
+    assert "unix_socket=" in APP_SRC and "if _DB_IS_LOCAL" in APP_SRC
+
+
 # ── #44 二分：fixture 端點行為完全不變 ──────────────────────────────────
 def test_fixture_endpoints_are_untouched():
     # 四個 fixture 路由與 alloy heartbeat 都還在，且新增的計分面沒有動到它們。

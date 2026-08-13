@@ -42,6 +42,11 @@ DB_PORT = int(os.environ.get("TARGET_DB_PORT", "3306"))
 DB_USER = os.environ.get("TARGET_DB_USER", "webapp")
 DB_PASSWORD = os.environ.get("TARGET_DB_PASSWORD", "webapp-local-only")
 DB_NAME = os.environ.get("TARGET_DB_NAME", "shopdb")
+# webapp 是 socket-only 帳號（seed.sql 只建 webapp@localhost）—— 刻意如此：webapp 不對
+# VLAN30 的 TCP 開放，只有 dbadmin@'%' 是 TCP 可達的第二道門。所以本機連線必須走 unix
+# socket；用 TCP 連 127.0.0.1 會被認成 webapp@127.0.0.1 而拒絕（實測 1045 access denied）。
+DB_SOCKET = os.environ.get("TARGET_DB_SOCKET", "/run/mysqld/mysqld.sock")
+_DB_IS_LOCAL = DB_HOST in ("localhost", "127.0.0.1", "::1")
 
 
 def build_product_query(raw_id: str) -> str:
@@ -63,6 +68,7 @@ def _query_products(raw_id: str) -> list[tuple]:
     conn = pymysql.connect(
         host=DB_HOST, port=DB_PORT, user=DB_USER,
         password=DB_PASSWORD, database=DB_NAME, connect_timeout=5,
+        unix_socket=DB_SOCKET if _DB_IS_LOCAL else None,
     )
     try:
         with conn.cursor() as cur:
