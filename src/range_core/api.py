@@ -23,6 +23,7 @@ import time
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 
+import psycopg
 from disclosure import (
     CALLER_CLEARANCE,
     extract_token,
@@ -464,12 +465,11 @@ def create_app(
             stream_conn = connect()
             try:
                 stream = CoreEventStream(stream_conn)
-                local_store = ExerciseStore(stream_conn)
                 cursor = parse_last_event_id(last_event_id_header)
                 if cursor == 0:
                     cursor = stream.latest_seq(exercise_id)
                 yield from _stream_events(
-                    stream, local_store, exercise_id, cursor, clearance, detection_labels
+                    stream_conn, stream, exercise_id, cursor, clearance, detection_labels
                 )
             finally:
                 stream_conn.close()
@@ -483,9 +483,26 @@ def create_app(
     return application
 
 
+def _exercise_still_running(conn: psycopg.Connection, exercise_id: str) -> bool:
+    """單純觀察 `exercises` 表的 state，**不觸發到期判定**。
+
+    到期判定（`ExerciseStore._expire_due`）需要一個「現在」，而測試會注入
+    `FixedClock` 讓 `ends_at` 落在測試自訂的時間軸上。串流若自己另建一個
+    `ExerciseStore` 來查 `current()`，用的會是預設的 `SystemClock`（真實
+    wall-clock）—— 對著一個用假時鐘算出來的 `ends_at` 比對真實時間，會把
+    測試中「還在跑」的演練誤判成早已過期。到期判定交給其他有正確時鐘設定的
+    路徑（`/api/exercises/current`、`/api/score` 等）；串流只負責讀當下狀態。
+    """
+    row = conn.execute(
+        "SELECT 1 FROM exercises WHERE exercise_id = %s AND state = 'running'",
+        (exercise_id,),
+    ).fetchone()
+    return row is not None
+
+
 def _stream_events(
+    conn: psycopg.Connection,
     stream: CoreEventStream,
-    store: ExerciseStore,
     exercise_id: str,
     cursor: int,
     clearance: int,
@@ -493,8 +510,7 @@ def _stream_events(
 ) -> Iterator[str]:
     idle = 0.0
     while True:
-        current = store.current()
-        if current is None or current.exercise_id != exercise_id:
+        if not _exercise_still_running(conn, exercise_id):
             # 演練結束（或已被別場取代）→ 乾淨關閉，不留懸掛連線。
             return
 
