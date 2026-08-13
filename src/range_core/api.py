@@ -5,8 +5,8 @@ Core interface already has nine planned endpoints and #36 adds resumable SSE;
 FastAPI provides typed validation and OpenAPI while retaining Starlette's
 streaming response support for that later ticket.
 
-Issue #32 adds the start/current exercise lifecycle endpoints. Scoring,
-actions, events, reset, and SSE remain outside this module until their tickets.
+Issue #32 adds the start/current/reset exercise lifecycle endpoints. Scoring,
+actions, events, and SSE remain outside this module until their tickets.
 """
 
 from __future__ import annotations
@@ -35,6 +35,12 @@ class StartExerciseRequest(BaseModel):
 
     scenario_id: str = Field(min_length=1)
     players: tuple[PlayerRegistration, ...] = Field(min_length=1)
+
+
+class ResetExerciseRequest(BaseModel):
+    """Intentionally empty: reset accepts no score or completion overrides."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
 
 def create_app(
@@ -93,6 +99,15 @@ def create_app(
         store: ExerciseStore = Depends(provide_exercise_store),
     ) -> Exercise | None:
         return store.current()
+
+    @application.post("/api/exercises/reset", status_code=204)
+    def reset_exercise(
+        request: ResetExerciseRequest | None = None,
+        store: ExerciseStore = Depends(provide_exercise_store),
+    ) -> None:
+        del request
+        if store.reset_current() is None:
+            raise HTTPException(status_code=404, detail="no running exercise")
 
     return application
 

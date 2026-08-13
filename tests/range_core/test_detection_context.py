@@ -43,6 +43,16 @@ def scenario() -> Scenario:
             "objectives": [
                 {"id": "capture_flag", "evaluation": "submission", "points": 500}
             ],
+            "targets": [{"host": "target-01", "surfaces": ["web"]}],
+            "expected_sources": ["falco"],
+            "attack_chain": [
+                {
+                    "id": "exploit-web",
+                    "technique": "T1190",
+                    "description": "Exploit the target.",
+                }
+            ],
+            "reset_scope": "exercise",
         }
     )
 
@@ -56,7 +66,7 @@ def test_two_sequential_exercises_emit_core_events_with_distinct_exercise_ids(
     events = CoreEventStore(pg_connection)
     records = AlertRecordStore(pg_connection)
     lookup = RunningExerciseLookup(pg_connection)
-    roster = (PlayerRegistration(player_id="red-alice", source_ip="10.30.0.11"),)
+    roster = (PlayerRegistration(player_id="red-alice", source_ip="10.167.30.11"),)
 
     first = exercise_store.start(scenario(), roster)
     [first_event_id] = ingest_alert(

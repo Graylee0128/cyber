@@ -68,6 +68,16 @@ reset_scope: environment
             "objectives": [
                 {"id": "capture_flag", "evaluation": "submission", "points": 500}
             ],
+            "targets": [{"host": "target-01", "surfaces": ["web"]}],
+            "expected_sources": ["falco"],
+            "attack_chain": [
+                {
+                    "id": "exploit-web",
+                    "technique": "T1190",
+                    "description": "Exploit the target.",
+                }
+            ],
+            "reset_scope": "exercise",
             "hints": [],
             "targets": [{"host": "target-01", "surfaces": ["web"]}],
             "expected_sources": ["falco"],
@@ -106,8 +116,8 @@ def test_start_and_current_exercise_are_available_over_http(exercise_store) -> N
         json={
             "scenario_id": "sqli-01",
             "players": [
-                {"player_id": "red-alice", "source_ip": "10.30.0.11"},
-                {"player_id": "red-bob", "source_ip": "10.30.0.12"},
+                {"player_id": "red-alice", "source_ip": "10.167.30.11"},
+                {"player_id": "red-bob", "source_ip": "10.167.30.12"},
             ],
         },
     )
@@ -118,13 +128,35 @@ def test_start_and_current_exercise_are_available_over_http(exercise_store) -> N
     assert body["scenario_id"] == "sqli-01"
     assert body["state"] == "running"
     assert body["players"] == [
-        {"player_id": "red-alice", "source_ip": "10.30.0.11"},
-        {"player_id": "red-bob", "source_ip": "10.30.0.12"},
+        {"player_id": "red-alice", "source_ip": "10.167.30.11"},
+        {"player_id": "red-bob", "source_ip": "10.167.30.12"},
     ]
 
     current = client.get("/api/exercises/current")
     assert current.status_code == 200
     assert current.json() == body
+
+    reset = client.post("/api/exercises/reset")
+    assert reset.status_code == 204
+    assert client.get("/api/exercises/current").json() is None
+
+    restarted = client.post(
+        "/api/exercises/start",
+        json={
+            "scenario_id": "sqli-01",
+            "players": [
+                {"player_id": "red-alice", "source_ip": "10.167.30.11"}
+            ],
+        },
+    )
+    assert restarted.status_code == 201
+    assert restarted.json()["exercise_id"] != body["exercise_id"]
+
+    forbidden_override = client.post(
+        "/api/exercises/reset",
+        json={"score": 999, "completed_objectives": ["capture_flag"]},
+    )
+    assert forbidden_override.status_code == 422
 
 
 def test_get_scenarios_returns_empty_list_during_pre_first_scenario_migration():

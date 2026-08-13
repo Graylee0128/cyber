@@ -45,12 +45,38 @@ CREATE TABLE IF NOT EXISTS exercise_players (
     PRIMARY KEY (exercise_id, player_id),
     UNIQUE (exercise_id, source_ip)
 );
+
+-- #33 owns the completion and scoring behavior.  #32 owns their lifecycle:
+-- every derived row is exercise-scoped and disappears with its exercise.
+CREATE TABLE IF NOT EXISTS exercise_objective_completions (
+    exercise_id text        NOT NULL,
+    player_id   text        NOT NULL,
+    objective_id text       NOT NULL,
+    completed_at timestamptz NOT NULL,
+    PRIMARY KEY (exercise_id, player_id, objective_id),
+    FOREIGN KEY (exercise_id, player_id)
+        REFERENCES exercise_players(exercise_id, player_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS exercise_hint_usages (
+    exercise_id text        NOT NULL,
+    player_id   text        NOT NULL,
+    objective_id text       NOT NULL,
+    hint_index  integer     NOT NULL CHECK (hint_index >= 0),
+    used_at     timestamptz NOT NULL,
+    PRIMARY KEY (exercise_id, player_id, objective_id, hint_index),
+    FOREIGN KEY (exercise_id, player_id)
+        REFERENCES exercise_players(exercise_id, player_id) ON DELETE CASCADE
+);
 """
 
 SCHEMA_LOCK_KEY = 0x52414E47  # "RANG"
 DEFAULT_DSN = "postgresql://purple:purple@localhost:5432/purple"
 _DURATION = re.compile(r"^(?P<amount>[1-9][0-9]*)(?P<unit>[smhd])$")
 _SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+KALI_ADDRESSES = frozenset(
+    ipaddress.ip_address(f"10.167.30.{last_octet}") for last_octet in range(11, 17)
+)
 
 
 class Clock(Protocol):
@@ -81,9 +107,8 @@ class PlayerRegistration(BaseModel):
             address = ipaddress.ip_address(value)
         except ValueError as exc:
             raise ValueError("source_ip must be an IPv4 address") from exc
-        last_octet = int(str(address).split(".")[-1])
-        if not isinstance(address, ipaddress.IPv4Address) or not 11 <= last_octet <= 16:
-            raise ValueError("source_ip must identify a Kali host ending in .11 through .16")
+        if address not in KALI_ADDRESSES:
+            raise ValueError("source_ip must be a Z-RED Kali address 10.167.30.11 through .16")
         return str(address)
 
 
@@ -122,7 +147,10 @@ def ensure_schema(conn: psycopg.Connection) -> None:
 
 
 def truncate_all(conn: psycopg.Connection) -> None:
-    conn.execute("TRUNCATE exercise_players, exercises")
+    conn.execute(
+        "TRUNCATE exercise_hint_usages, exercise_objective_completions, "
+        "exercise_players, exercises"
+    )
 
 
 class ExerciseStore:
@@ -182,6 +210,23 @@ class ExerciseStore:
 
     def get(self, exercise_id: str) -> Exercise | None:
         return self._by_id(exercise_id)
+
+    def reset_current(self) -> str | None:
+        """Delete the running exercise and all derived state in one transaction.
+
+        Audit events intentionally live outside this aggregate and have no
+        cascading foreign key, so reset cannot erase the evidence trail.
+        """
+
+        with self._conn.transaction():
+            row = self._conn.execute(
+                """
+                DELETE FROM exercises
+                WHERE state = 'running'
+                RETURNING exercise_id
+                """
+            ).fetchone()
+        return row[0] if row is not None else None
 
     def _expire_due(self, now: datetime) -> None:
         self._conn.execute(
