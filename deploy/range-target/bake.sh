@@ -25,13 +25,19 @@ UNITS=(falco-modern-bpf.service purplescope-alloy.service range-target-app.servi
 # 每行都加 DIAG| 前綴：關機序列有上百行，host 端才能精準撈出診斷而不是被淹掉。
 diag() { sed 's/^/DIAG| /'; }
 diagnose() {
+  # `set +e` 只關 errexit，不關 ERR trap —— 兩者是獨立機制（bash 的已知地雷）。
+  # `-E` 讓 trap 會被子函式繼承，所以 systemctl status 對非 active unit 回 3 時，
+  # trap 照樣觸發 on_error，診斷都還沒印出來就把整支 bake 中止了。這裡要真的把
+  # trap 拔掉，跑完再接回去，診斷指令的非 0 才不會反過來把自己想印的東西吃掉。
   local unit="$1"
+  trap - ERR
   set +e
   echo "DIAG| ---- 診斷 $unit ----"
   systemctl status "$unit" --no-pager -l 2>&1 | tail -15 | diag
   journalctl -u "$unit" --no-pager 2>/dev/null | grep -iE "error|fatal|failed|panic" | head -15 | diag
   journalctl -u "$unit" --no-pager 2>/dev/null | tail -15 | diag
   set -e
+  trap 'on_error $LINENO' ERR
 }
 
 # 任何未預期的失敗都走這裡：講清楚死在哪一行，然後**一定要關機**。
