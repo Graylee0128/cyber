@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from range_core.api import create_app
+from range_core.exercises import PlayerRegistration
 from range_core.scenarios import Scenario, ScenarioCatalog
 
 TOKEN_MAP = {
@@ -55,7 +56,8 @@ def app(exercise_store, pg_connection):
 @pytest.fixture
 def exercise(app, exercise_store):
     return exercise_store.start(
-        scenario(), ({"player_id": "red-alice", "source_ip": "10.167.30.11"},)
+        scenario(),
+        (PlayerRegistration(player_id="red-alice", source_ip="10.167.30.11"),),
     )
 
 
