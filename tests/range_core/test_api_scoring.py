@@ -18,8 +18,14 @@ FLAG = "flag{" + "a" * 32 + "}"
 # the caller is a legitimate range participant, on top of #33's per-player
 # source-IP roster attribution. One shared team token is enough here — which
 # *player* within the team is still resolved by source IP.
-TOKEN_MAP = {"red-secret": "red"}
+#
+# #49: starting/resetting an exercise now needs instructor clearance
+# (`ENDPOINT_MIN_CLEARANCE`), so the fixture that sets up a running exercise
+# carries the instructor token. Gameplay calls stay on the red token — which is
+# the point: a red player must not be able to reset the exercise they are losing.
+TOKEN_MAP = {"red-secret": "red", "instructor-secret": "instructor"}
 AUTH = {"Authorization": "Bearer red-secret"}
+INSTRUCTOR_AUTH = {"Authorization": "Bearer instructor-secret"}
 
 
 def scenario() -> Scenario:
@@ -72,7 +78,7 @@ def as_actor(app, source: tuple[str, int]) -> TestClient:
 
 
 def start(app) -> dict:
-    resp = as_actor(app, ("0.0.0.0", 0)).post(
+    resp = TestClient(app, client=("0.0.0.0", 0), headers=INSTRUCTOR_AUTH).post(
         "/api/exercises/start",
         json={
             "scenario_id": "range-chain-01",
