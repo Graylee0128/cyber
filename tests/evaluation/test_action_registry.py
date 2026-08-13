@@ -116,8 +116,6 @@ def test_database_rejects_moving_action_into_frozen_registry(seeded):
 def test_freeze_serializes_with_concurrent_action_write(pg_connection):
     """A writer that started before freeze must not commit after freeze."""
     import threading
-    import time
-
     from purple.store.db import connect
 
     registry = ActionRegistryStore(pg_connection, load_whitelist())
@@ -127,7 +125,9 @@ def test_freeze_serializes_with_concurrent_action_write(pg_connection):
         [RegisteredAction("a-1", "T1190", "first")],
     )
     writer_started = threading.Event()
+    release_writer = threading.Event()
     writer_done = threading.Event()
+    freezer_done = threading.Event()
     outcome = []
 
     def writer():
@@ -140,18 +140,30 @@ def test_freeze_serializes_with_concurrent_action_write(pg_connection):
                 )
                 # Signal only after the INSERT trigger has acquired its registry lock.
                 writer_started.set()
-                time.sleep(0.1)
+                assert release_writer.wait(2)
             outcome.append("committed")
         finally:
             conn.close()
             writer_done.set()
 
-    thread = threading.Thread(target=writer)
-    thread.start()
+    def freezer():
+        try:
+            registry.freeze("ex-race")
+        finally:
+            freezer_done.set()
+
+    writer_thread = threading.Thread(target=writer)
+    writer_thread.start()
     assert writer_started.wait(1)
-    registry.freeze("ex-race")
+    freezer_thread = threading.Thread(target=freezer)
+    freezer_thread.start()
+    # The trigger's registry-row lock is the only reason freeze must wait here.
+    assert not freezer_done.wait(0.1)
+    release_writer.set()
     assert writer_done.wait(2)
-    thread.join()
+    assert freezer_done.wait(2)
+    writer_thread.join()
+    freezer_thread.join()
     # The write serialized before freeze and is therefore part of the frozen snapshot;
     # it must never appear after an already completed freeze.
     assert outcome == ["committed"]
