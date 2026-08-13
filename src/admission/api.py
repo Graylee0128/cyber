@@ -1,10 +1,11 @@
 from __future__ import annotations
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 
 app = FastAPI()
-templates = Jinja2Templates(directory="src/admission/templates")
+templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
 
 # ---- 假資料，照抄 demo.html 裡寫死的內容。之後接上真實 store 層時再替換 ----
@@ -27,13 +28,14 @@ FAKE_SEATS = {
          "endpoints": None, "claimed_at": None},
     ],
     "blue": [
-        {"seat_id": "b-01", "kind": "shell", "state": "claimed", "player_id": "p_c03f18",
-         "endpoints": "10.167.60.11:7681 (a)", "claimed_at": "09:11:55"},
-        {"seat_id": "b-03", "kind": "shell", "state": "ready", "player_id": None,
-         "endpoints": "10.167.60.31:7681 (a)", "claimed_at": None},
-        {"seat_id": "b-05", "kind": "console", "state": "free", "player_id": None,
-         "endpoints": None, "claimed_at": None},
-    ],
+    {"seat_id": "b-01", "kind": "shell", "state": "claimed", "player_id": "p_c03f18",
+     "endpoints": "10.167.60.11:7681 (a), 10.167.60.12:7681 (b)", "claimed_at": "09:11:55"},
+    {"seat_id": "b-03", "kind": "shell", "state": "ready", "player_id": None,
+     "endpoints": "10.167.60.31:7681 (a), 10.167.60.32:7681 (b)", "claimed_at": None},
+    {"seat_id": "b-05", "kind": "console", "state": "free", "player_id": None,
+     "endpoints": None, "claimed_at": None},
+],
+    
 }
 
 FAKE_QUEUE = [
