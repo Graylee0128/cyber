@@ -136,7 +136,8 @@ def sync_telemetry_objectives(
     events = CoreEventFeed(conn).firing_events_for_actions(exercise_id, action_ids)
 
     roster_rows = conn.execute(
-        "SELECT host(source_ip), player_id FROM exercise_players WHERE exercise_id = %s",
+        """SELECT host(source_ip), player_id FROM exercise_players
+           WHERE exercise_id = %s AND active""",
         (exercise_id,),
     ).fetchall()
     roster = {row[0]: row[1] for row in roster_rows}

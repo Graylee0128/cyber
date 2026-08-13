@@ -22,6 +22,104 @@
 # 定義出來以完整表達四區模型；真住戶在 #13 / WS5。
 
 services:
+  # #59 access-plane proof.  Every service in this slice is profile-gated so
+  # the existing default telemetry stack keeps its current startup behavior.
+  admission-postgres:
+    image: postgres:17-alpine
+    profiles: ["admission-e2e"]
+    environment:
+      POSTGRES_USER: admission
+      POSTGRES_PASSWORD: admission-e2e
+      POSTGRES_DB: admission
+    ports:
+      - "5433:5432"
+    networks:
+      - z-mgmt
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admission -d admission"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  admission:
+    build:
+      context: .
+      dockerfile: deploy/admission/Dockerfile
+    profiles: ["admission-e2e"]
+    environment:
+      ADMISSION_PG_DSN: postgresql://admission:admission-e2e@admission-postgres:5432/admission
+      ADMISSION_ONSITE_SECRET: e2e-site-secret
+      ADMISSION_INSTRUCTOR_TOKEN: e2e-service-token
+      # This profile proves only the access boundary; Range Core publication
+      # has its own adapter tests and is deliberately absent from this slice.
+      ADMISSION_DISABLE_RANGE_PUBLICATION: "1"
+    ports:
+      - "8002:8000"
+    networks:
+      - z-app
+      - z-mgmt
+    depends_on:
+      admission-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket;s=socket.create_connection(('localhost',8000),2);s.close()\""]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  admission-edge:
+    image: nginx:1.27-alpine
+    profiles: ["admission-e2e"]
+    volumes:
+      - ./deploy/edge/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8088:8080"
+    networks:
+      - z-edge
+      - z-app
+      - z-red
+      - z-blue
+    depends_on:
+      admission:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  admission-red-terminal:
+    build:
+      context: .
+      dockerfile: deploy/edge/Dockerfile.stub
+    profiles: ["admission-e2e"]
+    environment:
+      SEAT_ID: red
+    networks:
+      z-red:
+        ipv4_address: 10.167.30.11
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket;s=socket.create_connection(('localhost',7681),2);s.close()\""]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  admission-blue-terminal:
+    build:
+      context: .
+      dockerfile: deploy/edge/Dockerfile.stub
+    profiles: ["admission-e2e"]
+    environment:
+      SEAT_ID: blue
+    networks:
+      z-blue:
+        ipv4_address: 10.167.60.11
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket;s=socket.create_connection(('localhost',7681),2);s.close()\""]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
   postgres:
     image: postgres:17-alpine
     environment:
@@ -242,9 +340,17 @@ services:
 # 四區網段（SA §12）。z-app / z-red 目前無住戶（見檔頭），定義出來以完整表達模型。
 networks:
   z-app:
+  z-edge:
   z-mgmt:
   z-target:
   z-red:
+    ipam:
+      config:
+        - subnet: 10.167.30.0/24
+  z-blue:
+    ipam:
+      config:
+        - subnet: 10.167.60.0/24
 
 volumes:
   applogs:

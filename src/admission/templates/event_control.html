@@ -114,7 +114,7 @@
   <b>這頁刻意沒有的東西：分數、任務目標、告警、偵測。</b>
   中控只擁有<b>身分／座位／會話</b>三件事（spec §1）——
   exercise state 與 分數 屬 WS5、telemetry 屬 WS4。
-  中控在領號那一刻把 <span class="mono">player_id</span> 交給 Range Core 就退出，
+  中控在座位 <span class="mono">ready</span> 時才把領號時鑄造的 <span class="mono">player_id</span> 交給 Range Core，
   <b>不得成為第二個遊戲狀態的真相來源</b>。
   藍隊不顯示個人分數／排名（spec §6.5.1）。
 </div>
@@ -162,29 +162,22 @@
         instructor 開場前設定。<b>紅池上限</b> = 最多可動態長到幾個座位；
         <b>藍池上限</b> = 實到人數（點名後才能定，開場即鎖，決策25）。
       </div>
-      <form method="post" action="/admission/{{ exercise_id }}/pool-config">
+      <div aria-label="read-only pool configuration">
         <div style="display:flex;gap:10px;margin-bottom:10px">
           <div class="field">
             <label>Red 上限</label>
-            <input type="number" name="red_cap" value="{{ pool_config.red_cap }}"
-                   {{ 'disabled' if pool_config.locked_at }}>
+            <input type="number" value="{{ pool_config.red_cap }}" disabled>
           </div>
           <div class="field">
             <label>Blue 上限</label>
-            <input type="number" name="blue_cap" value="{{ pool_config.blue_cap }}"
-                   {{ 'disabled' if pool_config.locked_at }}>
+            <input type="number" value="{{ pool_config.blue_cap }}" disabled>
           </div>
         </div>
-        <button class="btn" type="submit" {{ 'disabled' if pool_config.locked_at }}>儲存上限</button>
-        {% if not pool_config.locked_at %}
-        <button class="btn danger" formaction="/admission/{{ exercise_id }}/pool-config/lock" style="margin-top:8px;width:100%">
-          鎖池（Exercise Start）
-        </button>
-        {% endif %}
-      </form>
+        <div class="panel-sub">此頁唯讀；變更需經 instructor service token API。</div>
+      </div>
       {% if pool_config.locked_at %}
       <div class="note">
-        <b>已鎖池</b>（{{ pool_config.locked_at }}）：藍池不再開放自助領號；
+        <b>已鎖池</b>（{{ pool_config.locked_at }}）：藍池數量固定，玩家仍可領取已預建的 free 座位；
         紅池仍可持續動態領號，僅受上限限制（決策25）。
       </div>
       {% endif %}
@@ -214,16 +207,7 @@
             <td class="mono">{{ s.player_id or '—' }}</td>
             <td class="mono">{{ s.endpoints or '— 待 provisioner 回寫' }}</td>
             <td class="mono">{{ s.claimed_at or '—' }}</td>
-            <td>
-              {% if s.state == 'claimed' %}
-              <form method="post" action="/admission/seats/{{ s.seat_id }}/rebind" style="display:inline">
-                <button class="btn tiny warn" type="submit">改綁</button>
-              </form>
-              <form method="post" action="/admission/seats/{{ s.seat_id }}/release" style="display:inline">
-                <button class="btn tiny danger" type="submit">釋放</button>
-              </form>
-              {% endif %}
-            </td>
+            <td>唯讀</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -295,9 +279,7 @@
           {% endfor %}
         </tbody>
       </table>
-      <form method="post" action="/admission/{{ exercise_id }}/links/batch">
-        <button class="btn" type="submit" style="width:100%;margin-top:12px">＋ 產生 10 份連結</button>
-      </form>
+      <div class="panel-sub">連結產生需經 instructor service token API。</div>
     </div>
 
     <div class="panel">
@@ -305,17 +287,7 @@
       <div class="panel-sub">
         現場玩家清 cookie 或換筆電就<b>回不去自己的座位</b>（spec §2.2）。
       </div>
-      <form method="post" id="seat-op-form" style="display:flex;gap:8px;margin-bottom:10px">
-        <select name="seat_id" style="flex:1">
-          {% for s in claimed_seats %}
-          <option value="{{ s.seat_id }}">{{ s.seat_id }}（claimed · {{ s.player_id }}）</option>
-          {% endfor %}
-        </select>
-        <button class="btn warn" formaction="/admission/seats/rebind" type="submit">改綁到本 session</button>
-      </form>
-      <button class="btn danger" form="seat-op-form" formaction="/admission/seats/release" type="submit" style="width:100%">
-        釋放座位（連帶作廢 session）
-      </button>
+      <div class="note">此 HTML 畫面唯讀。重新綁定與釋放只能由帶 instructor service token 的 API 執行。</div>
       <div class="note">
         三段失效互不連動：session 過期<b>不</b>釋放座位；座位釋放<b>一定</b>使 session 失效（spec §7.1，兩者都寫稽核）。
       </div>

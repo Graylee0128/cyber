@@ -17,8 +17,15 @@ CREATE TABLE IF NOT EXISTS seat (
     state       text        NOT NULL DEFAULT 'free'
                  CHECK (state IN ('free','requested','ready','claimed','failed','released')),
     player_id   text,
-    claimed_at  timestamptz
+    claimed_at  timestamptz,
+    requested_at timestamptz,
+    retry_count integer NOT NULL DEFAULT 0,
+    published_at timestamptz
 );
+
+ALTER TABLE seat ADD COLUMN IF NOT EXISTS requested_at timestamptz;
+ALTER TABLE seat ADD COLUMN IF NOT EXISTS retry_count integer NOT NULL DEFAULT 0;
+ALTER TABLE seat ADD COLUMN IF NOT EXISTS published_at timestamptz;
 
 CREATE INDEX IF NOT EXISTS seat_pool_idx ON seat (exercise_id, team, state);
 
@@ -32,11 +39,35 @@ CREATE TABLE IF NOT EXISTS exercise_pool_config (
     blue_cap    integer     NOT NULL,
     locked_at   timestamptz
 );
+
+CREATE TABLE IF NOT EXISTS admission_session (
+    token_hash text PRIMARY KEY,
+    seat_id text NOT NULL REFERENCES seat(seat_id),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    revoked_at timestamptz
+);
+CREATE UNIQUE INDEX IF NOT EXISTS one_active_session_per_seat
+    ON admission_session(seat_id) WHERE revoked_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS admission_remote_link (
+    token_hash text PRIMARY KEY,
+    exercise_id text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    used_at timestamptz
+);
+
+CREATE TABLE IF NOT EXISTS admission_audit (
+    audit_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    occurred_at timestamptz NOT NULL DEFAULT now(),
+    actor text NOT NULL,
+    seat_id text NOT NULL,
+    action text NOT NULL CHECK (action IN ('rebind', 'release'))
+);
 """
 
 
 def dsn() -> str:
-    return os.environ.get("ADMISSION_PG_DSN", DEFAULT_DSN)
+    return os.environ.get("ADMISSION_PG_DSN") or os.environ.get("PURPLE_PG_DSN", DEFAULT_DSN)
 
 
 def connect(url: str | None = None, connect_timeout: int = CONNECT_TIMEOUT_S) -> psycopg.Connection:
@@ -58,4 +89,6 @@ def ensure_schema(conn: psycopg.Connection) -> None:
 
 def truncate_all(conn: psycopg.Connection) -> None:
     """測試專用：TRUNCATE 但保留 schema，跑完馬上乾淨。"""
-    conn.execute("TRUNCATE seat, exercise_pool_config")
+    conn.execute(
+        "TRUNCATE admission_audit, admission_session, admission_remote_link, seat, exercise_pool_config RESTART IDENTITY"
+    )
