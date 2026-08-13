@@ -25,6 +25,7 @@ import yaml
 from range_core.blue_actions import (
     BlueActionLog,
     BlueActionType,
+    DispatchOutcome,
     ExecutionEvidence,
     TechniqueTruth,
 )
@@ -135,8 +136,17 @@ def score_event(
     config: BlueScoringConfig,
     truth: TechniqueTruth,
     evidence: ExecutionEvidence,
+    *,
+    dispatch: DispatchOutcome | None = None,
 ) -> EventScore:
-    """一個 event 的藍隊得分（純函數）。"""
+    """一個 event 的藍隊得分（純函數）。
+
+    `dispatch` 是關鍵字專用、預設 `None`——`None` 代表「不檢查派送結果」，
+    保留給 #49 原本沒有派送概念時寫的呼叫端與測試（#51 之前所有既有測試
+    都不必為了這個新概念改寫）。**#51 接上真資料庫的那個唯一呼叫點永遠
+    要傳真的 `dispatch`**：`contain` 的分數必須跟「真的派送成功了嗎」綁在
+    一起，不然會出現 AC 明講禁止的「有分數沒封鎖」。
+    """
     acknowledge = log.first(event_id, BlueActionType.ACKNOWLEDGE)
     contain = log.first(event_id, BlueActionType.CONTAIN)
     resolve = log.first(event_id, BlueActionType.RESOLVE)
@@ -150,8 +160,14 @@ def score_event(
         awarded += config.points["detect_attack"]
 
     # Contain 量的是 Core Event → contain，**不是** acknowledge → contain。
-    # 沒 acknowledge 直接 contain 照樣成立。
-    if contain_seconds is not None and contain_seconds <= config.contain_threshold_seconds:
+    # 沒 acknowledge 直接 contain 照樣成立。`dispatched` 預設 True（等同
+    # 「沒有派送概念時」的舊行為）——只有真的傳了 dispatch 才會被 gate 住。
+    dispatched = dispatch is None or dispatch.dispatched(event_id)
+    if (
+        contain_seconds is not None
+        and contain_seconds <= config.contain_threshold_seconds
+        and dispatched
+    ):
         awarded += config.points["contain"]
 
     if resolve is not None:
@@ -188,6 +204,8 @@ def derive_blue_scores(
     config: BlueScoringConfig,
     truth: TechniqueTruth,
     evidence: ExecutionEvidence,
+    *,
+    dispatch: DispatchOutcome | None = None,
 ) -> BlueScoreboard:
     """整場的藍隊分數。歸屬是 **event 級**，粗粒度統計由這裡聚合（WS5 spec §1.2）。
 
@@ -196,9 +214,15 @@ def derive_blue_scores(
     detection.miss 等），把每一筆都攤成一列零分紀錄只是噪音，還會讓這份
     分數隨著「跟藍隊完全無關的事件量」變動，那不是藍隊的表現。
     `observed_at_by_event` 純粹是查表用的，不是迭代的驅動來源。
+
+    `dispatch` 見 `score_event` 的說明——`None` 是舊行為（不檢查），#51
+    接上真資料庫的呼叫點永遠要傳真的實作。
     """
     events = tuple(
-        score_event(event_id, observed_at_by_event[event_id], log, config, truth, evidence)
+        score_event(
+            event_id, observed_at_by_event[event_id], log, config, truth, evidence,
+            dispatch=dispatch,
+        )
         for event_id in log.event_ids()
     )
     return BlueScoreboard(total=sum(e.awarded for e in events), events=events)

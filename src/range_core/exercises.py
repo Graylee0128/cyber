@@ -109,11 +109,32 @@ CREATE TABLE IF NOT EXISTS exercise_blue_actions (
         CHECK (action IN ('acknowledge', 'classify', 'contain', 'resolve', 'dismiss')),
     submitted_at timestamptz NOT NULL,
     technique    text,
-    recorded_at  timestamptz NOT NULL DEFAULT now()
+    recorded_at  timestamptz NOT NULL DEFAULT now(),
+    -- 封鎖派送結果（#51／WS3 spec §5.2）。只有 `contain` 會被寫非 NULL——
+    -- 其餘四個動作不派送，NULL 就是它們永遠的狀態。**這是 AC「派送失敗
+    -- 時該次動作有明確狀態」的落點**：Blue Action 先落地（這張表的 INSERT
+    -- 本身），contain 落地後才嘗試派送，派送結果回填同一列，不是另開一張
+    -- 表去對應——對應關係一多，「這行有沒有真的封鎖」就會變成要 join 才
+    -- 知道的事，容易忘記 join 而誤判。
+    dispatch_status text
+        CHECK (dispatch_status IN ('dispatched', 'failed'))
 );
 
 CREATE INDEX IF NOT EXISTS blue_actions_exercise_event_idx
     ON exercise_blue_actions (exercise_id, event_id);
+
+-- 既有資料庫升級路徑（#36 已經把這張表建出來過，CREATE TABLE IF NOT
+-- EXISTS 不會替既有的表補欄位）。
+ALTER TABLE exercise_blue_actions ADD COLUMN IF NOT EXISTS dispatch_status text;
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'exercise_blue_actions_dispatch_status_check'
+    ) THEN
+        ALTER TABLE exercise_blue_actions
+            ADD CONSTRAINT exercise_blue_actions_dispatch_status_check
+            CHECK (dispatch_status IN ('dispatched', 'failed'));
+    END IF;
+END $$;
 
 -- 判讀一次定生死（WS3 spec §4.2）：DB 是唯一權威，不只靠應用層檢查 ——
 -- 比照 `exercises_one_running_idx` 已經在用的同一個手法（partial unique index）。

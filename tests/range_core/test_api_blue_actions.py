@@ -45,13 +45,29 @@ def scenario() -> Scenario:
     )
 
 
-def make_app(exercise_store, pg_connection):
+class _FakeDispatcher:
+    """#51 測試接縫：不真的打 HTTP，直接回傳設定好的結果。"""
+
+    def __init__(self, outcome: bool):
+        self.outcome = outcome
+
+    def dispatch(self, exercise_id: str, event_id: str) -> bool:
+        return self.outcome
+
+
+def make_app(exercise_store, pg_connection, *, dispatch_outcome: bool | None = None):
+    """`dispatch_outcome=None`（預設）沿用 production 的 `HttpResponseDispatcher`
+    ——沒設定 URL／token 時它自己就會回 False，不用另外注入假的。要驗證
+    「派送成功會怎樣」的測試才需要傳 `True`。"""
     return create_app(
         ScenarioCatalog((scenario(),)),
         exercise_store=exercise_store,
         conn=pg_connection,
         token_map=TOKEN_MAP,
         action_clock=FixedClock(),
+        response_dispatcher_factory=(
+            None if dispatch_outcome is None else lambda conn: _FakeDispatcher(dispatch_outcome)
+        ),
     )
 
 
@@ -116,6 +132,9 @@ class TestClearanceGate:
             "action": "acknowledge",
             "event_id": "evt-1",
             "submitted_at": ACTION_AT.isoformat(),
+            # #51: only `contain` ever dispatches; every other action's
+            # status is always None, not an omitted key.
+            "dispatch_status": None,
         }
 
     @pytest.mark.parametrize(
@@ -243,16 +262,58 @@ class TestScoreIntegration:
         assert blue["events"][0]["judgement"] == "wrong"
 
     def test_acknowledge_and_contain_stack(self, exercise_store, pg_connection):
-        app = make_app(exercise_store, pg_connection)
+        """contain 只有在真的派送成功時才計分（#51）——這裡注入一個永遠
+        成功的假 dispatcher，測的是分數疊加，不是派送本身。"""
+        app = make_app(exercise_store, pg_connection, dispatch_outcome=True)
         started = start(app)
         write_event(pg_connection, started["exercise_id"], "evt-1")
         client = TestClient(app, headers=BLUE_AUTH)
 
         client.post("/api/blue-actions", json={"event_id": "evt-1", "action": "acknowledge"})
-        client.post("/api/blue-actions", json={"event_id": "evt-1", "action": "contain"})
+        contain_resp = client.post(
+            "/api/blue-actions", json={"event_id": "evt-1", "action": "contain"}
+        )
 
+        assert contain_resp.json()["dispatch_status"] == "dispatched"
         blue = client.get("/api/score").json()["blue"]
         assert blue["total"] == 100 + 150  # detect_attack + contain
+
+    def test_contain_without_a_reachable_z_mgmt_does_not_score(
+        self, exercise_store, pg_connection
+    ):
+        """#51 的核心正確性：派送失敗時，contain 不得出現「有分數沒封鎖」。
+        `make_app` 預設沒配 Z-MGMT URL/token，`HttpResponseDispatcher` 自然
+        失敗——這條刻意不注入假 dispatcher，驗證的正是這個 production 預設
+        路徑。"""
+        app = make_app(exercise_store, pg_connection)  # 沒有 dispatch_outcome
+        started = start(app)
+        write_event(pg_connection, started["exercise_id"], "evt-1")
+        client = TestClient(app, headers=BLUE_AUTH)
+
+        contain_resp = client.post(
+            "/api/blue-actions", json={"event_id": "evt-1", "action": "contain"}
+        )
+
+        assert contain_resp.status_code == 201
+        assert contain_resp.json()["dispatch_status"] == "failed"
+        blue = client.get("/api/score").json()["blue"]
+        assert blue["total"] == 0  # 落地了，但沒有分數——不是「有分數沒封鎖」
+        assert blue["events"][0]["awarded"] == 0
+
+    def test_dispatch_failure_still_lands_the_action(self, exercise_store, pg_connection):
+        """派送失敗不影響落地——AC「Blue Action 先落地、再派送」的落地
+        那一半必須先於派送結果存在，兩者不是同一個原子操作的一部分。"""
+        app = make_app(exercise_store, pg_connection)
+        started = start(app)
+        write_event(pg_connection, started["exercise_id"], "evt-1")
+        client = TestClient(app, headers=BLUE_AUTH)
+
+        resp = client.post(
+            "/api/blue-actions", json={"event_id": "evt-1", "action": "contain"}
+        )
+
+        assert resp.status_code == 201  # 落地成功，即使派送之後才發現失敗
+        assert resp.json()["event_id"] == "evt-1"
 
     def test_events_blue_never_touched_do_not_appear(self, exercise_store, pg_connection):
         """derive_blue_scores 只列藍隊有動作的事件 —— 不然分數會隨著跟藍隊

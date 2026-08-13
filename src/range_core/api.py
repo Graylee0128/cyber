@@ -42,11 +42,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from range_core.blue_action_store import (
     AlreadyJudged,
     BlueActionStore,
+    StoredDispatchOutcome,
     StoredExecutionEvidence,
     UnknownEvent,
 )
-from range_core.blue_actions import BlueActionRejected, MappingTechniqueTruth
+from range_core.blue_actions import BlueActionRejected, BlueActionType, MappingTechniqueTruth
 from range_core.blue_scoring import BlueScoringConfig, derive_blue_scores
+from range_core.response_dispatch import HttpResponseDispatcher, ResponseDispatcher
 from range_core.event_stream import (
     CoreEventStream,
     comment_frame,
@@ -190,6 +192,7 @@ def create_app(
     token_map: Mapping[str, str] | None = None,
     max_stream_seconds: float = DEFAULT_MAX_STREAM_SECONDS,
     action_clock: ActionClock | None = None,
+    response_dispatcher_factory: Callable[[psycopg.Connection], ResponseDispatcher] | None = None,
 ) -> FastAPI:
     """Create the WS5 application with an injected or on-disk catalog.
 
@@ -234,6 +237,14 @@ def create_app(
     # 與 tokens／detection_labels 同一個理由：這份設定在演練期間不該變動。
     blue_scoring_config = BlueScoringConfig.load()
     resolved_action_clock = action_clock or ActionSystemClock()
+    # #51：contain 落地後怎麼派送到 Z-MGMT 的 response queue。留給測試換成
+    # 假的 dispatcher（不必真的打 HTTP），production 預設用真的
+    # `HttpResponseDispatcher`（讀 `RANGE_CORE_RESPONSE_TOKEN`／
+    # `PURPLE_RESPONSE_URL` 環境變數）。每個請求建一個新的——`conn` 是
+    # 請求級的，dispatcher 不能活得比它的連線久。
+    resolved_dispatcher_factory = response_dispatcher_factory or (
+        lambda c: HttpResponseDispatcher(conn=c)
+    )
     lifecycle_now = exercise_store.now if exercise_store is not None else ActionSystemClock().now
     if not tokens:
         log.warning(
@@ -480,8 +491,9 @@ def create_app(
         always the team `blue`, never a person (WS3 spec §5.1).
         """
         exercise, _ = _running_exercise_and_scenario(store)
+        action_store = BlueActionStore(conn, clock=resolved_action_clock)
         try:
-            recorded = BlueActionStore(conn, clock=resolved_action_clock).record(
+            recorded = action_store.record(
                 # The timestamp is generated inside Range Core, never accepted
                 # from the caller.  The injectable clock only exists so the
                 # Core Event -> arrival threshold is deterministic in tests.
@@ -493,11 +505,31 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except BlueActionRejected as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        # #51: Blue Action lands first (the INSERT above already committed),
+        # *then* contain gets dispatched -- never the other way around, so a
+        # crash between the two leaves a landed-but-undispatched row instead
+        # of a phantom dispatch nothing recorded. Dispatch failure is not an
+        # exception: it is written back onto the same row so scoring
+        # (`StoredDispatchOutcome`) can see it and withhold the point ("must
+        # never show points without a block", WS3 spec §5.2's whole point of
+        # routing through Range Core instead of a Console double-write).
+        dispatch_status: str | None = None
+        if recorded.action is BlueActionType.CONTAIN:
+            dispatched = resolved_dispatcher_factory(conn).dispatch(
+                exercise.exercise_id, recorded.event_id
+            )
+            dispatch_status = "dispatched" if dispatched else "failed"
+            action_store.set_dispatch_status(
+                exercise.exercise_id, recorded.event_id, recorded.submitted_at, dispatch_status
+            )
+
         return {
             "team": "blue",
             "action": recorded.action.value,
             "event_id": recorded.event_id,
             "submitted_at": recorded.submitted_at.isoformat(),
+            "dispatch_status": dispatch_status,
         }
 
     @application.get("/api/score")
@@ -518,6 +550,10 @@ def create_app(
             blue_scoring_config,
             MappingTechniqueTruth(action_store.technique_by_event(exercise.exercise_id)),
             StoredExecutionEvidence(conn, exercise.exercise_id),
+            # #51: contain only scores if it was actually dispatched --
+            # otherwise a pool-full/network-down failure would still pay out
+            # points for a block that never happened.
+            dispatch=StoredDispatchOutcome(conn, exercise.exercise_id),
         ).as_dict()
         return {**red, **blue}
 
