@@ -10,6 +10,17 @@ dict，不 import `purple.response.queue` 的 dataclass** —— `range_core`
 明確狀態」——呼叫端（`api.py`）要把這個結果寫回 Blue Action 那一列
 （`BlueActionStore.set_dispatch_status`），例外會打斷那個寫入，讓失敗
 變成「連狀態都沒留下」，比「留下 failed 狀態」還糟。
+
+**Range Core 是封鎖路徑的單點（AC 明講要記在文件裡）**：`contain` 只有
+這一條路徑能把 Blue Action 落地跟派送接起來——`HttpResponseDispatcher`
+是唯一持有 `RANGE_CORE_RESPONSE_TOKEN`（Z-MGMT 認得的那把密鑰）的呼叫
+者。Range Core 若掛了（或部署沒配到這個 token／URL），藍隊的「按下封鎖
+鈕」在 UI 上看起來像成功送出（`POST /api/blue-actions` 本身仍會回 201，
+因為落地不受派送影響），但派送一律回 `False`、`dispatch_status` 一律
+`"failed"`、`/api/score` 也不會給 `Contain < 60 sec` 的分——不是「靜默
+沒反應」，是「看得到失敗，但真的封鎖不動」。這是刻意的架構代價（WS3
+spec §5.2 排除了 Console 雙寫與從 `response.*` 事件反推兩條替代路徑，
+理由見 issue #51），不是本模組的缺陷。
 """
 
 from __future__ import annotations

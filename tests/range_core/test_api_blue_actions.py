@@ -117,6 +117,26 @@ class TestClearanceGate:
 
         assert resp.status_code == 403
 
+    def test_identity_cannot_be_self_reported_by_a_header(self, exercise_store, pg_connection):
+        """#51 AC：「Console 的身分是服務級，一條測試證明呼叫者無法自報
+        clearance（沿用 CALLER_CLEARANCE 的既有保證）」。
+
+        紅隊 token 換出的身分是 `red`；即使請求帶著看起來像藍隊自報的
+        標頭（沿用舊系統曾經存在過的 `X-Purple-Identity` 這類欄位名），
+        `require_identity` 只認 `Authorization: Bearer <token>` 換出來的
+        結果（`disclosure.identity.extract_token` 只讀這一個來源），
+        其餘標頭一律被忽略——身分不是「呼叫者說了算」，是「token 換得出
+        什麼就是什麼」。"""
+        app = make_app(exercise_store, pg_connection)
+        started = start(app)
+        write_event(pg_connection, started["exercise_id"], "evt-1")
+
+        resp = TestClient(app, headers={**RED_AUTH, "X-Purple-Identity": "blue"}).post(
+            "/api/blue-actions", json={"event_id": "evt-1", "action": "acknowledge"}
+        )
+
+        assert resp.status_code == 403  # 紅隊 token 換出的身分還是 red，自報的標頭沒用
+
     def test_blue_can_submit(self, exercise_store, pg_connection):
         app = make_app(exercise_store, pg_connection)
         started = start(app)
