@@ -19,17 +19,23 @@ WS7 一共四個畫面，audience 完全不同，這是設計時最容易踩的�
 
 # 待討論
 
-## Q1. Player Portal 的 Hint 扣分怎麼呈現，才不會變成「不用白不用」？
+## Q1. Player Portal 的 Hint 扣分怎麼呈現，才不會變成「不用白不用」？ —— **已答（2026-08-13）**
 
 [WS1 spec](../ws1-game-design/spec.md) 已定案 hint 會扣分，但 UI 上「要不要顯示扣了多少分再讓玩家確認」還沒決定——顯示太清楚可能鼓勵玩家精算，不顯示又不透明。
 
-## Q2. Blue SOC Console 要包多少層在 Grafana 之上？
+**答**：確認前顯示扣分金額（按 hint 前跳「扣 X 分，確定要看嗎？」）。不顯示等於暗坑，容易變投訴來源；顯示不等於鼓勵精算，精算本來就是玩家的策略選擇。
+
+## Q2. Blue SOC Console 要包多少層在 Grafana 之上？ —— **已答（2026-08-13）**
 
 SA §5.2：「底層可用 Grafana，但產品 UI 可再包一層簡化的 Incident UX」——包到什麼程度沒定案：只是換皮（iframe/連結出去），還是真的做一個獨立的 incident 佇列 UI？後者工程量差很多。
 
-## Q3. Instructor 的 Override Score／Inject Event 需不需要留操作紀錄？
+**答**：純換皮／iframe 嵌 Grafana，包一層導覽／認證即可，不重做獨立 incident 佇列 UI。SA §5.2 原文只要求「可再包一層簡化 UX」，沒說要重做；WS7 現在受限於 #21/#26/#32/#33 都還沒出真數字，先上輕量版，真正需要獨立 UI 時再升級不算浪費前期投入。
+
+## Q3. Instructor 的 Override Score／Inject Event 需不需要留操作紀錄？ —— **已答（2026-08-13）**
 
 Instructor 可以覆寫分數、注入事件——這兩個操作如果演練結束後要寫 Exercise Report（[#28](https://github.com/Graylee0128/cyber/issues/28)），報告該不該標註「這個分數是教官手動調整過的」，否則報告的可信度會被質疑。
+
+**答**：要留稽核，且與 [#55](https://github.com/Graylee0128/cyber/issues/55)（Instructor Override Score／Inject Event 稽核）統一管道，不各做一套——這個原則已隱含在 [#65](https://github.com/Graylee0128/cyber/issues/65) decision #24。本題剩下的部分是 Exercise Report（#28）要不要標註「此分數被人工調整過」：要標註，否則報告可信度會被質疑。
 
 ## Q4.（2026-08-12 補）Player Portal 要不要嵌入即時 Shell？——組員已定方向：要，嵌入 web page
 
@@ -43,7 +49,7 @@ shell 要嵌入這個 web page**（demo 見 [player-portal.html](./player-portal
 2. **要不要側錄操作紀錄**——跟 Q3 的 Instructor 稽核是同一類問題，若要留，格式跟 Q3 能不能共用
 3. **這條連線走哪個網段**——是走 Z-APP（Player Portal 所在區）還是直接連 Z-RED，涉及 README 網段表既有的防火牆規則要不要為此新開一條
 
-技術選型（例如 xterm.js 前端 + PTY over WebSocket）也還沒定案，本檔不預設。
+**技術選型 —— 已答（2026-08-13）**：xterm.js + PTY over WebSocket。這是業界標準組合，WS8 的 ttyd 本身就是這個模式，兩邊技術棧天然對齊。
 
 ## Q5.（2026-08-12 補）Blue 的 Player Portal 頁面內容很薄，要不要乾脆不做，直接導去 Blue SOC Console？
 
