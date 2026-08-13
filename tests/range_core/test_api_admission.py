@@ -111,7 +111,14 @@ def test_blue_ready_identity_has_no_red_source_or_individual_score(
     assert started.status_code == 201
     score = client(exercise_store, pg_connection, actor="red-secret").get("/api/score")
     assert score.status_code == 200
-    assert "blue" not in score.json()
+    board = score.json()
+    # A blue seat scores nothing individually. Since #36 the response does
+    # carry a `blue` board, but it is the team's, aggregated per event —— it
+    # has no per-player attribution at all (WS3 spec §5.1, Blue 不個人化), and
+    # the blue seat never appears among the red players either.
+    assert board["red"]["players"] == []
+    assert "players" not in board["blue"]
+    assert board["blue"]["events"] == []
 
 
 def test_scaled_red_seat_is_registered_and_attributed_from_its_tcp_peer(
