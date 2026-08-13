@@ -280,6 +280,7 @@ def test_build_range_enforces_contract1_allowlist_and_runs_deny_canary():
         "tcp dport 8000 accept"
     ) in text
     assert "--ports 3100,9090,4317,22,8000" in text
+    assert "--http-date-port 3100" in text
     assert 'ip netns exec ns-receiver python3 "$DIR/stub_listener.py"' in text
 
 

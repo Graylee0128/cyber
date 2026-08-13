@@ -50,7 +50,7 @@ def test_vm_clock_uses_request_midpoint_against_mgmt_date(monkeypatch):
     )
     response = Response("Thu, 13 Aug 2026 01:00:00 GMT")
     monkeypatch.setattr(probe.http.client, "HTTPConnection", lambda *_a, **_k: Connection(response))
-    assert probe.probe_mgmt_clock("loki", now=lambda: next(moments)) == 300
+    assert probe.probe_mgmt_clock("mgmt-stub", now=lambda: next(moments)) == 300
 
 
 def test_vm_clock_missing_independent_date_fails(monkeypatch):
@@ -58,4 +58,4 @@ def test_vm_clock_missing_independent_date_fails(monkeypatch):
     response = Response(None)
     monkeypatch.setattr(probe.http.client, "HTTPConnection", lambda *_a, **_k: Connection(response))
     with pytest.raises(RuntimeError, match="no Date"):
-        probe.probe_mgmt_clock("loki")
+        probe.probe_mgmt_clock("mgmt-stub")
