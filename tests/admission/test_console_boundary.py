@@ -11,7 +11,7 @@ import re
 
 from fastapi.testclient import TestClient
 
-from src.admission.api import app
+from admission.api import app
 
 client = TestClient(app)
 

@@ -28,14 +28,13 @@ FAKE_SEATS = {
          "endpoints": None, "claimed_at": None},
     ],
     "blue": [
-    {"seat_id": "b-01", "kind": "shell", "state": "claimed", "player_id": "p_c03f18",
-     "endpoints": "10.167.60.11:7681 (a), 10.167.60.12:7681 (b)", "claimed_at": "09:11:55"},
-    {"seat_id": "b-03", "kind": "shell", "state": "ready", "player_id": None,
-     "endpoints": "10.167.60.31:7681 (a), 10.167.60.32:7681 (b)", "claimed_at": None},
-    {"seat_id": "b-05", "kind": "console", "state": "free", "player_id": None,
-     "endpoints": None, "claimed_at": None},
-],
-    
+        {"seat_id": "b-01", "kind": "shell", "state": "claimed", "player_id": "p_c03f18",
+         "endpoints": "10.167.60.11:7681 (a), 10.167.60.12:7681 (b)", "claimed_at": "09:11:55"},
+        {"seat_id": "b-03", "kind": "shell", "state": "ready", "player_id": None,
+         "endpoints": "10.167.60.31:7681 (a), 10.167.60.32:7681 (b)", "claimed_at": None},
+        {"seat_id": "b-05", "kind": "console", "state": "free", "player_id": None,
+         "endpoints": None, "claimed_at": None},
+    ],
 }
 
 FAKE_QUEUE = [
