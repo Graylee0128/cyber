@@ -64,6 +64,11 @@ on_error() {
   echo "DIAG| ---- apt 最後的輸出（死因通常在這裡）----"
   { tail -40 /var/log/apt/term.log; tail -15 /var/log/apt/history.log; } 2>&1 | diag
   echo "=== GOLDEN-BAKE-DONE（ABORT）==="
+  # `poweroff -f` 立刻讓 VM 斷電，`tee /dev/console` 那條管線若還有資料在
+  # userspace buffer 裡沒 write() 出去就直接沒了 —— `sync` 只顧磁碟，救不到
+  # 這個。先前兩次 abort 幾乎看不到任何 DIAG 輸出，這是原因之一。給 tee 一點
+  # 時間把最後一段 flush 出去，host 端才看得到真正的診斷而不是空氣。
+  sleep 1
   poweroff -f
 }
 trap 'on_error $LINENO' ERR
@@ -285,7 +290,13 @@ done
 
 # 沒起來時把設定也印出來 —— 這顆 VM 沒有 SSH，console 是唯一的窗口，
 # 少印一次就要多花一輪 5 分鐘重烤。
+#
+# 同 diagnose() 的地雷：`set +e` 不擋 ERR trap。alloy 前景探測常態性非 0 退出
+# （probe storage path 與正式服務衝突、或 config 解析錯誤本身就是想看的東西），
+# 沒拔 trap 的話這個區塊本身就會把自己再炸一次 abort，而且是在任何一行診斷
+# 印出來、flush 到 console 之前就死 —— 實測看到的正是這樣：完全沒有輸出。
 if [ "$bake_fail" != 0 ]; then
+  trap - ERR
   set +e
   echo "DIAG| ---- falco 設定與規則 ----"
   { ls -l /etc/falco/config.d/ /etc/falco/rules.d/; cat /etc/falco/config.d/purplescope.yaml; } 2>&1 | diag
@@ -294,6 +305,7 @@ if [ "$bake_fail" != 0 ]; then
   # 前景跑一次：unit 的 stdout 有時被吞，直接跑最能拿到真正的錯誤訊息。
   timeout 15 alloy run /etc/alloy/config.alloy --storage.path=/tmp/alloy-probe 2>&1 | tail -25 | diag
   set -e
+  trap 'on_error $LINENO' ERR
 fi
 
 # 就地觸發一次，確認 Falco 真的抓得到我們的三條 rule（bake 期自證，不必等上線才發現）。
