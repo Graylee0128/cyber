@@ -293,7 +293,7 @@ def test_vm_p1_verifier_generates_fresh_falco_action_and_waits_for_delivery():
 
 
 def test_t2_container_falco_runs_four_field_contract():
-    text = (ROOT / "test.sh").read_text(encoding="utf-8")
+    text = SCRIPT.parents[1].joinpath("test.sh").read_text(encoding="utf-8")
     assert 'if [ "$FALCO_MODE" = "container" ]; then P1_ARGS+=(--falco); fi' in text
     assert 'verify-p1-fields.py" "${P1_ARGS[@]}"' in text
 
