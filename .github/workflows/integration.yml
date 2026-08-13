@@ -62,7 +62,7 @@ jobs:
           PURPLE_RANGE_CORE_URL: http://localhost:8003
           PURPLE_EDGE_HOST: localhost
           PURPLE_EDGE_PORT: "8088"
-        run: python -m pytest -v -s tests/integration/test_admission_access.py
+        run: python -m pytest -v -s tests/access_integration/test_admission_access.py
 
       - name: Dump access-plane logs on failure
         if: failure()
