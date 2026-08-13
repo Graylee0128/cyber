@@ -135,8 +135,8 @@ def test_freeze_serializes_with_concurrent_action_write(pg_connection):
         try:
             with conn.transaction():
                 conn.execute(
-                    "INSERT INTO registered_actions VALUES "
-                    "('ex-race', 'a-2', 'T1059', 'racing write')"
+                    "UPDATE registered_actions SET description='racing write' "
+                    "WHERE exercise_id='ex-race' AND action_id='a-1'"
                 )
                 # Signal only after the INSERT trigger has acquired its registry lock.
                 writer_started.set()
@@ -167,7 +167,8 @@ def test_freeze_serializes_with_concurrent_action_write(pg_connection):
     # The write serialized before freeze and is therefore part of the frozen snapshot;
     # it must never appear after an already completed freeze.
     assert outcome == ["committed"]
-    assert registry.denominator("ex-race") == ("a-1", "a-2")
+    assert registry.denominator("ex-race") == ("a-1",)
+    assert registry.get("ex-race").actions[0].description == "racing write"
 
 
 def test_frozen_at_is_stable_when_freeze_is_retried(seeded):
