@@ -24,7 +24,13 @@ from purple.evidence.resolver import (
     clearance,
     filter_by_visibility,
 )
-from purple.evidence.service import handle_evidence, render_bundle
+from purple.evidence.service import (
+    extract_token,
+    handle_evidence,
+    load_service_tokens,
+    render_bundle,
+    resolve_identity,
+)
 
 __all__ = [
     "BackendUnavailable",
@@ -41,7 +47,10 @@ __all__ = [
     "UnknownCaller",
     "build_query",
     "clearance",
+    "extract_token",
     "filter_by_visibility",
     "handle_evidence",
+    "load_service_tokens",
     "render_bundle",
+    "resolve_identity",
 ]

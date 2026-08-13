@@ -30,6 +30,8 @@ pytestmark = pytest.mark.integration
 
 APP_URL = os.environ.get("PURPLE_APP_URL", "http://localhost:8080")
 ENGINE_URL = os.environ.get("PURPLE_ENGINE_URL", "http://localhost:8001")
+# #52 B2：需與 docker-compose.yml 的 evaluation-engine 服務值一致。
+EVIDENCE_TOKEN_BLUE = os.environ.get("PURPLE_EVIDENCE_TOKEN_BLUE", "dev-blue-token")
 
 E2E_TIMEOUT_S = 90.0
 RESOLVE_TIMEOUT_S = 150.0
@@ -180,7 +182,8 @@ def test_evidence_api_returns_context_from_real_loki(events):
 
     _step(f"以 blue 身分呼叫 GET /evidence/{event_id}")
     req = urllib.request.Request(
-        f"{ENGINE_URL}/evidence/{event_id}", headers={"X-Purple-Identity": "blue"}
+        f"{ENGINE_URL}/evidence/{event_id}",
+        headers={"Authorization": f"Bearer {EVIDENCE_TOKEN_BLUE}"},
     )
     with urllib.request.urlopen(req, timeout=10) as resp:
         assert resp.status == 200
