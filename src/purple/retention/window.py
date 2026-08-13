@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -54,3 +55,44 @@ class RetentionWindow:
         """
         _require_aware(timestamp, "timestamp")
         return self.opens_at <= timestamp <= self.closes_at
+
+
+def raw_coverage_windows_for(
+    retention: RetentionWindow, event_timestamps: Iterable[datetime]
+) -> tuple[str, ...]:
+    """把報告引用到的事件時間，依保留窗自動分類成人類可讀的區段字串
+    （票 #98 項目 3，§4.2）——取代原本「呼叫端手填字串」的做法，過期判定
+    由 `RetentionWindow.retains` 算，不是報告產出時憑印象填。
+
+    連續同狀態（有 raw／已過期）的事件合併成一個範圍，不會退化成每個
+    事件各佔一行的雜訊。**只看「raw 本身還在不在」**——已經被
+    `retention/report.py` 的 `snapshot_report` 嵌入報告本身的證據不受
+    這裡影響：那些即使 raw 過期，報告內的副本仍可讀，這裡回答的是另一個
+    問題，兩者不重疊，不重造快照機制。
+    """
+    ordered = sorted(event_timestamps)
+    if not ordered:
+        return ()
+
+    def _label(retained: bool) -> str:
+        return "有 raw" if retained else "raw 已過期"
+
+    def _render(start: datetime, end: datetime, retained: bool) -> str:
+        if start == end:
+            return f"{start:%H:%M} {_label(retained)}"
+        return f"{start:%H:%M}–{end:%H:%M} {_label(retained)}"
+
+    windows: list[str] = []
+    group_start = group_end = ordered[0]
+    group_retained = retention.retains(ordered[0])
+
+    for ts in ordered[1:]:
+        retained = retention.retains(ts)
+        if retained == group_retained:
+            group_end = ts
+        else:
+            windows.append(_render(group_start, group_end, group_retained))
+            group_start = group_end = ts
+            group_retained = retained
+    windows.append(_render(group_start, group_end, group_retained))
+    return tuple(windows)
