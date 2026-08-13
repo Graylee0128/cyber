@@ -17,10 +17,10 @@ import ``purple`` -- both sides import the shared contract package.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
-import time
-from collections.abc import Iterator, Mapping
+from collections.abc import AsyncIterator, Iterator, Mapping
 from pathlib import Path
 
 import psycopg
@@ -451,26 +451,35 @@ def create_app(
         需要一條專屬自己、活到 generator 結束才關閉的連線，不能借用請求級的
         那條（借用還會讓這條連線同時被別的請求執行緒使用，psycopg 的連線不是
         執行緒安全的並行對象）。
+
+        **generator 是 async，用 ``await request.is_disconnected()`` 判斷
+        客戶端還在不在** —— 這是 ASGI 原生支援的斷線偵測，Starlette 收到客戶端
+        關閉連線會正確地把這件事傳達到這裡；換成 sync generator + 輪詢會漏接
+        這個訊號，串流永遠不會自己結束。DB 呼叫是同步的 psycopg，直接在 async
+        generator 裡呼叫會佔用 event loop 一小段時間 —— 在一場演練事件數以個位
+        數計、輪詢間隔 200ms 的規模下可接受，換 asyncpg 之類的非同步驅動是為
+        不存在的併發規模付錢。
         """
         exercise, _ = _running_exercise_and_scenario(store)
         clearance = CALLER_CLEARANCE.get(identity, 0)
         exercise_id = exercise.exercise_id
         last_event_id_header = request.headers.get("Last-Event-ID")
 
-        def generate() -> Iterator[str]:
+        async def generate() -> AsyncIterator[str]:
             # 專屬連線，活到這個 generator 結束才關閉 —— 不借用請求級的
             # `provide_conn`（那條連線在端點函式回傳當下就可能被收回）也不
-            # 借用外層的 `store`（那會讓同一條連線被輪詢執行緒與其他請求並行
-            # 使用，psycopg 的連線不是執行緒安全的並行對象）。
+            # 借用外層的 `store`（那會讓同一條連線被輪詢與其他請求並行使用，
+            # psycopg 的連線不是執行緒安全的並行對象）。
             stream_conn = connect()
             try:
                 stream = CoreEventStream(stream_conn)
                 cursor = parse_last_event_id(last_event_id_header)
                 if cursor == 0:
                     cursor = stream.latest_seq(exercise_id)
-                yield from _stream_events(
-                    stream_conn, stream, exercise_id, cursor, clearance, detection_labels
-                )
+                async for frame in _stream_events(
+                    request, stream_conn, stream, exercise_id, cursor, clearance, detection_labels
+                ):
+                    yield frame
             finally:
                 stream_conn.close()
 
@@ -500,16 +509,17 @@ def _exercise_still_running(conn: psycopg.Connection, exercise_id: str) -> bool:
     return row is not None
 
 
-def _stream_events(
+async def _stream_events(
+    request: Request,
     conn: psycopg.Connection,
     stream: CoreEventStream,
     exercise_id: str,
     cursor: int,
     clearance: int,
     labels: Mapping[str, Mapping[str, str]],
-) -> Iterator[str]:
+) -> AsyncIterator[str]:
     idle = 0.0
-    while True:
+    while not await request.is_disconnected():
         if not _exercise_still_running(conn, exercise_id):
             # 演練結束（或已被別場取代）→ 乾淨關閉，不留懸掛連線。
             return
@@ -528,7 +538,7 @@ def _stream_events(
         if idle >= KEEPALIVE_INTERVAL_S:
             idle = 0.0
             yield comment_frame("keep-alive")
-        time.sleep(POLL_INTERVAL_S)
+        await asyncio.sleep(POLL_INTERVAL_S)
 
 
 app = create_app()
