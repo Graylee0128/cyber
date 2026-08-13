@@ -23,6 +23,10 @@ class RegistryNotFrozen(RegistryError):
     pass
 
 
+class RegistryNotFound(RegistryError):
+    pass
+
+
 @dataclass(frozen=True)
 class RegisteredAction:
     id: str
@@ -85,7 +89,7 @@ class ActionRegistryStore:
             (action.technique, action.description, exercise_id, action.id),
         )
         if cursor.rowcount != 1:
-            raise RegistryError(f"unknown action {action.id!r}")
+            raise RegistryNotFound(f"unknown action {action.id!r}")
 
     def delete(self, exercise_id: str, action_id: str) -> None:
         self._require_mutable(exercise_id)
@@ -94,7 +98,7 @@ class ActionRegistryStore:
             (exercise_id, action_id),
         )
         if cursor.rowcount != 1:
-            raise RegistryError(f"unknown action {action_id!r}")
+            raise RegistryNotFound(f"unknown action {action_id!r}")
 
     def freeze(self, exercise_id: str) -> RegistrySnapshot:
         with self.conn.transaction():
@@ -103,7 +107,7 @@ class ActionRegistryStore:
                 (exercise_id,),
             ).fetchone()
             if row is None:
-                raise RegistryError(f"unknown registry {exercise_id!r}")
+                raise RegistryNotFound(f"unknown registry {exercise_id!r}")
             if row[0] is None:
                 count = self.conn.execute(
                     "SELECT count(*) FROM registered_actions WHERE exercise_id=%s",
@@ -123,7 +127,7 @@ class ActionRegistryStore:
             (exercise_id,),
         ).fetchone()
         if row is None:
-            raise RegistryError(f"unknown registry {exercise_id!r}")
+            raise RegistryNotFound(f"unknown registry {exercise_id!r}")
         actions = self.conn.execute(
             "SELECT action_id, technique, description FROM registered_actions "
             "WHERE exercise_id=%s ORDER BY action_id",
@@ -148,7 +152,7 @@ class ActionRegistryStore:
             (exercise_id,),
         ).fetchone()
         if row is None:
-            raise RegistryError(f"unknown registry {exercise_id!r}")
+            raise RegistryNotFound(f"unknown registry {exercise_id!r}")
         if row[0] is not None:
             raise RegistryFrozen(
                 f"action registry {exercise_id!r} is frozen since {row[0].isoformat()}"

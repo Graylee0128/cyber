@@ -84,6 +84,71 @@ def test_database_rejects_frozen_registry_header_change_or_delete(seeded, statem
         seeded.conn.execute(statement)
 
 
+def test_database_rejects_direct_unfreeze(seeded):
+    seeded.freeze("ex-21")
+    with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState, match="is frozen"):
+        seeded.conn.execute(
+            "UPDATE action_registries SET frozen_at=NULL WHERE exercise_id='ex-21'"
+        )
+
+
+def test_database_rejects_moving_action_out_of_frozen_registry(seeded):
+    seeded.create("ex-other", "sqli-01")
+    seeded.freeze("ex-21")
+    with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState, match="ex-21"):
+        seeded.conn.execute(
+            "UPDATE registered_actions SET exercise_id='ex-other' "
+            "WHERE exercise_id='ex-21' AND action_id='a-1'"
+        )
+
+
+def test_freeze_serializes_with_concurrent_action_write(pg_connection):
+    """A writer that started before freeze must not commit after freeze."""
+    import threading
+    import time
+
+    from purple.store.db import connect
+
+    registry = ActionRegistryStore(pg_connection, load_whitelist())
+    registry.seed(
+        "ex-race",
+        "sqli-01",
+        [RegisteredAction("a-1", "T1190", "first")],
+    )
+    writer_started = threading.Event()
+    writer_done = threading.Event()
+    outcome = []
+
+    def writer():
+        conn = connect()
+        try:
+            with conn.transaction():
+                conn.execute(
+                    "SELECT 1 FROM action_registries WHERE exercise_id='ex-race' FOR UPDATE"
+                )
+                writer_started.set()
+                time.sleep(0.1)
+                conn.execute(
+                    "INSERT INTO registered_actions VALUES "
+                    "('ex-race', 'a-2', 'T1059', 'racing write')"
+                )
+            outcome.append("committed")
+        finally:
+            conn.close()
+            writer_done.set()
+
+    thread = threading.Thread(target=writer)
+    thread.start()
+    assert writer_started.wait(1)
+    registry.freeze("ex-race")
+    assert writer_done.wait(2)
+    thread.join()
+    # The write serialized before freeze and is therefore part of the frozen snapshot;
+    # it must never appear after an already completed freeze.
+    assert outcome == ["committed"]
+    assert registry.denominator("ex-race") == ("a-1", "a-2")
+
+
 def test_frozen_at_is_stable_when_freeze_is_retried(seeded):
     first = seeded.freeze("ex-21").frozen_at
     second = seeded.freeze("ex-21").frozen_at
