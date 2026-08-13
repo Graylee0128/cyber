@@ -79,6 +79,16 @@ def test_webhook_to_agent_pull_to_response_core_event(pg_connection):
                 "objectives": [
                     {"id": "capture_flag", "evaluation": "submission", "points": 500}
                 ],
+                "targets": [{"host": "target-01", "surfaces": ["shell"]}],
+                "expected_sources": ["falco"],
+                "attack_chain": [
+                    {
+                        "id": "execute-command",
+                        "technique": "T1059",
+                        "description": "Execute a target command.",
+                    }
+                ],
+                "reset_scope": "exercise",
             }
         ),
         (PlayerRegistration(player_id="red-alice", source_ip="10.167.30.11"),),

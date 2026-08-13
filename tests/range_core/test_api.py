@@ -105,6 +105,16 @@ def test_start_and_current_exercise_are_available_over_http(exercise_store) -> N
             "objectives": [
                 {"id": "capture_flag", "evaluation": "submission", "points": 500}
             ],
+            "targets": [{"host": "target-01", "surfaces": ["web"]}],
+            "expected_sources": ["falco"],
+            "attack_chain": [
+                {
+                    "id": "exploit-web",
+                    "technique": "T1190",
+                    "description": "Exploit the target.",
+                }
+            ],
+            "reset_scope": "exercise",
         }
     )
     client = TestClient(
