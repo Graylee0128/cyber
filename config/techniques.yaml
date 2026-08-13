@@ -26,3 +26,24 @@ techniques:
     name: Data from Local System
     tactic: collection
     note: 僅代表敏感檔被開啟，未證明內容外流；要敘述成外洩需另有傳輸證據
+  # --- 提權／逃逸半邊（2026-08-13 補：單機縱深 spec §3.3 的後半，原 #42 未涵蓋）---
+  - id: T1552
+    name: Unsecured Credentials
+    tactic: credential-access
+    note: 僅代表憑證被讀取（.git、設定檔等），未證明後續使用；要敘述成入侵路徑需另有使用該憑證的證據
+  - id: T1053
+    name: Scheduled Task/Job
+    tactic: execution
+    note: cron/at 觸發的執行；要敘述成提權需連結「以較高權限身分被觸發」的證據
+  - id: T1548
+    name: Abuse Elevation Control Mechanism
+    tactic: privilege-escalation
+    note: 涵蓋 SUID、sudo 設定濫用與 Linux capabilities 提權；子技術不另立，統一記父技術
+  - id: T1611
+    name: Escape to Host
+    tactic: privilege-escalation
+    note: 容器逃逸至宿主；需有跨越容器邊界的證據，僅取得容器內 root 不足以敘述成逃逸
+  - id: T1505
+    name: Server Software Component
+    tactic: persistence
+    note: web shell 等伺服器端元件植入；子技術（.003 Web Shell）不另立，統一記父技術

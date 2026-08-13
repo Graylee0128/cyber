@@ -111,6 +111,17 @@ SA §8.3 的 Event Service 輸入來源清單本來就列了 `Blue Action`——
 **「全部重來」仍然做得到**——由 Instructor Console（WS7）依序呼叫兩者，那是編排層的責任，
 不需要在資料層焊死。
 
+### #32 實作契約
+
+- `POST /api/exercises/reset` 不接受 score 或 objective override；沒有 running exercise 時回 `404`。
+- reset 刪除當前 Exercise aggregate。名冊、objective completion 與 hint usage 都以
+  `exercise_id` 外鍵 `ON DELETE CASCADE`，因此同一個 transaction 內清除。
+- `core_events` 不對 Exercise aggregate 建 cascade 外鍵；reset 後仍保留稽核軌跡。
+- `reset_scope: environment` 只是在 `GET /api/scenarios` 告知編排者還需另跑 WS6 reset；
+  本 API 永遠不執行 `scripts/range/**`。
+- `GET /api/score` 與 completion/hint 的業務寫入由 #33 提供；#32 只建立其
+  exercise-scoped lifecycle schema，不建立可寫的 `score` 欄位。
+
 ## 2.4 結束條件沿用 WS1
 
 純時間制，固定 `duration`，不因 Red 完成度提早結束——理由見

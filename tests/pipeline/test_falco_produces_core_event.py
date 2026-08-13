@@ -57,7 +57,12 @@ def test_falco_exec_produces_core_event(stores):
     events, records = stores
     mark = events.now()
 
-    ingest_alert(GRAFANA_FALCO_WEBHOOK, events=events, records=records)
+    ingest_alert(
+        GRAFANA_FALCO_WEBHOOK,
+        events=events,
+        records=records,
+        exercise_id="ex-current",
+    )
 
     core = wait_for_event(
         fetch=lambda: events.since(mark),

@@ -41,6 +41,8 @@ def build_core_event(
     event_id: str,
     lifecycle: str,
     whitelist: Whitelist | None = None,
+    *,
+    exercise_id: str,
 ) -> dict[str, Any]:
     """組出符合契約的 Core Event。
 
@@ -63,7 +65,7 @@ def build_core_event(
 
     event = {
         "event_id": event_id,
-        "exercise_id": labels["exercise_id"],
+        "exercise_id": exercise_id,
         "scenario_id": labels["scenario_id"],
         "event_type": event_type,
         "lifecycle": lifecycle,
