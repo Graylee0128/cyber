@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 
@@ -28,8 +29,19 @@ from disclosure import (
     load_service_tokens,
     resolve_identity,
 )
+from disclosure.detection_rules import load_rule_titles
+from disclosure.fields import FIELD_MASKING
+from disclosure import build_label_map
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
+
+from range_core.event_stream import (
+    CoreEventStream,
+    comment_frame,
+    frames_for,
+    parse_last_event_id,
+)
 
 from range_core.exercises import (
     Exercise,
@@ -71,6 +83,13 @@ TOKEN_ENV_PREFIX = "RANGE_CORE_TOKEN_"
 #: Data, not scattered ifs: a new privileged endpoint is one row.  Endpoints
 #: absent from the table need any valid token, which is the gameplay default
 #: (submissions and hints are exactly what red players are supposed to call).
+#: SSE 的輪詢間隔與 keep-alive 間隔（#36）。輪詢而非 LISTEN/NOTIFY：一場演練的
+#: 事件數以個位數計，200ms 的輪詢對 Postgres 是零負擔，而 LISTEN 會把「誰負責
+#: 通知」這件事塞進 P1 的寫入路徑 —— 那是為了不存在的規模付跨區耦合的錢。
+POLL_INTERVAL_S = 0.2
+#: 中介設備會砍掉太久沒有位元組的長連線；SSE 註解行不是事件，不動 Last-Event-ID。
+KEEPALIVE_INTERVAL_S = 15.0
+
 ENDPOINT_MIN_CLEARANCE: dict[tuple[str, str], int] = {
     ("POST", "/api/exercises/start"): CALLER_CLEARANCE["instructor"],
     ("POST", "/api/exercises/reset"): CALLER_CLEARANCE["instructor"],
@@ -159,6 +178,13 @@ def create_app(
         if token_map is None
         else token_map
     )
+    # #49 的 rule 匿名標籤。**與 Evidence API 共用同一份排序來源**，否則同一條
+    # 規則在 SSE 與 Evidence 兩個畫面會是不同號碼，藍隊會以為那是兩條規則。
+    detection_labels = {
+        "rule": build_label_map(
+            load_rule_titles(), FIELD_MASKING["rule"].label_prefix or "Detection"
+        )
+    }
     if not tokens:
         log.warning(
             "no %s* configured; this service will reject every request",
@@ -401,6 +427,59 @@ def create_app(
         completions = ObjectiveStore(conn).for_exercise(exercise.exercise_id)
         hint_usages = HintService(conn).for_exercise(exercise.exercise_id)
         return derive_scores(scenario, completions, hint_usages).as_dict()
+
+    @application.get("/api/events/live")
+    def live_events(
+        request: Request,
+        identity: str = Depends(require_identity),
+        store: ExerciseStore = Depends(provide_exercise_store),
+        conn=Depends(provide_conn),
+    ) -> StreamingResponse:
+        """演練事件的 SSE 串流（#36）。
+
+        每則事件的 ``id:`` 是 ``core_events.seq``；瀏覽器斷線重連會把它當
+        ``Last-Event-ID`` 送回來，於是續傳就是「seq 大於它的那些」。不帶
+        ``Last-Event-ID`` 的新訂閱者從**當下最大 seq 之後**開始收 —— 一連上線
+        就把整場歷史灌給他不是即時推送，是回放。
+
+        每個訂閱者有自己的游標與自己的 clearance，彼此不共用狀態；過濾在伺服器
+        端發生，不是叫前端自己別顯示。
+        """
+        exercise, _ = _running_exercise_and_scenario(store)
+        clearance = CALLER_CLEARANCE.get(identity, 0)
+        stream = CoreEventStream(conn)
+        cursor = parse_last_event_id(request.headers.get("Last-Event-ID"))
+        if cursor == 0:
+            cursor = stream.latest_seq(exercise.exercise_id)
+
+        def generate() -> Iterator[str]:
+            nonlocal cursor
+            idle = 0.0
+            while True:
+                if store.current() is None:
+                    # 演練結束 → 乾淨關閉，不留懸掛連線。
+                    return
+                batch = stream.after(exercise.exercise_id, cursor)
+                if batch:
+                    for _, frame in frames_for(batch, clearance, detection_labels):
+                        yield frame
+                    # 游標推進到整批最大 seq，不是最後一個推出去的 —— 一批全被
+                    # 過濾掉時才不會卡在原地反覆重讀。
+                    cursor = batch[-1].seq
+                    idle = 0.0
+                    continue
+
+                idle += POLL_INTERVAL_S
+                if idle >= KEEPALIVE_INTERVAL_S:
+                    idle = 0.0
+                    yield comment_frame("keep-alive")
+                time.sleep(POLL_INTERVAL_S)
+
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
 
     return application
 

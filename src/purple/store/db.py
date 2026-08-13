@@ -36,6 +36,11 @@ CREATE TABLE IF NOT EXISTS core_events (
     -- Action↔Evidence 的唯一關聯鍵（#90 Phase 1）。NULL＝不對應任何註冊動作。
     -- 提到欄位而非只留在 jsonb 裡，是為了讓「依動作取證據」是索引查詢而不是全表掃描。
     action_id    text,
+    -- SSE 續傳的游標（#36）。recorded_at 當不了游標：now() 是交易開始時間，
+    -- 兩筆並行寫入可能以「時間較早的那筆後 commit」的順序變成可見，訂閱者游標
+    -- 越過去之後那筆就再也補不回來。序號只需嚴格遞增，不需連續 ——
+    -- ON CONFLICT DO NOTHING 吃掉的重送仍會消耗一個號碼，gap 是正常的。
+    seq          bigserial,
     event        jsonb       NOT NULL,
     -- firing 與 resolved 共用 event_id，用 lifecycle 區分（spec §2.2）
     PRIMARY KEY (event_id, lifecycle)
@@ -43,7 +48,9 @@ CREATE TABLE IF NOT EXISTS core_events (
 
 -- 既有資料庫升級路徑：CREATE TABLE IF NOT EXISTS 不會替已存在的表補欄位。
 ALTER TABLE core_events ADD COLUMN IF NOT EXISTS action_id text;
+ALTER TABLE core_events ADD COLUMN IF NOT EXISTS seq bigserial;
 
+CREATE UNIQUE INDEX IF NOT EXISTS core_events_seq_idx ON core_events (seq);
 CREATE INDEX IF NOT EXISTS core_events_recorded_at_idx ON core_events (recorded_at);
 CREATE INDEX IF NOT EXISTS core_events_exercise_idx    ON core_events (exercise_id, observed_at);
 CREATE INDEX IF NOT EXISTS core_events_action_idx      ON core_events (exercise_id, action_id)
