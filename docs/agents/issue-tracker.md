@@ -37,7 +37,9 @@ Map 以 issue 編號（`#N`）指向 GitHub，不再指向本地檔案。
 - Issue 內文的檔案連結要用**絕對 URL**（`https://github.com/Graylee0128/cyber/blob/master/...`），相對路徑在 issue 頁面會壞掉
 
 完整的 agent contract 與交接基準見 [#67](https://github.com/Graylee0128/cyber/issues/67)：
-**Codex 是 implementation owner**；**Claude 是 architecture / integration reviewer**。
+Codex 是主要 implementation owner；Claude 做 architecture / integration review。
+**2026-08-13 起放寬**：Claude 找到的問題可直接改、直接 push、直接 merge，
+不必回交 Codex 走第二輪。見 [CLAUDE.md](../../CLAUDE.md)。
 
 ## When a skill says "publish to the issue tracker"
 
