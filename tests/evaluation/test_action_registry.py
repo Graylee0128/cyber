@@ -102,6 +102,17 @@ def test_database_rejects_moving_action_out_of_frozen_registry(seeded):
         )
 
 
+def test_database_rejects_moving_action_into_frozen_registry(seeded):
+    seeded.create("ex-other", "sqli-01")
+    seeded.add("ex-other", RegisteredAction("a-3", "T1059", "other"))
+    seeded.freeze("ex-21")
+    with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState, match="ex-21"):
+        seeded.conn.execute(
+            "UPDATE registered_actions SET exercise_id='ex-21' "
+            "WHERE exercise_id='ex-other' AND action_id='a-3'"
+        )
+
+
 def test_freeze_serializes_with_concurrent_action_write(pg_connection):
     """A writer that started before freeze must not commit after freeze."""
     import threading
@@ -124,14 +135,12 @@ def test_freeze_serializes_with_concurrent_action_write(pg_connection):
         try:
             with conn.transaction():
                 conn.execute(
-                    "SELECT 1 FROM action_registries WHERE exercise_id='ex-race' FOR UPDATE"
-                )
-                writer_started.set()
-                time.sleep(0.1)
-                conn.execute(
                     "INSERT INTO registered_actions VALUES "
                     "('ex-race', 'a-2', 'T1059', 'racing write')"
                 )
+                # Signal only after the INSERT trigger has acquired its registry lock.
+                writer_started.set()
+                time.sleep(0.1)
             outcome.append("committed")
         finally:
             conn.close()
