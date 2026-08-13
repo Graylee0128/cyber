@@ -15,7 +15,12 @@ PIPELINE_CONTRACT_SCENARIO = Scenario.model_validate(
         "difficulty": "test",
         "duration": "30m",
         "objectives": [
-            {"id": "observe-sqli", "evaluation": "telemetry", "points": 1}
+            {
+                "id": "observe-sqli",
+                "evaluation": "telemetry",
+                "points": 1,
+                "telemetry_signal": {"action_id": "exercise-sqli-pipeline"},
+            }
         ],
         "targets": [{"host": "compose-vulnerable-app", "surfaces": ["web"]}],
         "expected_sources": ["alloy"],

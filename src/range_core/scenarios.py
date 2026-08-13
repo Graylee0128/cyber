@@ -29,6 +29,23 @@ class ScenarioDefinitionError(ValueError):
     """A scenario package does not satisfy the WS1/WS2/WS5 contract."""
 
 
+class TelemetrySignal(BaseModel):
+    """The Core Event that completes a `telemetry` objective (#33).
+
+    `action_id` references this same scenario's `attack_chain`, never a
+    technique or event_type — technique+proximity matching is exactly what
+    `purple.store.events.CoreEventStore.detections_by_action` refuses to do:
+    "技法與時間窗鄰近性在這裡完全不參與"／"沒帶關聯鍵的事件不得被拿去對應任何
+    註冊動作，這正是本方法只走 action_id 的理由". One technique can back
+    multiple registered actions; guessing "the nearest one" attributes
+    evidence to the wrong action silently.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    action_id: NonEmptyText
+
+
 class Objective(BaseModel):
     """A narrative Red-team goal, independent from P2 Action Registry."""
 
@@ -37,6 +54,7 @@ class Objective(BaseModel):
     id: NonEmptyText
     evaluation: Literal["telemetry", "submission"]
     points: int = Field(gt=0)
+    telemetry_signal: TelemetrySignal | None = None
 
 
 class Hint(BaseModel):
@@ -113,9 +131,37 @@ class Scenario(BaseModel):
         if len(set(self.intentional_gaps)) != len(self.intentional_gaps):
             raise ValueError("intentional_gaps must be unique")
 
+        action_id_set = set(action_ids)
+        for objective in self.objectives:
+            if objective.evaluation == "telemetry" and objective.telemetry_signal is None:
+                raise ValueError(
+                    f"objective {objective.id!r}: telemetry objectives require telemetry_signal"
+                )
+            if objective.evaluation == "submission" and objective.telemetry_signal is not None:
+                raise ValueError(
+                    f"objective {objective.id!r}: submission objectives must not set telemetry_signal"
+                )
+            if (
+                objective.telemetry_signal is not None
+                and objective.telemetry_signal.action_id not in action_id_set
+            ):
+                raise ValueError(
+                    f"objective {objective.id!r}: telemetry_signal references unknown "
+                    f"attack_chain action {objective.telemetry_signal.action_id!r}"
+                )
+
     def action_registry_seed(self) -> tuple[AttackAction, ...]:
         """Return #21 seed actions; detection declarations are not a denominator."""
         return self.attack_chain
+
+    def hints_for(self, objective_id: str) -> tuple[Hint, ...]:
+        """Hints for one objective, in scenario-file declaration order.
+
+        The single definition of ``hint_index`` (#33): it is the position
+        within this tuple, not a sort key. A later "sort hints for display"
+        change must not silently re-map every historical usage record.
+        """
+        return tuple(hint for hint in self.hints if hint.objective_id == objective_id)
 
 
 @dataclass(frozen=True)

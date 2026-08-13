@@ -18,7 +18,12 @@ VALID_SCENARIO = {
     "difficulty": "easy",
     "duration": "30m",
     "objectives": [
-        {"id": "gain_shell", "evaluation": "telemetry", "points": 200},
+        {
+            "id": "gain_shell",
+            "evaluation": "telemetry",
+            "points": 200,
+            "telemetry_signal": {"action_id": "gain-shell"},
+        },
         {"id": "capture_flag", "evaluation": "submission", "points": 500},
     ],
     "hints": [
