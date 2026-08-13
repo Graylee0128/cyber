@@ -488,8 +488,14 @@ def create_app(
             stream_conn = connect()
             try:
                 stream = CoreEventStream(stream_conn)
+                # **只有標頭整個沒出現**才是全新訂閱者，跳過歷史從當下開始。
+                # 標頭出現但值是 "0"（或任何解析不出來的垃圾值）是客戶端
+                # *主動*告訴我們一個游標 —— `parse_last_event_id` 把它們都
+                # 收斂成 0，語意是「給我 seq > 0 的所有事件」，不是「跳過歷史」。
+                # 兩者混為一談會讓「帶著 Last-Event-ID: 0 重連」的客戶端漏收
+                # 到斷線前就已經存在、還沒送達的事件。
                 cursor = parse_last_event_id(last_event_id_header)
-                if cursor == 0:
+                if last_event_id_header is None:
                     cursor = stream.latest_seq(exercise_id)
                 async for frame in _stream_events(
                     request,
