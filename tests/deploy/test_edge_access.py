@@ -40,6 +40,16 @@ def test_terminal_proxy_preserves_websocket_upgrade():
     assert "proxy_set_header Connection $connection_upgrade;" in text
 
 
+def test_revocation_contract_is_next_handshake_not_force_disconnect():
+    integration = (ROOT / "tests" / "integration" / "test_admission_access.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "denies this next handshake" in integration
+    assert "does not force-close an already-upgraded socket" in integration
+    assert 'assert _websocket_identity("main", red_cookie)[0] == 403' in integration
+
+
 def test_edge_config_contains_no_database_or_credential_material():
     text = _nginx().lower()
 
@@ -51,6 +61,7 @@ def test_admission_e2e_services_form_a_narrow_access_plane():
     services = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]
     expected = {
         "admission-postgres",
+        "admission-range-core",
         "admission",
         "admission-edge",
         "admission-red-terminal",
@@ -61,7 +72,10 @@ def test_admission_e2e_services_form_a_narrow_access_plane():
     for name in expected:
         assert "admission-e2e" in services[name].get("profiles", [])
     assert services["admission"]["depends_on"]["admission-postgres"]["condition"] == "service_healthy"
-    assert services["admission"]["environment"]["ADMISSION_DISABLE_RANGE_PUBLICATION"] == "1"
+    assert "ADMISSION_DISABLE_RANGE_PUBLICATION" not in services["admission"]["environment"]
+    assert services["admission"]["environment"]["ADMISSION_RANGE_CORE_URL"] == "http://admission-range-core:8000"
+    assert services["admission"]["environment"]["ADMISSION_SESSION_TTL_SECONDS"] == "3600"
+    assert services["admission-range-core"]["environment"]["RANGE_CORE_TOKEN_ADMISSION"] == "e2e-admission-token"
 
     edge = services["admission-edge"]
     assert "z-mgmt" not in edge["networks"]

@@ -40,7 +40,7 @@ def test_ready_publication_is_idempotent_and_release_revokes(pg_connection):
 
 def test_rebind_preserves_player_and_both_operations_are_audited(pg_connection):
     PoolConfigStore(pg_connection).set_caps("EX", 1, 0)
-    service = AdmissionService(pg_connection, publisher=RangeFake())
+    service = AdmissionService(pg_connection, publisher=RangeFake(), session_ttl_seconds=3600)
     claim = service.allocate("EX", "red")
     old = service.bind_session(claim["seat_id"])
     assert service.resolve_session("forged-token") is None
@@ -62,9 +62,31 @@ def test_timeout_first_fails_for_retry_second_releases_and_alerts(pg_connection)
     old = datetime.now(UTC) - timedelta(seconds=11)
     pg_connection.execute("UPDATE seat SET requested_at=%s WHERE seat_id=%s", (old, claim["seat_id"]))
     assert service.expire_requests(10) == {"retry": 1, "released": 0}
-    assert SeatStore(pg_connection).retry_failed(claim["seat_id"])
+    retried = SeatStore(pg_connection).get(claim["seat_id"])
+    assert retried["state"] == "requested"
+    assert retried["retry_count"] == 1
     pg_connection.execute("UPDATE seat SET requested_at=%s WHERE seat_id=%s", (old, claim["seat_id"]))
     assert service.expire_requests(10) == {"retry": 0, "released": 1}
     assert SeatStore(pg_connection).get(claim["seat_id"])["player_id"] is None
     assert publisher.revoked == [claim["player_id"]]
     assert len(alerts.alerts) == 1
+    assert pg_connection.execute(
+        "SELECT seat_id,reason FROM admission_alert"
+    ).fetchall() == [(claim["seat_id"], "provisioning_timeout")]
+
+
+def test_notifier_failure_cannot_rollback_release_or_durable_alert(pg_connection):
+    class BrokenNotifier:
+        def notify(self, **_alert): raise RuntimeError("offline")
+
+    PoolConfigStore(pg_connection).set_caps("EX", 1, 0)
+    publisher = RangeFake()
+    service = AdmissionService(pg_connection, publisher=publisher, alerter=BrokenNotifier())
+    claim = service.allocate("EX", "red")
+    pg_connection.execute(
+        "UPDATE seat SET retry_count=1,requested_at=now()-interval '11 seconds' WHERE seat_id=%s",
+        (claim["seat_id"],),
+    )
+    assert service.expire_requests(10) == {"retry": 0, "released": 1}
+    assert SeatStore(pg_connection).get(claim["seat_id"])["state"] == "released"
+    assert pg_connection.execute("SELECT reason FROM admission_alert").fetchall() == [("provisioning_timeout",)]

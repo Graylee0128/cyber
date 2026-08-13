@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 from typing import Any, Protocol
 
 from admission.store.pool import PoolConfigStore
 from admission.store.seats import SeatStore
+
+log = logging.getLogger("admission.service")
 
 
 class RangePublisher(Protocol):
@@ -30,12 +33,14 @@ class TeamFull(Exception):
 
 
 class AdmissionService:
-    def __init__(self, conn, *, publisher: RangePublisher | None = None, alerter: Alerter | None = None):
+    def __init__(self, conn, *, publisher: RangePublisher | None = None,
+                 alerter: Alerter | None = None, session_ttl_seconds: int | None = None):
         self.conn = conn
         self.seats = SeatStore(conn)
         self.pools = PoolConfigStore(conn)
         self.publisher = publisher or NullRangePublisher()
         self.alerter = alerter or NullAlerter()
+        self.session_ttl_seconds = session_ttl_seconds
 
     def allocate(self, exercise_id: str, team: str) -> dict[str, Any]:
         cfg = self.pools.get(exercise_id)
@@ -56,7 +61,12 @@ class AdmissionService:
             raise
 
     def bind_session(self, seat_id: str) -> str:
-        return self.seats.bind_session(seat_id)
+        if self.session_ttl_seconds is None:
+            raise RuntimeError("ADMISSION_SESSION_TTL_SECONDS is required")
+        return self.seats.bind_session(seat_id, self.session_ttl_seconds)
+
+    def logout(self, token: str | None) -> bool:
+        return self.seats.revoke_session(token) if token else False
 
     def resolve_session(self, token: str | None) -> dict[str, Any] | None:
         return self.seats.resolve_session(token) if token else None
@@ -100,7 +110,7 @@ class AdmissionService:
             raise KeyError(seat_id)
         with self.conn.transaction():
             self.seats.revoke_sessions(seat_id)
-            token = self.seats.bind_session(seat_id)
+            token = self.bind_session(seat_id)
             self.conn.execute(
                 "INSERT INTO admission_audit(actor,seat_id,action) VALUES (%s,%s,'rebind')",
                 (actor, seat_id),
@@ -136,22 +146,52 @@ class AdmissionService:
         self.seats.claim_for_access(seat["seat_id"])
         return f"{endpoint['host']}:{endpoint['port']}"
 
-    def expire_requests(self, timeout_seconds: int) -> dict[str, int]:
-        rows = self.conn.execute(
-            """SELECT seat_id,exercise_id,player_id,retry_count FROM seat
-               WHERE state='requested' AND requested_at < now() - (%s * interval '1 second')
-               FOR UPDATE SKIP LOCKED""",
-            (timeout_seconds,),
-        ).fetchall()
+    def expire_requested(self, timeout_seconds: int) -> dict[str, int]:
+        """Retry or release stale requested seats atomically.
+
+        The first expiry starts the single automatic retry by refreshing
+        ``requested_at`` with ``retry_count=1``. The second persists release
+        and its operator alert before attempting any optional notification.
+        """
         result = {"retry": 0, "released": 0}
-        for seat_id, exercise_id, player_id, retry_count in rows:
-            if retry_count == 0:
-                self.conn.execute("UPDATE seat SET state='failed',retry_count=1 WHERE seat_id=%s", (seat_id,))
-                result["retry"] += 1
-            else:
-                self.seats.revoke_sessions(seat_id)
-                self.seats.release(seat_id)
-                self.publisher.revoke_player(exercise_id, player_id)
-                self.alerter.notify(seat_id=seat_id, reason="provisioning_timeout")
-                result["released"] += 1
+        notifications: list[dict[str, str]] = []
+        with self.conn.transaction():
+            rows = self.conn.execute(
+                """SELECT seat_id,exercise_id,player_id,retry_count FROM seat
+                   WHERE state='requested'
+                     AND requested_at < now() - (%s * interval '1 second')
+                   FOR UPDATE SKIP LOCKED""",
+                (timeout_seconds,),
+            ).fetchall()
+            for seat_id, exercise_id, player_id, retry_count in rows:
+                if retry_count == 0:
+                    self.conn.execute(
+                        """UPDATE seat SET state='requested',retry_count=1,requested_at=now()
+                           WHERE seat_id=%s AND state='requested'""",
+                        (seat_id,),
+                    )
+                    result["retry"] += 1
+                else:
+                    self.seats.revoke_sessions(seat_id)
+                    self.seats.release(seat_id)
+                    self.publisher.revoke_player(exercise_id, player_id)
+                    self.conn.execute(
+                        """INSERT INTO admission_alert(seat_id,reason)
+                           VALUES (%s,'provisioning_timeout')
+                           ON CONFLICT (seat_id,reason) DO NOTHING""",
+                        (seat_id,),
+                    )
+                    notifications.append(
+                        {"seat_id": seat_id, "reason": "provisioning_timeout"}
+                    )
+                    result["released"] += 1
+        for notification in notifications:
+            try:
+                self.alerter.notify(**notification)
+            except Exception:
+                log.exception("optional admission timeout notifier failed")
         return result
+
+    def expire_requests(self, timeout_seconds: int) -> dict[str, int]:
+        """Compatibility alias for callers predating the sweeper entrypoint."""
+        return self.expire_requested(timeout_seconds)

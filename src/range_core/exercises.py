@@ -150,8 +150,8 @@ LIFECYCLE_LOCK_KEY = 0x575338  # "WS8"
 DEFAULT_DSN = "postgresql://purple:purple@localhost:5432/purple"
 _DURATION = re.compile(r"^(?P<amount>[1-9][0-9]*)(?P<unit>[smhd])$")
 _SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
-KALI_ADDRESSES = frozenset(
-    ipaddress.ip_address(f"10.167.30.{last_octet}") for last_octet in range(11, 17)
+RED_SEAT_ADDRESSES = frozenset(
+    ipaddress.ip_address(f"10.167.30.{last_octet}") for last_octet in range(11, 255)
 )
 
 
@@ -191,8 +191,8 @@ class PlayerRegistration(BaseModel):
             address = ipaddress.ip_address(value)
         except ValueError as exc:
             raise ValueError("source_ip must be an IPv4 address") from exc
-        if address not in KALI_ADDRESSES:
-            raise ValueError("source_ip must be a Z-RED Kali address 10.167.30.11 through .16")
+        if address not in RED_SEAT_ADDRESSES:
+            raise ValueError("source_ip must be a Z-RED seat address 10.167.30.11 through .254")
         return str(address)
 
 

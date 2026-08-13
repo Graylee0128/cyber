@@ -11,9 +11,14 @@ import re
 
 from fastapi.testclient import TestClient
 
-from admission.api import app
+from admission.api import AdmissionSettings, create_app
 
-client = TestClient(app)
+
+def client(pg_connection):
+    return TestClient(create_app(conn=pg_connection, settings=AdmissionSettings(
+        instructor_tokens={"console-token": "teacher"}, session_ttl_seconds=60,
+        disable_range_publication=True,
+    )))
 
 # 禁忌 token：分數/排名/告警/偵測相關字樣，不分大小寫
 FORBIDDEN_TOKENS = [
@@ -29,8 +34,8 @@ FORBIDDEN_TOKENS = [
 ]
 
 
-def test_console_red_team_has_no_forbidden_tokens():
-    resp = client.get("/admission/EX-TEST/console?team=red")
+def test_console_red_team_has_no_forbidden_tokens(pg_connection):
+    resp = client(pg_connection).get("/admission/instructor/EX-TEST/console?team=red", headers={"Authorization": "Bearer console-token"})
     assert resp.status_code == 200
     body_lower = resp.text.lower()
     for token in FORBIDDEN_TOKENS:
@@ -39,8 +44,8 @@ def test_console_red_team_has_no_forbidden_tokens():
         )
 
 
-def test_console_blue_team_has_no_forbidden_tokens():
-    resp = client.get("/admission/EX-TEST/console?team=blue")
+def test_console_blue_team_has_no_forbidden_tokens(pg_connection):
+    resp = client(pg_connection).get("/admission/instructor/EX-TEST/console?team=blue", headers={"Authorization": "Bearer console-token"})
     assert resp.status_code == 200
     body_lower = resp.text.lower()
     for token in FORBIDDEN_TOKENS:

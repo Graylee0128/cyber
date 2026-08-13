@@ -20,6 +20,9 @@ on:
       - "docs/**"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   admission-access-e2e:
     runs-on: ubuntu-latest
@@ -44,7 +47,7 @@ jobs:
       - name: Bring up the narrow access plane
         run: >-
           docker compose --profile admission-e2e up -d --build --wait --wait-timeout 180
-          admission-edge admission-red-terminal admission-blue-terminal
+          admission-edge admission-range-core admission-red-terminal admission-blue-terminal
 
       - name: Show access-plane services
         if: always()
@@ -56,6 +59,7 @@ jobs:
           PURPLE_AUTO_COMPOSE: "0"
           PURPLE_PG_DSN: postgresql://admission:admission-e2e@localhost:5433/admission
           PURPLE_ADMISSION_URL: http://localhost:8002
+          PURPLE_RANGE_CORE_URL: http://localhost:8003
           PURPLE_EDGE_HOST: localhost
           PURPLE_EDGE_PORT: "8088"
         run: python -m pytest -v -s tests/integration/test_admission_access.py

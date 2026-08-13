@@ -64,6 +64,10 @@ attribution closed with HTTP 403; this ADR does not authorize such a topology.
 - Releasing a Red seat immediately removes future peer-IP attribution and
   permits that source address to be assigned to a new player; the old player's
   rows remain historical.
+- Red seat addresses occupy `10.167.30.11` through `10.167.30.254`: the full
+  documented Z-RED `/24` host space after the gateway/control range. Network,
+  broadcast, `.1` gateway, `.2-.10` control addresses, and other zones remain
+  invalid.
 - Blue receives stable identity/seat ownership with no source-IP mapping and no
   individual score.
 - Only one prepared exercise and one running exercise are allowed; preparing

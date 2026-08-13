@@ -44,24 +44,45 @@ CREATE TABLE IF NOT EXISTS admission_session (
     token_hash text PRIMARY KEY,
     seat_id text NOT NULL REFERENCES seat(seat_id),
     created_at timestamptz NOT NULL DEFAULT now(),
+    expires_at timestamptz,
     revoked_at timestamptz
 );
+ALTER TABLE admission_session ADD COLUMN IF NOT EXISTS expires_at timestamptz;
 CREATE UNIQUE INDEX IF NOT EXISTS one_active_session_per_seat
     ON admission_session(seat_id) WHERE revoked_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS admission_remote_link (
+    link_id uuid NOT NULL UNIQUE,
     token_hash text PRIMARY KEY,
     exercise_id text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
-    used_at timestamptz
+    expires_at timestamptz,
+    used_at timestamptz,
+    revoked_at timestamptz
 );
+ALTER TABLE admission_remote_link ADD COLUMN IF NOT EXISTS link_id uuid;
+ALTER TABLE admission_remote_link ADD COLUMN IF NOT EXISTS expires_at timestamptz;
+ALTER TABLE admission_remote_link ADD COLUMN IF NOT EXISTS revoked_at timestamptz;
+CREATE UNIQUE INDEX IF NOT EXISTS admission_remote_link_id_idx
+    ON admission_remote_link(link_id);
 
 CREATE TABLE IF NOT EXISTS admission_audit (
     audit_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     occurred_at timestamptz NOT NULL DEFAULT now(),
     actor text NOT NULL,
     seat_id text NOT NULL,
-    action text NOT NULL CHECK (action IN ('rebind', 'release'))
+    action text NOT NULL CHECK (action IN ('rebind', 'release', 'revoke_remote_link'))
+);
+ALTER TABLE admission_audit DROP CONSTRAINT IF EXISTS admission_audit_action_check;
+ALTER TABLE admission_audit ADD CONSTRAINT admission_audit_action_check
+    CHECK (action IN ('rebind', 'release', 'revoke_remote_link'));
+
+CREATE TABLE IF NOT EXISTS admission_alert (
+    alert_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    occurred_at timestamptz NOT NULL DEFAULT now(),
+    seat_id text NOT NULL,
+    reason text NOT NULL,
+    UNIQUE (seat_id, reason)
 );
 """
 
@@ -90,5 +111,5 @@ def ensure_schema(conn: psycopg.Connection) -> None:
 def truncate_all(conn: psycopg.Connection) -> None:
     """測試專用：TRUNCATE 但保留 schema，跑完馬上乾淨。"""
     conn.execute(
-        "TRUNCATE admission_audit, admission_session, admission_remote_link, seat, exercise_pool_config RESTART IDENTITY"
+        "TRUNCATE admission_alert, admission_audit, admission_session, admission_remote_link, seat, exercise_pool_config RESTART IDENTITY"
     )

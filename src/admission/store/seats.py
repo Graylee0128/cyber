@@ -8,6 +8,7 @@ from typing import Any
 
 import psycopg
 from psycopg.types.json import Jsonb
+from admission.store.pool import POOL_LOCK_NS
 
 # ---- 藍隊：座位已由 instructor 開場前 bulk-build 好，領號是「鎖既有 free 座位」----
 
@@ -27,7 +28,7 @@ RETURNING seat_id
 # ---- 紅隊：座位當場動態生成，領號是「INSERT 新座位」，上限靠 advisory lock 擋 race ----
 
 #: pg_advisory_xact_lock 的固定 namespace，跟 db.py 的 SCHEMA_LOCK_KEY（0x41444D31）錯開。
-RED_POOL_LOCK_NS = 0x52454431  # "RED1"
+RED_POOL_LOCK_NS = POOL_LOCK_NS
 
 COUNT_RED_SEATS = """
 SELECT count(*) FROM seat WHERE exercise_id = %s AND team = 'red' AND state <> 'released'
@@ -64,21 +65,31 @@ class SeatStore:
     def request_blue_seat(self, exercise_id: str, pool_locked: bool = False) -> dict[str, str] | None:
         """藍隊自助領取已預建的 free 座位。
 
-        pool lock 固定的是預建數量，不會阻止玩家在開場後領取。成功回傳座位與
-        新鑄造的 player_id；額滿（無 free 座位）回傳 None。
+        ``pool_locked`` remains only for source compatibility; the database
+        config row is checked under a lock in the same transaction as the
+        seat claim. This prevents stale application state from admitting a
+        claim while an instructor is locking the pool.
         """
         del pool_locked
         player_id = str(uuid.uuid4())
-        row = self.conn.execute(
-            CLAIM_FREE_SEAT, (player_id, exercise_id, "blue")
-        ).fetchone()
+        with self.conn.transaction():
+            config = self.conn.execute(
+                """SELECT locked_at FROM exercise_pool_config
+                   WHERE exercise_id=%s FOR SHARE""",
+                (exercise_id,),
+            ).fetchone()
+            if config is None or config[0] is not None:
+                return None
+            row = self.conn.execute(
+                CLAIM_FREE_SEAT, (player_id, exercise_id, "blue")
+            ).fetchone()
         if row is None:
             return None
         return {"seat_id": row[0], "player_id": player_id}
 
     # ---------- 紅隊：動態生成，上限用 advisory lock 擋 race ----------
 
-    def request_red_seat(self, exercise_id: str, red_cap: int) -> dict[str, str] | None:
+    def request_red_seat(self, exercise_id: str, red_cap: int | None = None) -> dict[str, str] | None:
         """紅隊領號：當場 INSERT 新座位。red_cap 是「最多可以動態長到幾個座位」，
         不是預建數量（§4.3）。用 pg_advisory_xact_lock 包住「數數 + INSERT」，
         避免併發請求同時通過計數檢查、一起塞進去導致超過上限。
@@ -91,8 +102,15 @@ class SeatStore:
                 "SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
                 (RED_POOL_LOCK_NS, exercise_id),
             )
+            row = self.conn.execute(
+                """SELECT red_cap FROM exercise_pool_config
+                   WHERE exercise_id=%s FOR UPDATE""", (exercise_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            authoritative_cap = row[0]
             count = self.conn.execute(COUNT_RED_SEATS, (exercise_id,)).fetchone()[0]
-            if count >= red_cap:
+            if count >= authoritative_cap:
                 return None
             seat_id = str(uuid.uuid4())
             self.conn.execute(INSERT_RED_SEAT, (seat_id, exercise_id, player_id))
@@ -207,30 +225,61 @@ class SeatStore:
         ).fetchall()
         return dict(rows)
 
-    def issue_remote_link(self, exercise_id: str) -> str:
+    def issue_remote_link(self, exercise_id: str, ttl_seconds: int) -> tuple[str, str]:
         token = secrets.token_urlsafe(32)
+        link_id = str(uuid.uuid4())
         self.conn.execute(
-            "INSERT INTO admission_remote_link(token_hash, exercise_id) VALUES (%s,%s)",
-            (self._digest(token), exercise_id),
+            """INSERT INTO admission_remote_link
+                   (link_id,token_hash,exercise_id,expires_at)
+               VALUES (%s,%s,%s,now() + (%s * interval '1 second'))""",
+            (link_id, self._digest(token), exercise_id, ttl_seconds),
         )
-        return token
+        return link_id, token
 
     def consume_remote_link(self, exercise_id: str, token: str) -> bool:
         row = self.conn.execute(
             """UPDATE admission_remote_link SET used_at=now()
                WHERE token_hash=%s AND exercise_id=%s AND used_at IS NULL
+                 AND revoked_at IS NULL AND expires_at > now()
                RETURNING token_hash""",
             (self._digest(token), exercise_id),
         ).fetchone()
         return row is not None
 
-    def bind_session(self, seat_id: str) -> str:
+    def revoke_remote_link(self, link_id: str, actor: str) -> bool:
+        with self.conn.transaction():
+            row = self.conn.execute(
+                """UPDATE admission_remote_link SET revoked_at=now()
+                   WHERE link_id=%s AND used_at IS NULL AND revoked_at IS NULL
+                   RETURNING exercise_id""",
+                (link_id,),
+            ).fetchone()
+            if row is None:
+                return False
+            self.conn.execute(
+                """INSERT INTO admission_audit(actor,seat_id,action)
+                   VALUES (%s,%s,'revoke_remote_link')""",
+                (actor, f"remote-link:{link_id}"),
+            )
+        return True
+
+    def bind_session(self, seat_id: str, ttl_seconds: int) -> str:
         token = secrets.token_urlsafe(32)
         self.conn.execute(
-            "INSERT INTO admission_session(token_hash,seat_id) VALUES (%s,%s)",
-            (self._digest(token), seat_id),
+            """INSERT INTO admission_session(token_hash,seat_id,expires_at)
+               VALUES (%s,%s,now() + (%s * interval '1 second'))""",
+            (self._digest(token), seat_id, ttl_seconds),
         )
         return token
+
+    def revoke_session(self, token: str) -> bool:
+        row = self.conn.execute(
+            """UPDATE admission_session SET revoked_at=now()
+               WHERE token_hash=%s AND revoked_at IS NULL AND expires_at > now()
+               RETURNING seat_id""",
+            (self._digest(token),),
+        ).fetchone()
+        return row is not None
 
     def revoke_sessions(self, seat_id: str) -> None:
         self.conn.execute(
@@ -242,6 +291,7 @@ class SeatStore:
         row = self.conn.execute(
             """SELECT s.seat_id FROM admission_session x JOIN seat s ON s.seat_id=x.seat_id
                WHERE x.token_hash=%s AND x.revoked_at IS NULL
+                 AND x.expires_at > now()
                  AND s.state IN ('requested','ready','claimed')""",
             (self._digest(token),),
         ).fetchone()

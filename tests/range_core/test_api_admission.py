@@ -114,6 +114,35 @@ def test_blue_ready_identity_has_no_red_source_or_individual_score(
     assert "blue" not in score.json()
 
 
+def test_scaled_red_seat_is_registered_and_attributed_from_its_tcp_peer(
+    exercise_store, pg_connection
+) -> None:
+    admission = client(exercise_store, pg_connection)
+    prepared = prepare(admission)
+    player_url = f"/api/exercises/{prepared['exercise_id']}/players/red-sixty"
+
+    registered = admission.put(
+        player_url, json={"team": "red", "source_ip": "10.167.30.60"}
+    )
+    assert registered.status_code == 200
+    assert registered.json()["source_ip"] == "10.167.30.60"
+    assert client(exercise_store, pg_connection, actor="instructor-secret").post(
+        "/api/exercises/start", json={"exercise_id": prepared["exercise_id"]}
+    ).status_code == 201
+
+    direct = TestClient(
+        admission.app,
+        client=("10.167.30.60", 12345),
+        headers={"Authorization": "Bearer red-secret"},
+    )
+    response = direct.post(
+        "/api/submissions", json={"objective_id": "capture_flag", "flag": FLAG}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["player_id"] == "red-sixty"
+
+
 def test_red_ready_source_uses_tcp_peer_and_revoke_preserves_completion_history(
     exercise_store, pg_connection
 ) -> None:

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head><meta charset="utf-8"><title>選擇隊伍</title></head>
+<body>
+  <main>
+    <h1>選擇隊伍</h1>
+    <p>名額由伺服器再次確認；此頁狀態僅供選擇。</p>
+    <label>紅隊
+      <input type="radio" name="team" value="red" {{ 'disabled' if teams.red.disabled }}>
+      剩餘 {{ teams.red.remaining }} 席
+    </label>
+    <label>藍隊
+      <input type="radio" name="team" value="blue" {{ 'disabled' if teams.blue.disabled }}>
+      剩餘 {{ teams.blue.remaining }} 席
+    </label>
+  </main>
+</body>
+</html>
