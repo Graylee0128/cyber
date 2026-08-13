@@ -5,14 +5,21 @@
 """
 
 import importlib.util
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
 from purple.topology_check import (  # 由腳本邏輯抽出的可測部分
+    APP_HTTPS_PORT,
+    EDGE_TTYD_PORT,
     EXPECTED_KALI,
     MGMT_DENIED_PORT,
     MGMT_PORTS,
     MGMT_RESPONSE_PORT,
+    check_app_managed_paths,
+    check_edge_paths,
+    check_blue_seat_isolation,
+    check_red_seat_isolation,
     check_source_ips_distinguishable,
     check_target_to_mgmt,
 )
@@ -134,7 +141,8 @@ def test_the_three_cross_generation_ports_are_named():
 
 def test_contract1_accepts_telemetry_and_only_the_named_receiver(monkeypatch):
     allowed = {("mgmt", port) for port in MGMT_PORTS} | {
-        ("receiver", MGMT_RESPONSE_PORT)
+        ("receiver", MGMT_RESPONSE_PORT),
+        ("app", 443),
     }
 
     monkeypatch.setattr(
@@ -176,7 +184,8 @@ def test_contract1_flags_reachable_non_telemetry_port(monkeypatch):
 def test_vm_contract1_probe_passes_three_ports_and_blocked_canary(monkeypatch, capsys):
     probe = _load_contract1_probe()
     allowed = {("mgmt", port) for port in MGMT_PORTS} | {
-        ("receiver", MGMT_RESPONSE_PORT)
+        ("receiver", MGMT_RESPONSE_PORT),
+        ("app", 443),
     }
     monkeypatch.setattr(
         probe,
@@ -186,7 +195,7 @@ def test_vm_contract1_probe_passes_three_ports_and_blocked_canary(monkeypatch, c
     monkeypatch.setattr(
         probe.sys,
         "argv",
-        ["contract1_probe.py", "mgmt", "receiver", "nonce"],
+        ["contract1_probe.py", "mgmt", "receiver", "app", "nonce"],
     )
     probe.main()
     output = capsys.readouterr().out
@@ -195,6 +204,8 @@ def test_vm_contract1_probe_passes_three_ports_and_blocked_canary(monkeypatch, c
     assert "response receiver receiver:8000 通" in output
     assert "非 receiver MGMT mgmt:8000 不通" in output
     assert f":{MGMT_DENIED_PORT} 不通" in output
+    assert "APP app:443 通" in output
+    assert "APP app:22 不通" in output
     assert "SLICE2A-RESULT: PASS" in output
 
 
@@ -204,7 +215,8 @@ def test_vm_contract1_probe_fails_when_deny_canary_is_reachable(monkeypatch, cap
         ("mgmt", port)
         for port in (*MGMT_PORTS, MGMT_RESPONSE_PORT, MGMT_DENIED_PORT)
     } | {
-        ("receiver", MGMT_RESPONSE_PORT)
+        ("receiver", MGMT_RESPONSE_PORT),
+        ("app", 443),
     }
     monkeypatch.setattr(
         probe,
@@ -214,7 +226,7 @@ def test_vm_contract1_probe_fails_when_deny_canary_is_reachable(monkeypatch, cap
     monkeypatch.setattr(
         probe.sys,
         "argv",
-        ["contract1_probe.py", "mgmt", "receiver", "nonce"],
+        ["contract1_probe.py", "mgmt", "receiver", "app", "nonce"],
     )
     probe.main()
     output = capsys.readouterr().out
@@ -256,3 +268,116 @@ def test_six_kali_must_be_distinguishable():
     assert check_source_ips_distinguishable(["10.0.0.1", "10.0.0.2"])
     # 六個不同 → 通過（無失敗訊息）
     assert not check_source_ips_distinguishable([f"10.167.223.{i}" for i in range(1, 7)])
+
+
+def test_app_managed_path_accepts_exact_engine_and_blocks_raw_query(monkeypatch):
+    allowed = {("engine", 8001)}
+    monkeypatch.setattr(
+        "purple.topology_check.reachable",
+        lambda host, port, timeout=3.0: (host, port) in allowed,
+    )
+    assert check_app_managed_paths(
+        app="app", mgmt="mgmt", engine="engine", target="target", from_zone="app"
+    ) == []
+
+
+def test_app_managed_path_flags_arbitrary_mgmt_host(monkeypatch):
+    allowed = {("engine", 8001), ("mgmt", 8001)}
+    monkeypatch.setattr(
+        "purple.topology_check.reachable",
+        lambda host, port, timeout=3.0: (host, port) in allowed,
+    )
+    fails = check_app_managed_paths(
+        app="app", mgmt="mgmt", engine="engine", target="target", from_zone="app"
+    )
+    assert any("其他 MGMT" in fail for fail in fails)
+
+
+def test_edge_contract_accepts_only_proxy_paths(monkeypatch):
+    allowed = {("app", APP_HTTPS_PORT), ("red", EDGE_TTYD_PORT), ("blue", EDGE_TTYD_PORT)}
+    monkeypatch.setattr(
+        "purple.topology_check.reachable",
+        lambda host, port, timeout=3.0: (host, port) in allowed,
+    )
+    assert check_edge_paths(
+        edge="edge", app="app", red="red", blue="blue", mgmt="mgmt",
+        target="target", from_zone="edge",
+    ) == []
+
+
+def test_edge_contract_flags_mgmt_access(monkeypatch):
+    allowed = {
+        ("app", APP_HTTPS_PORT), ("red", EDGE_TTYD_PORT),
+        ("blue", EDGE_TTYD_PORT), ("mgmt", 3100),
+    }
+    monkeypatch.setattr(
+        "purple.topology_check.reachable",
+        lambda host, port, timeout=3.0: (host, port) in allowed,
+    )
+    fails = check_edge_paths(
+        edge="edge", app="app", red="red", blue="blue", mgmt="mgmt",
+        target="target", from_zone="edge",
+    )
+    assert any("契約5" in fail for fail in fails)
+
+
+def test_red_seat_isolation_flags_reachable_peer(monkeypatch):
+    monkeypatch.setattr("purple.topology_check.reachable", lambda *_args, **_kwargs: True)
+    assert check_red_seat_isolation("red2")
+
+
+def test_red_seat_isolation_uses_the_ovs_protected_column():
+    for path in (BUILD_RANGE, BUILD_RANGE.parent / "attach-red.sh"):
+        text = path.read_text(encoding="utf-8")
+        assert 'protected=true' in text
+        assert 'other_config:protected' not in text
+
+
+def test_blue_seat_isolation_flags_reachable_peer(monkeypatch):
+    monkeypatch.setattr("purple.topology_check.reachable", lambda *_args, **_kwargs: True)
+    assert check_blue_seat_isolation("blue2")
+
+
+def test_blue_seat_isolation_passes_when_peer_is_blocked(monkeypatch):
+    monkeypatch.setattr("purple.topology_check.reachable", lambda *_args, **_kwargs: False)
+    assert check_blue_seat_isolation("blue2") == []
+
+
+def test_build_range_isolates_blue_seats_behind_its_own_switch():
+    """藍隊每人一段是計分歸屬的單位（#65 決策 25）—— 預設必須隔離，且開關獨立於紅隊。"""
+    text = BUILD_RANGE.read_text(encoding="utf-8")
+    assert 'ALLOW_BLUE_LATERAL' in text, "藍隊隔離缺少顯式的收尾期開關"
+    assert 'h-ns-blue2' in text, "只有一個 blue stub，seat-to-seat 隔離無法被證明"
+
+
+def test_blue_seat_isolation_is_actually_verified():
+    """規則存在但沒有斷言＝沒有保護。verify-range 必須真的從一段打另一段。"""
+    text = (BUILD_RANGE.parent / "verify-range.sh").read_text(encoding="utf-8")
+    assert '--from-zone blue-seat' in text
+
+
+def test_teardown_covers_every_namespace_build_range_creates():
+    """teardown 的 namespace 清單是手寫的 —— 漏一個，第二次 build 就炸在半路。
+
+    2026-08-12 實際發生過：新增 ns-blue2 但沒補進 teardown，CI 的 mutation 步驟
+    第二次跑 build-range.sh 時 `Cannot create namespace: File exists`。
+    症狀出現在下一次執行、錯誤訊息也不指向 teardown，很難回推 —— 交給機器守。
+    """
+    build = BUILD_RANGE.read_text(encoding="utf-8")
+    teardown = (BUILD_RANGE.parent / "teardown-range.sh").read_text(encoding="utf-8")
+
+    created = set(re.findall(r"^\s*(?:ip netns add|add_node)\s+(ns-[\w-]+)", build, re.M))
+    torn_down = set(re.findall(r"\b(ns-[\w-]+)", teardown))
+    missing = sorted(created - torn_down)
+    assert not missing, f"build-range 建了這些 namespace 但 teardown 沒清：{missing}"
+
+
+def test_red_to_blue_absence_is_documented_not_silent():
+    """#65 決策 19 定主線攻擊面是 Z-BLUE，本票刻意不開這條路 —— 但必須寫出來。
+
+    沉默的缺口會被下游讀成「紅藍對抗的網路面已完成」。規則由 #62 補（見 build-range.sh
+    nft 區塊的註解），這裡只確保那句話還在。
+    """
+    text = BUILD_RANGE.read_text(encoding="utf-8")
+    assert 'RED → BLUE' in text
+    assert '#62' in text

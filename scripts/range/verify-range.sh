@@ -19,6 +19,11 @@ source "$DIR/zones.env"
 MGMT="$MGMT_STUB_IP"
 RECEIVER="$MGMT_RECEIVER_IP"
 TARGET="$TARGET_IP"
+APP="$APP_STUB_IP"
+EDGE="$EDGE_STUB_IP"
+BLUE="$BLUE_STUB_IP"
+ENGINE="$MGMT_ENGINE_IP"
+RED_HOST_FIRST="${RED_IP_FIRST##*.}"
 CONSOLE="/tmp/range-target-console.log"
 NONCE_FILE="/tmp/range-target-boot.nonce"
 LOKI_URL="${PURPLE_LOKI_URL:-http://localhost:3100}"
@@ -132,6 +137,10 @@ else
       echo "  ✗ console 沒有指定 receiver:8000 正向證據 —— 舊版探測腳本不採信"; fails=1
     elif ! grep -q "非 receiver MGMT $MGMT:8000 不通" "$CONSOLE" 2>/dev/null; then
       echo "  ✗ console 沒有其他 MGMT:8000 反向證據 —— 最小權限未獲證明"; fails=1
+    elif ! grep -q "Z-APP OK: TARGET(VM) -> APP $APP:443 通" "$CONSOLE" 2>/dev/null; then
+      echo "  ✗ console 沒有 TARGET→APP:443 正向證據"; fails=1
+    elif ! grep -q "Z-APP OK: TARGET(VM) -> APP $APP:22 不通" "$CONSOLE" 2>/dev/null; then
+      echo "  ✗ console 沒有 TARGET→APP 非 HTTPS 負向證據"; fails=1
     elif grep -q "SLICE2A-RESULT: PASS" "$CONSOLE" 2>/dev/null; then
       echo "  ✓ :9090/:4317、receiver:8000 通；其他 MGMT:8000/:22 不通（nonce 相符）"
     else
@@ -152,6 +161,65 @@ else
   ip netns exec "${RED_NS_PREFIX}1" python3 "$VT" --from-zone red --mgmt "$MGMT" || fails=1
 fi
 
+echo "=== Z-APP：HTTPS + exact managed engine API；raw query/target denied ==="
+ip netns exec "${RED_NS_PREFIX}1" python3 - "$APP" <<'PY' || fails=1
+import socket,sys
+for port,want in ((443,True),(22,False)):
+ s=socket.socket();s.settimeout(2)
+ try:s.connect((sys.argv[1],port));got=True
+ except OSError:got=False
+ finally:s.close()
+ assert got is want, (port,got,want)
+PY
+if [ "$TARGET_MODE" = "netns" ]; then
+ip netns exec ns-target python3 - "$APP" <<'PY' || fails=1
+import socket,sys
+for port,want in ((443,True),(22,False)):
+ s=socket.socket();s.settimeout(2)
+ try:s.connect((sys.argv[1],port));got=True
+ except OSError:got=False
+ finally:s.close()
+ assert got is want, (port,got,want)
+PY
+else
+  echo "  ✓ TARGET VM→APP:443 通且 :22 不通（boot nonce marker）"
+fi
+ip netns exec ns-mgmt python3 - "$APP" <<'PY' || fails=1
+import socket,sys
+for port,want in ((443,True),(22,False)):
+ s=socket.socket();s.settimeout(2)
+ try:s.connect((sys.argv[1],port));got=True
+ except OSError:got=False
+ finally:s.close()
+ assert got is want, (port,got,want)
+PY
+ip netns exec ns-app python3 "$VT" --from-zone app --app "$APP" \
+  --mgmt "$MGMT" --engine "$ENGINE" --target "$TARGET" || fails=1
+
+echo "=== 契約 5：EDGE narrow proxy paths；MGMT/TARGET denied ==="
+ip netns exec ns-internet python3 "$VT" --from-zone internet --edge "$EDGE" \
+  --app "$APP" --red-peer "$RED_IP_FIRST" --blue "$BLUE" --mgmt "$MGMT" \
+  --target "$TARGET" || fails=1
+ip netns exec ns-edge python3 "$VT" --from-zone edge --edge "$EDGE" \
+  --app "$APP" --red-peer "$RED_IP_FIRST" --blue "$BLUE" --mgmt "$MGMT" \
+  --target "$TARGET" || fails=1
+ip netns exec "${RED_NS_PREFIX}1" python3 - "$EDGE" <<'PY' || fails=1
+import socket,sys
+s=socket.socket();s.settimeout(2)
+try:s.connect((sys.argv[1],443));raise SystemExit("RED→EDGE unexpectedly reachable")
+except OSError:pass
+finally:s.close()
+PY
+
+echo "=== Z-RED seats：預設 L2 隔離 ==="
+ip netns exec "${RED_NS_PREFIX}1" python3 "$VT" --from-zone red-seat \
+  --red-peer "$RANGE_NET_PREFIX.$Z_RED_VLAN.$((RED_HOST_FIRST + 1))" || fails=1
+
+# 藍隊每人一段是計分歸屬的單位（#65 決策 25），碰得到別人那段就等於碰得到別人的分數來源。
+echo "=== Z-BLUE seats：預設 L2 隔離 ==="
+ip netns exec ns-blue python3 "$VT" --from-zone blue-seat \
+  --blue-peer "$BLUE_PEER_IP" || fails=1
+
 # --- 六台 red source IP 可分辨 ----------------------------------------------
 echo "=== 六台 red source IP 可分辨（§12.3 red→target:80；防 G0 的 SNAT 塌縮）==="
 REC="/tmp/range-target-src.txt"
@@ -159,11 +227,9 @@ if [ "$RED_MODE" = "none" ]; then
   echo "  ✗ 無紅隊節點，略過"; fails=1
 else
   if [ "$TARGET_MODE" = "netns" ]; then
-    # netns 模式：自己在 target 起 stub listener 記錄 source IP。
+    # netns 模式：build-range 已起 listener；這裡只清本輪記錄。
     : > "$REC"
-    ip netns exec ns-target python3 "$DIR/stub_listener.py" --ports 80 --record "$REC" &
-    LPID=$!
-    sleep 1
+    LPID=""
   else
     LPID=""   # VM 模式：靶機 app 自己會記 source_ip，稍後從它的 log 取
   fi
