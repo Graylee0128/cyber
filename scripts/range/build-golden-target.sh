@@ -112,6 +112,25 @@ write_files:
   - path: /opt/purplescope/purple/harness/waiting.py
     encoding: b64
     content: $(b64 "$REPO/src/purple/harness/waiting.py")
+  # disclosure：purple/harness/schema.py 現在 import 這個套件（WS7 #52 抽出的揭露契約）。
+  # 漏複製的話 `python3 -m purple.response.service` 開機就 ModuleNotFoundError，
+  # systemd Restart=always 每 5s 重試一次，golden 自證看到的是 unit 卡在
+  # activating(auto-restart) 永遠上不了 active（2026-08-13 實測抓到）。
+  - path: /opt/purplescope/disclosure/__init__.py
+    encoding: b64
+    content: $(b64 "$REPO/src/disclosure/__init__.py")
+  - path: /opt/purplescope/disclosure/clearance.py
+    encoding: b64
+    content: $(b64 "$REPO/src/disclosure/clearance.py")
+  - path: /opt/purplescope/disclosure/event_visibility.py
+    encoding: b64
+    content: $(b64 "$REPO/src/disclosure/event_visibility.py")
+  - path: /opt/purplescope/disclosure/fields.py
+    encoding: b64
+    content: $(b64 "$REPO/src/disclosure/fields.py")
+  - path: /opt/purplescope/disclosure/identity.py
+    encoding: b64
+    content: $(b64 "$REPO/src/disclosure/identity.py")
   - path: /opt/purplescope/response.env
     permissions: '0600'
     content: |
