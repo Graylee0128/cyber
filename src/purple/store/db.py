@@ -59,6 +59,76 @@ CREATE TABLE IF NOT EXISTS alert_fingerprints (
     event_id    text        NOT NULL,
     created_at  timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS action_registries (
+    exercise_id text        PRIMARY KEY,
+    scenario_id text        NOT NULL,
+    frozen_at   timestamptz
+);
+
+CREATE TABLE IF NOT EXISTS registered_actions (
+    exercise_id text NOT NULL REFERENCES action_registries(exercise_id) ON DELETE CASCADE,
+    action_id   text NOT NULL,
+    technique   text NOT NULL,
+    description text NOT NULL,
+    PRIMARY KEY (exercise_id, action_id)
+);
+
+CREATE OR REPLACE FUNCTION reject_frozen_action_registry_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE source_frozen timestamptz;
+DECLARE destination_frozen timestamptz;
+BEGIN
+    IF TG_OP <> 'INSERT' THEN
+        SELECT frozen_at INTO source_frozen FROM action_registries
+        WHERE exercise_id = OLD.exercise_id FOR SHARE;
+    END IF;
+    IF source_frozen IS NOT NULL THEN
+        RAISE EXCEPTION 'action registry % is frozen', OLD.exercise_id
+            USING ERRCODE = '55000';
+    END IF;
+
+    IF TG_OP <> 'DELETE' AND
+       (TG_OP = 'INSERT' OR NEW.exercise_id IS DISTINCT FROM OLD.exercise_id) THEN
+        SELECT frozen_at INTO destination_frozen FROM action_registries
+        WHERE exercise_id = NEW.exercise_id FOR SHARE;
+    END IF;
+    IF destination_frozen IS NOT NULL THEN
+        RAISE EXCEPTION 'action registry % is frozen', NEW.exercise_id
+            USING ERRCODE = '55000';
+    END IF;
+    RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION reject_frozen_action_registry_header_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.frozen_at IS NOT NULL THEN
+        RAISE EXCEPTION 'action registry % is frozen', OLD.exercise_id
+            USING ERRCODE = '55000';
+    END IF;
+    IF TG_OP = 'UPDATE' AND (
+        NEW.exercise_id IS DISTINCT FROM OLD.exercise_id OR
+        NEW.scenario_id IS DISTINCT FROM OLD.scenario_id OR
+        NEW.frozen_at IS NULL
+    ) THEN
+        RAISE EXCEPTION 'action registry header is immutable; only freeze is allowed'
+            USING ERRCODE = '55000';
+    END IF;
+    RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+DROP TRIGGER IF EXISTS registered_actions_reject_frozen ON registered_actions;
+CREATE TRIGGER registered_actions_reject_frozen
+BEFORE INSERT OR UPDATE OR DELETE ON registered_actions
+FOR EACH ROW EXECUTE FUNCTION reject_frozen_action_registry_mutation();
+
+DROP TRIGGER IF EXISTS action_registries_reject_frozen ON action_registries;
+CREATE TRIGGER action_registries_reject_frozen
+BEFORE UPDATE OR DELETE ON action_registries
+FOR EACH ROW EXECUTE FUNCTION reject_frozen_action_registry_header_mutation();
 """
 
 
@@ -87,4 +157,7 @@ def ensure_schema(conn: psycopg.Connection) -> None:
 
 def truncate_all(conn: psycopg.Connection) -> None:
     """測試之間清空。TRUNCATE 而非 DROP —— 保留 schema，快得多。"""
-    conn.execute("TRUNCATE core_events, alert_records, alert_fingerprints")
+    conn.execute(
+        "TRUNCATE registered_actions, action_registries, "
+        "core_events, alert_records, alert_fingerprints"
+    )
