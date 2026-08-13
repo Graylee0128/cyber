@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from fastapi.testclient import TestClient
 from purple.store.events import CoreEventStore
 
@@ -23,9 +25,20 @@ FLAG = "flag{" + "a" * 32 + "}"
 # (`ENDPOINT_MIN_CLEARANCE`), so the fixture that sets up a running exercise
 # carries the instructor token. Gameplay calls stay on the red token — which is
 # the point: a red player must not be able to reset the exercise they are losing.
-TOKEN_MAP = {"red-secret": "red", "instructor-secret": "instructor"}
+TOKEN_MAP = {
+    "red-secret": "red",
+    "blue-secret": "blue",
+    "instructor-secret": "instructor",
+}
 AUTH = {"Authorization": "Bearer red-secret"}
+BLUE_AUTH = {"Authorization": "Bearer blue-secret"}
 INSTRUCTOR_AUTH = {"Authorization": "Bearer instructor-secret"}
+ACTION_AT = datetime(2026, 8, 11, 8, 0, tzinfo=timezone.utc)
+
+
+class FixedClock:
+    def now(self) -> datetime:
+        return ACTION_AT
 
 
 def scenario() -> Scenario:
@@ -64,6 +77,7 @@ def make_app(exercise_store, pg_connection, flag_source=None):
         conn=pg_connection,
         flag_source=flag_source or FixtureFlagSource(FLAG),
         token_map=TOKEN_MAP,
+        action_clock=FixedClock(),
     )
 
 
@@ -257,19 +271,60 @@ class TestScore:
 
         assert as_actor(app, ALICE).get("/api/score").status_code == 404
 
-    def test_score_has_no_blue_key(self, exercise_store, pg_connection):
+    def test_score_now_has_a_blue_key(self, exercise_store, pg_connection):
+        """ADR 0002 決定②：v1 沒有 blue key 是因為當時沒有 Blue Action 契約，
+        「待 WS3 交付後加 blue key 是加法」——#36 Phase 2 就是那個交付，這條
+        測試取代原本的 `test_score_has_no_blue_key`。沒有任何 Blue Action 時
+        blue.total 是 0，不是缺欄位（WS1 §1.1 的非零和現在是真的可測，不再
+        空真成立）。"""
         app = make_app(exercise_store, pg_connection)
         start(app)
 
         resp = as_actor(app, ALICE).get("/api/score")
 
-        assert "blue" not in resp.json()
+        assert resp.json()["blue"] == {"total": 0, "events": []}
+
+    def test_blue_score_does_not_affect_red_score(self, exercise_store, pg_connection):
+        """WS1 §1.1 非零和：現在有真的 Blue Action 可以造出非零分數，斷言
+        它不影響 red 的分數。"""
+        app = make_app(exercise_store, pg_connection)
+        started = start(app)
+        exercise_id = started["exercise_id"]
+        CoreEventStore(pg_connection).append(
+            {
+                "event_id": "evt-blue-1",
+                "exercise_id": exercise_id,
+                "scenario_id": "range-chain-01",
+                "event_type": "attack.detected",
+                "lifecycle": "firing",
+                "severity": "high",
+                "source": "grafana",
+                "team": "red",
+                "technique": "T1059",
+                "target": {"service": "range-target"},
+                "observed_at": (ACTION_AT - timedelta(seconds=30)).isoformat(),
+                "visibility": "red",
+                "action_id": None,
+            }
+        )
+        red_before = as_actor(app, ALICE).get("/api/score").json()["red"]
+
+        TestClient(app, headers=BLUE_AUTH).post(
+            "/api/blue-actions", json={"event_id": "evt-blue-1", "action": "acknowledge"}
+        )
+
+        resp = as_actor(app, ALICE).get("/api/score")
+        assert resp.json()["red"] == red_before
+        assert resp.json()["blue"]["total"] == 100  # detect_attack
 
     def test_score_is_unaffected_by_p2_purple_data(self, exercise_store, pg_connection):
-        """`derive_scores` takes no I/O — it cannot reach `purple.metrics`.
-        Behavioral corroboration of that structural guarantee: seed a
-        frozen Action Registry and Core Events (P2's inputs), score before
-        and after, and require byte-identical output."""
+        """Both score paths ignore P2's MTTR/containment/coverage outputs.
+
+        Keep a real non-zero Blue score in the response, then seed P2's
+        registry, event, and latency summary. The entire score response must
+        remain byte-identical; only Core Event -> Blue Action arrival time is
+        a Blue scoring input.
+        """
         from purple.evaluation.action_registry import ActionRegistryStore, RegisteredAction
         from purple.receiver.whitelist import default_whitelist
 
@@ -278,7 +333,30 @@ class TestScore:
         alice = as_actor(app, ALICE)
         alice.post("/api/submissions", json={"objective_id": "capture_flag", "flag": FLAG})
 
+        CoreEventStore(pg_connection).append(
+            {
+                "event_id": "evt-blue-score",
+                "exercise_id": started["exercise_id"],
+                "scenario_id": "range-chain-01",
+                "event_type": "attack.detected",
+                "lifecycle": "firing",
+                "severity": "high",
+                "source": "grafana",
+                "team": "red",
+                "technique": "T1059",
+                "target": {"service": "range-target"},
+                "observed_at": (ACTION_AT - timedelta(seconds=30)).isoformat(),
+                "visibility": "red",
+                "action_id": None,
+            }
+        )
+        TestClient(app, headers=BLUE_AUTH).post(
+            "/api/blue-actions",
+            json={"event_id": "evt-blue-score", "action": "contain"},
+        )
+
         before = as_actor(app, ALICE).get("/api/score").json()
+        assert before["blue"]["total"] == 150
 
         registry = ActionRegistryStore(pg_connection, default_whitelist())
         registry.seed(
@@ -303,6 +381,15 @@ class TestScore:
                 "visibility": "red",
                 "action_id": "a-1",
             }
+        )
+        pg_connection.execute(
+            """
+            INSERT INTO latency_summaries
+                (exercise_id, mode, sample_count, mttd_p50_ms, mttd_p95_ms,
+                 mttr_p50_ms, mttr_p95_ms, containment_p50_ms, containment_p95_ms)
+            VALUES (%s, 'exercise', 20, 1000, 2000, 3000, 4000, 5000, 6000)
+            """,
+            (started["exercise_id"],),
         )
 
         after = as_actor(app, ALICE).get("/api/score").json()

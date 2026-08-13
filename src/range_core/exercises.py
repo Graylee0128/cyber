@@ -93,6 +93,33 @@ CREATE TABLE IF NOT EXISTS exercise_hint_usages (
     FOREIGN KEY (exercise_id, player_id)
         REFERENCES exercise_players(exercise_id, player_id) ON DELETE CASCADE
 );
+
+-- Blue Action ingest (#36 Phase 2, WS3 spec §4/§5). No player_id: "who" is
+-- always the team `blue` (WS3 §5.1, Blue is not individualized). This is an
+-- append-only audit input to Event Service, not mutable Exercise aggregate
+-- state, so it deliberately has no cascading FK: reset removes the live
+-- score/lifecycle aggregate but must not erase the action trace needed for
+-- replay and post-exercise audit. BlueActionStore validates the exercise and
+-- referenced Core Event before writing.
+CREATE TABLE IF NOT EXISTS exercise_blue_actions (
+    id           bigserial   PRIMARY KEY,
+    exercise_id  text        NOT NULL,
+    event_id     text        NOT NULL,
+    action       text        NOT NULL
+        CHECK (action IN ('acknowledge', 'classify', 'contain', 'resolve', 'dismiss')),
+    submitted_at timestamptz NOT NULL,
+    technique    text,
+    recorded_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS blue_actions_exercise_event_idx
+    ON exercise_blue_actions (exercise_id, event_id);
+
+-- 判讀一次定生死（WS3 spec §4.2）：DB 是唯一權威，不只靠應用層檢查 ——
+-- 比照 `exercises_one_running_idx` 已經在用的同一個手法（partial unique index）。
+CREATE UNIQUE INDEX IF NOT EXISTS blue_actions_one_judgement_idx
+    ON exercise_blue_actions (exercise_id, event_id)
+    WHERE action IN ('classify', 'dismiss');
 """
 
 SCHEMA_LOCK_KEY = 0x52414E47  # "RANG"
@@ -173,8 +200,8 @@ def ensure_schema(conn: psycopg.Connection) -> None:
 
 def truncate_all(conn: psycopg.Connection) -> None:
     conn.execute(
-        "TRUNCATE exercise_hint_usages, exercise_objective_completions, "
-        "exercise_players, exercises"
+        "TRUNCATE exercise_blue_actions, exercise_hint_usages, "
+        "exercise_objective_completions, exercise_players, exercises"
     )
 
 

@@ -38,6 +38,14 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from range_core.blue_action_store import (
+    AlreadyJudged,
+    BlueActionStore,
+    StoredExecutionEvidence,
+    UnknownEvent,
+)
+from range_core.blue_actions import BlueActionRejected, MappingTechniqueTruth
+from range_core.blue_scoring import BlueScoringConfig, derive_blue_scores
 from range_core.event_stream import (
     CoreEventStream,
     comment_frame,
@@ -60,7 +68,14 @@ from range_core.flags import (
     is_valid_flag_shape,
     matches,
 )
-from range_core.objectives import HintIndexOutOfRange, HintService, ObjectiveStore, PlayerLookup
+from range_core.objectives import (
+    Clock as ActionClock,
+    HintIndexOutOfRange,
+    HintService,
+    ObjectiveStore,
+    PlayerLookup,
+    SystemClock as ActionSystemClock,
+)
 from range_core.scenarios import Scenario, ScenarioCatalog
 from range_core.scoring import derive_scores
 from range_core.telemetry import sync_telemetry_objectives
@@ -102,6 +117,10 @@ DEFAULT_MAX_STREAM_SECONDS = 300.0
 ENDPOINT_MIN_CLEARANCE: dict[tuple[str, str], int] = {
     ("POST", "/api/exercises/start"): CALLER_CLEARANCE["instructor"],
     ("POST", "/api/exercises/reset"): CALLER_CLEARANCE["instructor"],
+    # Blue Actions carry no per-user identity (WS3 spec §5.1 — "who" is
+    # always the team). Gating the endpoint at blue clearance is therefore
+    # the *only* enforcement that a red player's token can't submit them.
+    ("POST", "/api/blue-actions"): CALLER_CLEARANCE["blue"],
 }
 
 
@@ -130,6 +149,14 @@ class HintRequest(BaseModel):
 
     objective_id: str = Field(min_length=1)
     hint_index: int = Field(ge=0)
+
+
+class BlueActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    event_id: str = Field(min_length=1)
+    action: str = Field(min_length=1)
+    technique: str | None = None
 
 
 def _source_ip(request: Request) -> str:
@@ -161,6 +188,7 @@ def create_app(
     flag_source: FlagSource | None = None,
     token_map: Mapping[str, str] | None = None,
     max_stream_seconds: float = DEFAULT_MAX_STREAM_SECONDS,
+    action_clock: ActionClock | None = None,
 ) -> FastAPI:
     """Create the WS5 application with an injected or on-disk catalog.
 
@@ -201,6 +229,10 @@ def create_app(
             load_rule_titles(), FIELD_MASKING["rule"].label_prefix or "Detection"
         )
     }
+    # 平台級藍隊計分參數（WS3 spec §4.3）。載入一次，不隨每個請求重讀 ——
+    # 與 tokens／detection_labels 同一個理由：這份設定在演練期間不該變動。
+    blue_scoring_config = BlueScoringConfig.load()
+    resolved_action_clock = action_clock or ActionSystemClock()
     if not tokens:
         log.warning(
             "no %s* configured; this service will reject every request",
@@ -433,6 +465,39 @@ def create_app(
             ],
         }
 
+    @application.post("/api/blue-actions", status_code=201)
+    def submit_blue_action(
+        body: BlueActionRequest,
+        store: ExerciseStore = Depends(provide_exercise_store),
+        conn=Depends(provide_conn),
+    ) -> dict:
+        """Blue Action ingest (#36 Phase 2, WS3 spec §4).
+
+        No player attribution: the clearance gate on this route
+        (`ENDPOINT_MIN_CLEARANCE`) is the only identity check — "who" is
+        always the team `blue`, never a person (WS3 spec §5.1).
+        """
+        exercise, _ = _running_exercise_and_scenario(store)
+        try:
+            recorded = BlueActionStore(conn, clock=resolved_action_clock).record(
+                # The timestamp is generated inside Range Core, never accepted
+                # from the caller.  The injectable clock only exists so the
+                # Core Event -> arrival threshold is deterministic in tests.
+                exercise.exercise_id, body.action, body.event_id, body.technique
+            )
+        except UnknownEvent as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except AlreadyJudged as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except BlueActionRejected as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "team": "blue",
+            "action": recorded.action.value,
+            "event_id": recorded.event_id,
+            "submitted_at": recorded.submitted_at.isoformat(),
+        }
+
     @application.get("/api/score")
     def get_score(
         store: ExerciseStore = Depends(provide_exercise_store),
@@ -442,7 +507,17 @@ def create_app(
         sync_telemetry_objectives(conn, scenario, exercise.exercise_id)
         completions = ObjectiveStore(conn).for_exercise(exercise.exercise_id)
         hint_usages = HintService(conn).for_exercise(exercise.exercise_id)
-        return derive_scores(scenario, completions, hint_usages).as_dict()
+        red = derive_scores(scenario, completions, hint_usages).as_dict()
+
+        action_store = BlueActionStore(conn, clock=resolved_action_clock)
+        blue = derive_blue_scores(
+            action_store.observed_at_by_event(exercise.exercise_id),
+            action_store.for_exercise(exercise.exercise_id),
+            blue_scoring_config,
+            MappingTechniqueTruth(action_store.technique_by_event(exercise.exercise_id)),
+            StoredExecutionEvidence(conn, exercise.exercise_id),
+        ).as_dict()
+        return {**red, **blue}
 
     @application.get("/api/events/live")
     def live_events(
