@@ -90,10 +90,26 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION reject_frozen_action_registry_header_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.frozen_at IS NOT NULL THEN
+        RAISE EXCEPTION 'action registry % is frozen', OLD.exercise_id
+            USING ERRCODE = '55000';
+    END IF;
+    RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
 DROP TRIGGER IF EXISTS registered_actions_reject_frozen ON registered_actions;
 CREATE TRIGGER registered_actions_reject_frozen
 BEFORE INSERT OR UPDATE OR DELETE ON registered_actions
 FOR EACH ROW EXECUTE FUNCTION reject_frozen_action_registry_mutation();
+
+DROP TRIGGER IF EXISTS action_registries_reject_frozen ON action_registries;
+CREATE TRIGGER action_registries_reject_frozen
+BEFORE UPDATE OF exercise_id, scenario_id OR DELETE ON action_registries
+FOR EACH ROW EXECUTE FUNCTION reject_frozen_action_registry_header_mutation();
 """
 
 

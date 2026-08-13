@@ -71,6 +71,19 @@ def test_database_trigger_rejects_mutation_even_if_application_guard_is_removed(
         )
 
 
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "UPDATE action_registries SET scenario_id='other' WHERE exercise_id='ex-21'",
+        "DELETE FROM action_registries WHERE exercise_id='ex-21'",
+    ],
+)
+def test_database_rejects_frozen_registry_header_change_or_delete(seeded, statement):
+    seeded.freeze("ex-21")
+    with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState, match="is frozen"):
+        seeded.conn.execute(statement)
+
+
 def test_frozen_at_is_stable_when_freeze_is_retried(seeded):
     first = seeded.freeze("ex-21").frozen_at
     second = seeded.freeze("ex-21").frozen_at
