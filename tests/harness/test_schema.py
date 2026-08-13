@@ -21,6 +21,7 @@ VALID = {
     "target": {"service": "vulnerable-app"},
     "observed_at": "2026-08-08T14:30:00+08:00",
     "visibility": "public",
+    "action_id": None,
 }
 
 
@@ -104,6 +105,29 @@ class TestVisibilityIsDerivedNotDeclared:
     )
     def test_the_whole_mapping_is_enforced(self, event_type, visibility):
         assert_core_event({**VALID, "event_type": event_type, "visibility": visibility})
+
+
+class TestActionCorrelationKey:
+    """#90 Phase 1：`action_id` 是 Action↔Evidence 的唯一關聯鍵。
+
+    鍵必須永遠在（由 TestRequiredFields 涵蓋），值只有兩種合法形態。
+    """
+
+    def test_null_means_no_registered_action(self):
+        assert_core_event({**VALID, "action_id": None})
+
+    def test_registered_action_id_passes(self):
+        assert_core_event({**VALID, "action_id": "a-sqli-login"})
+
+    @pytest.mark.parametrize("value", ["", "   "])
+    def test_blank_action_id_is_rejected(self, value):
+        """空字串不是「沒有動作」，是漏帶 —— 在 truthiness 下兩者會長得一樣。"""
+        with pytest.raises(SchemaViolation, match="action_id"):
+            assert_core_event({**VALID, "action_id": value})
+
+    def test_non_string_action_id_is_rejected(self):
+        with pytest.raises(SchemaViolation, match="action_id"):
+            assert_core_event({**VALID, "action_id": 7})
 
 
 class TestTimestamps:

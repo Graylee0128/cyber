@@ -24,6 +24,7 @@ FIRING = {
     "target": {"service": "vulnerable-app"},
     "observed_at": "2026-08-08T14:30:00+08:00",
     "visibility": "public",
+    "action_id": None,
 }
 RESOLVED = {**FIRING, "lifecycle": "resolved", "observed_at": "2026-08-08T14:35:00+08:00"}
 
@@ -85,6 +86,87 @@ class TestSince:
         db_now = store.now()
         assert db_now.tzinfo is not None
         assert abs((db_now - datetime.now(timezone.utc)).total_seconds()) < 3600
+
+
+class TestActionCorrelation:
+    """#90 Phase 1-2：`action_id` 是唯一的 Action↔Evidence 關聯鍵。"""
+
+    CORRELATED = {**FIRING, "event_id": "evt-correlated", "action_id": "a-1"}
+    ORPHAN = {**FIRING, "event_id": "evt-orphan", "action_id": None}
+    RESPONSE = {
+        **FIRING,
+        "event_id": "evt-response",
+        "event_type": "response.executed",
+        "visibility": "blue",
+        "action_id": "a-1",
+    }
+
+    def test_events_are_grouped_by_action_id(self, store):
+        store.append(self.CORRELATED)
+        assert store.detections_by_action("ex-001") == {
+            "a-1": [self.CORRELATED]
+        }
+
+    def test_events_without_an_action_id_are_not_grouped_anywhere(self, store):
+        """沒帶關聯鍵的事件不得被拿去對應任何註冊動作。"""
+        store.append(self.ORPHAN)
+        assert store.detections_by_action("ex-001") == {}
+
+    def test_response_events_are_not_counted_as_detections(self, store):
+        """反應不是偵測。把 response.executed 算進去會讓 coverage 自己餵自己。"""
+        store.append(self.RESPONSE)
+        assert store.detections_by_action("ex-001") == {}
+
+    def test_another_exercise_does_not_leak_in(self, store):
+        store.append({**self.CORRELATED, "exercise_id": "ex-other"})
+        assert store.detections_by_action("ex-001") == {}
+
+    def test_alert_volume_counts_firing_only(self, store):
+        """firing 與 resolved 共用 event_id；兩筆都數會讓每個告警被算兩次。"""
+        store.append(FIRING)
+        store.append(RESOLVED)
+        assert store.alert_volume("ex-001") == 1
+
+
+class TestLatencyCorrelation:
+    """#90 Phase 4：latency 的三個時間終點各走各的 join key。"""
+
+    FIRING = {**FIRING, "event_id": "evt-fire", "action_id": "a-1"}
+    RESOLVED = {
+        **FIRING,
+        "event_id": "evt-fire",
+        "action_id": "a-1",
+        "lifecycle": "resolved",
+        "observed_at": "2026-08-08T14:40:00+08:00",
+    }
+    RESPONSE = {
+        **FIRING,
+        "event_id": "evt-resp",
+        "event_type": "response.executed",
+        "visibility": "blue",
+        "action_id": None,
+        "observed_at": "2026-08-08T14:32:00+08:00",
+        "target": {"service": "vulnerable-app", "attack_event_id": "evt-fire"},
+    }
+
+    def test_firing_is_keyed_by_action_id(self, store):
+        store.append(self.FIRING)
+        firings = store.firings_by_action("ex-001")
+        assert firings["a-1"]["event_id"] == "evt-fire"
+
+    def test_response_is_keyed_by_the_attack_event_it_answered(self, store):
+        store.append(self.FIRING)
+        store.append(self.RESPONSE)
+        responses = store.responses_by_attack_event("ex-001")
+        # 以攻擊 event_id 對接，不是 response 自己的 event_id
+        assert "evt-fire" in responses
+        assert "evt-resp" not in responses
+
+    def test_resolution_shares_the_firing_event_id(self, store):
+        store.append(self.FIRING)
+        store.append(self.RESOLVED)
+        resolutions = store.resolutions_by_event("ex-001")
+        assert "evt-fire" in resolutions
 
 
 class TestTimezoneFidelity:

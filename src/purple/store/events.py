@@ -15,11 +15,16 @@ from psycopg.types.json import Jsonb
 
 INSERT = """
 INSERT INTO core_events
-    (event_id, lifecycle, event_type, exercise_id, scenario_id, observed_at, event)
-VALUES (%s, %s, %s, %s, %s, %s, %s)
+    (event_id, lifecycle, event_type, exercise_id, scenario_id, observed_at, action_id, event)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (event_id, lifecycle) DO NOTHING
 RETURNING event_id
 """
+
+#: 算「這次動作被偵測到了」的事件型別。`detection.miss` 顯然不算；`response.*`
+#: 是反應不是偵測；`exercise.*` 是流程事件。這份清單是判準本身，不得在呼叫端
+#: 各自用字串比對重寫一次。
+DETECTION_EVENT_TYPES = ("attack.detected", "detection.hit")
 
 
 @dataclass
@@ -44,6 +49,9 @@ class CoreEventStore:
                 event["exercise_id"],
                 event["scenario_id"],
                 event["observed_at"],
+                # 契約保證這個鍵一定在（schema.REQUIRED_FIELDS）。用 [] 而非
+                # .get() 是刻意的：漏帶要在寫入時就炸，不要靜靜寫成 NULL。
+                event["action_id"],
                 Jsonb(event),
             ),
         ).fetchone()
@@ -63,6 +71,89 @@ class CoreEventStore:
             (event_id,),
         ).fetchall()
         return [row[0] for row in rows]
+
+    def detections_by_action(self, exercise_id: str) -> dict[str, list[dict[str, Any]]]:
+        """一場演練裡，每個 `action_id` 對應到的偵測事件（#90 Phase 2）。
+
+        `action_id IS NULL` 的事件不會出現在任何一組裡 —— 沒帶關聯鍵的事件
+        不得被拿去對應任何註冊動作，這正是本方法只走 `action_id` 的理由。
+        技法與時間窗鄰近性在這裡完全不參與。
+        """
+        rows = self.conn.execute(
+            "SELECT action_id, event FROM core_events "
+            "WHERE exercise_id = %s AND action_id IS NOT NULL "
+            "AND event_type = ANY(%s) ORDER BY recorded_at",
+            (exercise_id, list(DETECTION_EVENT_TYPES)),
+        ).fetchall()
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for action_id, event in rows:
+            grouped.setdefault(action_id, []).append(event)
+        return grouped
+
+    def firings_by_action(self, exercise_id: str) -> dict[str, dict[str, Any]]:
+        """每個動作的**首次** firing 偵測事件（#90 Phase 4，MTTD 的偵測終點）。
+
+        取首次而非末次：MTTD 量的是「多快被看到」，第一次 firing 才是偵測發生的時刻，
+        後續重送的 firing 只是同一告警的心跳。`ORDER BY recorded_at` ＋ 保留先到者。
+        """
+        rows = self.conn.execute(
+            "SELECT action_id, event FROM core_events "
+            "WHERE exercise_id = %s AND action_id IS NOT NULL AND lifecycle = 'firing' "
+            "AND event_type = ANY(%s) ORDER BY recorded_at",
+            (exercise_id, list(DETECTION_EVENT_TYPES)),
+        ).fetchall()
+        first: dict[str, dict[str, Any]] = {}
+        for action_id, event in rows:
+            first.setdefault(action_id, event)
+        return first
+
+    def responses_by_attack_event(self, exercise_id: str) -> dict[str, dict[str, Any]]:
+        """`response.executed` 事件，以它所回應的**攻擊 event_id** 為鍵（MTTR 的反應終點）。
+
+        關聯鍵是 `target.attack_event_id`（response agent 寫入，見 response/agent.py）——
+        response 事件自己有另一個 event_id，不能拿來對接攻擊。保留首次：同一次攻擊只
+        該被封鎖一次，重複的 response.executed 是重送。
+        """
+        rows = self.conn.execute(
+            "SELECT event FROM core_events "
+            "WHERE exercise_id = %s AND event_type = 'response.executed' "
+            "AND lifecycle = 'firing' ORDER BY recorded_at",
+            (exercise_id,),
+        ).fetchall()
+        by_attack: dict[str, dict[str, Any]] = {}
+        for (event,) in rows:
+            attack_event_id = (event.get("target") or {}).get("attack_event_id")
+            if attack_event_id:
+                by_attack.setdefault(attack_event_id, event)
+        return by_attack
+
+    def resolutions_by_event(self, exercise_id: str) -> dict[str, dict[str, Any]]:
+        """`resolved` 生命週期事件，以 event_id 為鍵（containment 的攻擊停止終點）。
+
+        firing 與 resolved 共用 event_id（spec §2.2），所以拿 firing 的 event_id
+        就查得到它的 resolved。containment duration＝resolved − firing。
+        """
+        rows = self.conn.execute(
+            "SELECT event_id, event FROM core_events "
+            "WHERE exercise_id = %s AND lifecycle = 'resolved' ORDER BY recorded_at",
+            (exercise_id,),
+        ).fetchall()
+        resolutions: dict[str, dict[str, Any]] = {}
+        for event_id, event in rows:
+            resolutions.setdefault(event_id, event)
+        return resolutions
+
+    def alert_volume(self, exercise_id: str) -> int:
+        """一場演練的告警總量。
+
+        只數 `firing`：`resolved` 與 firing 共用 event_id（spec §2.2），兩筆都數
+        會讓每個結束的告警被算成兩次。這個數字**不進任何比率的分母** ——
+        它是拿來對照涵蓋率的獨立量，用來看出「涵蓋率很高但告警爆量」。
+        """
+        return self.conn.execute(
+            "SELECT count(*) FROM core_events WHERE exercise_id = %s AND lifecycle = 'firing'",
+            (exercise_id,),
+        ).fetchone()[0]
 
     def count(self) -> int:
         return self.conn.execute("SELECT count(*) FROM core_events").fetchone()[0]

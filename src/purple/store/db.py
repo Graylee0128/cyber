@@ -33,13 +33,21 @@ CREATE TABLE IF NOT EXISTS core_events (
     scenario_id  text        NOT NULL,
     observed_at  timestamptz NOT NULL,
     recorded_at  timestamptz NOT NULL DEFAULT now(),
+    -- Action↔Evidence 的唯一關聯鍵（#90 Phase 1）。NULL＝不對應任何註冊動作。
+    -- 提到欄位而非只留在 jsonb 裡，是為了讓「依動作取證據」是索引查詢而不是全表掃描。
+    action_id    text,
     event        jsonb       NOT NULL,
     -- firing 與 resolved 共用 event_id，用 lifecycle 區分（spec §2.2）
     PRIMARY KEY (event_id, lifecycle)
 );
 
+-- 既有資料庫升級路徑：CREATE TABLE IF NOT EXISTS 不會替已存在的表補欄位。
+ALTER TABLE core_events ADD COLUMN IF NOT EXISTS action_id text;
+
 CREATE INDEX IF NOT EXISTS core_events_recorded_at_idx ON core_events (recorded_at);
 CREATE INDEX IF NOT EXISTS core_events_exercise_idx    ON core_events (exercise_id, observed_at);
+CREATE INDEX IF NOT EXISTS core_events_action_idx      ON core_events (exercise_id, action_id)
+    WHERE action_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS alert_records (
     event_id     text        PRIMARY KEY,
@@ -72,6 +80,50 @@ CREATE TABLE IF NOT EXISTS registered_actions (
     technique   text NOT NULL,
     description text NOT NULL,
     PRIMARY KEY (exercise_id, action_id)
+);
+
+-- 紅隊執行的 ground truth（#90 Phase 1）。這是 `not_executed` 與動作時間窗的
+-- 唯一真相來源：沒有這張表，「沒執行」與「執行了但沒被偵測」分不開。
+--
+-- 外鍵指向 registered_actions：**沒註冊過的動作不得有執行紀錄**。分母只能由凍結
+-- 清單推導，允許孤兒執行紀錄等於開了一條從現場事件反推分母的後門。
+CREATE TABLE IF NOT EXISTS action_executions (
+    exercise_id text        NOT NULL,
+    action_id   text        NOT NULL,
+    executed_at timestamptz NOT NULL,
+    window_end  timestamptz NOT NULL,
+    marker      text        NOT NULL,
+    recorded_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (exercise_id, action_id),
+    FOREIGN KEY (exercise_id, action_id)
+        REFERENCES registered_actions (exercise_id, action_id) ON DELETE CASCADE,
+    CONSTRAINT action_executions_window_ordered CHECK (window_end >= executed_at),
+    -- marker 是「這行 raw 遙測屬於哪個動作」的唯一判準。沒有 marker 就只能靠
+    -- 時間窗猜，而兩個時間重疊的動作會互相偷對方的遙測 —— 於是可見性缺口與
+    -- 偵測缺口的分界線變成擲骰子。沒 marker 的動作不得進入計分路徑。
+    CONSTRAINT action_executions_marker_present CHECK (marker <> '')
+);
+
+-- Latency 量測的持久化（#90 Phase 4）。存的是**已算好的 p50/p95 摘要**，不是每筆
+-- 原始樣本 —— 報告要的是分佈端點，重烤原始樣本沒有意義且會讓歷史數字浮動。
+--
+-- 主鍵含 mode：`exercise` 與 `automatic` 兩個模式各存一列，永不合併成單一分佈
+-- （見 latency.py 的 MTTR_MODE_NOTE，人在迴圈的 MTTR 與自動模式混比會誤讀成退步）。
+-- computed_at 存下來，讓「這份摘要是何時算的」可查 —— 與 action_registries.frozen_at
+-- 同精神：一個數字要能說出自己的時效。
+CREATE TABLE IF NOT EXISTS latency_summaries (
+    exercise_id        text        NOT NULL,
+    mode               text        NOT NULL,
+    sample_count       int         NOT NULL,
+    mttd_p50_ms        int,
+    mttd_p95_ms        int,
+    mttr_p50_ms        int,
+    mttr_p95_ms        int,
+    containment_p50_ms int,
+    containment_p95_ms int,
+    computed_at        timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (exercise_id, mode),
+    CONSTRAINT latency_summaries_sample_count_nonneg CHECK (sample_count >= 0)
 );
 
 CREATE OR REPLACE FUNCTION reject_frozen_action_registry_mutation()
@@ -158,6 +210,6 @@ def ensure_schema(conn: psycopg.Connection) -> None:
 def truncate_all(conn: psycopg.Connection) -> None:
     """測試之間清空。TRUNCATE 而非 DROP —— 保留 schema，快得多。"""
     conn.execute(
-        "TRUNCATE registered_actions, action_registries, "
-        "core_events, alert_records, alert_fingerprints"
+        "TRUNCATE latency_summaries, action_executions, registered_actions, "
+        "action_registries, core_events, alert_records, alert_fingerprints"
     )

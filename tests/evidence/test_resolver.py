@@ -43,6 +43,7 @@ CORE_EVENT = {
     "target": {"service": "vulnerable-app"},
     "observed_at": OBSERVED_AT.isoformat(),
     "visibility": "public",
+    "action_id": None,
 }
 
 ALERT_RECORD = {

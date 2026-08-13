@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import math
 import statistics
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 
 #: #21 要求的量測筆數。少於這個數量的樣本不得當成最終 p50/p95 交付。
 REQUIRED_SAMPLE_COUNT = 20
@@ -112,3 +114,94 @@ def _percentile_ms(values: list[timedelta | None], percentile: int) -> int | Non
         return round(statistics.median(present))
     rank = math.ceil((percentile / 100) * len(present))
     return round(present[min(max(rank, 1), len(present)) - 1])
+
+
+# ── 從真實儲存的事件組出 LatencyRun（#90 Phase 4）──────────────────────────────
+#
+# 四個時間點各有各的真相來源，串位就是把「偵測很快」讀成「反應很慢」：
+#
+#   executed_at            action_executions（紅隊執行 ground truth）
+#   firing_at              該動作的 firing 偵測事件 observed_at
+#   response_executed_at   回應那筆攻擊的 response.executed observed_at
+#   resolved_at            與 firing 同 event_id 的 resolved 事件 observed_at
+#
+# 關聯一律走 event_id / action_id，**不靠時間窗鄰近性猜**（與 evaluator 同契約）。
+
+
+def _parse_ts(value: object) -> datetime:
+    if not isinstance(value, str):
+        raise ValueError(f"observed_at must be an ISO-8601 string, got {type(value).__name__}")
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        raise ValueError(f"observed_at {value!r} has no timezone")
+    return parsed
+
+
+def build_latency_run(
+    action_id: str,
+    mode: str,
+    executed_at: datetime,
+    *,
+    firing: Mapping[str, Any] | None = None,
+    response: Mapping[str, Any] | None = None,
+    resolution: Mapping[str, Any] | None = None,
+) -> LatencyRun:
+    """把一個動作的四個真實事件組成一次量測（純函數）。
+
+    缺席的終點一律 None，不以 0 或 now 頂替：攻擊自行停止而沒有 response 時，
+    `response` 是 None → MTTR 不可得，但 `resolution` 仍可給 containment 一個值。
+    這正是 #21 「containment 有值、MTTR 不可得」那條驗收的落點。
+    """
+    return LatencyRun(
+        action_id=action_id,
+        mode=mode,
+        executed_at=executed_at,
+        firing_at=_parse_ts(firing["observed_at"]) if firing else None,
+        response_executed_at=_parse_ts(response["observed_at"]) if response else None,
+        resolved_at=_parse_ts(resolution["observed_at"]) if resolution else None,
+    )
+
+
+@dataclass(frozen=True)
+class LatencyAssembler:
+    """讀真實儲存，把一場演練的完成週期組成 `LatencyRun` 清單（#90 Phase 4 的 #44 銜接點）。
+
+    依賴以 duck-typing 注入：
+
+    - `executions`：需有 `for_exercise(exercise_id) -> {action_id: ActionExecution}`
+    - `events`：`CoreEventStore`，需有 `firings_by_action` / `responses_by_attack_event`
+      / `resolutions_by_event`
+    - `mode_of`：`action_id -> "exercise" | "automatic"`。mode 來自回應的觸發方式
+      （ResponseCommand.triggered_by），**不由這裡猜**；填法屬 #44/#51 整合，預設整場
+      單一 mode。
+
+    `build` 只組不算：要不要 20 筆、p50/p95 交給 `summarize_latency`，一個算一個存。
+    """
+
+    executions: Any
+    events: Any
+    mode_of: Callable[[str], str]
+
+    def build(self, exercise_id: str) -> list[LatencyRun]:
+        executed = self.executions.for_exercise(exercise_id)
+        firings = self.events.firings_by_action(exercise_id)
+        responses = self.events.responses_by_attack_event(exercise_id)
+        resolutions = self.events.resolutions_by_event(exercise_id)
+
+        runs: list[LatencyRun] = []
+        for action_id, execution in executed.items():
+            firing = firings.get(action_id)
+            # response 與 resolution 都掛在 firing 的 event_id 上：沒有 firing 就沒有
+            # 可對接的 join key，硬去撈會把別的動作的回應算到這個頭上。
+            firing_event_id = firing["event_id"] if firing else None
+            runs.append(
+                build_latency_run(
+                    action_id,
+                    self.mode_of(action_id),
+                    execution.executed_at,
+                    firing=firing,
+                    response=responses.get(firing_event_id) if firing_event_id else None,
+                    resolution=resolutions.get(firing_event_id) if firing_event_id else None,
+                )
+            )
+        return runs

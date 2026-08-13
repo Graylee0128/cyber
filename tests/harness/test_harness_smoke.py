@@ -27,6 +27,7 @@ CORE_EVENT = {
     "target": {"service": "vulnerable-app"},
     "observed_at": "2026-08-08T14:30:00+08:00",
     "visibility": "public",
+    "action_id": None,
 }
 
 
