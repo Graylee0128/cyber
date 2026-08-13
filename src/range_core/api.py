@@ -433,7 +433,6 @@ def create_app(
         request: Request,
         identity: str = Depends(require_identity),
         store: ExerciseStore = Depends(provide_exercise_store),
-        conn=Depends(provide_conn),
     ) -> StreamingResponse:
         """演練事件的 SSE 串流（#36）。
 
@@ -444,36 +443,36 @@ def create_app(
 
         每個訂閱者有自己的游標與自己的 clearance，彼此不共用狀態；過濾在伺服器
         端發生，不是叫前端自己別顯示。
+
+        **這個端點刻意不吃 ``Depends(provide_conn)``**：那個依賴的連線活到
+        「端點函式回傳」為止，而 ``live_events`` 一回傳 ``StreamingResponse``
+        函式就結束了 —— 串流實際發生在那之後，連線早被收回。串流是長壽命的，
+        需要一條專屬自己、活到 generator 結束才關閉的連線，不能借用請求級的
+        那條（借用還會讓這條連線同時被別的請求執行緒使用，psycopg 的連線不是
+        執行緒安全的並行對象）。
         """
         exercise, _ = _running_exercise_and_scenario(store)
         clearance = CALLER_CLEARANCE.get(identity, 0)
-        stream = CoreEventStream(conn)
-        cursor = parse_last_event_id(request.headers.get("Last-Event-ID"))
-        if cursor == 0:
-            cursor = stream.latest_seq(exercise.exercise_id)
+        exercise_id = exercise.exercise_id
+        last_event_id_header = request.headers.get("Last-Event-ID")
 
         def generate() -> Iterator[str]:
-            nonlocal cursor
-            idle = 0.0
-            while True:
-                if store.current() is None:
-                    # 演練結束 → 乾淨關閉，不留懸掛連線。
-                    return
-                batch = stream.after(exercise.exercise_id, cursor)
-                if batch:
-                    for _, frame in frames_for(batch, clearance, detection_labels):
-                        yield frame
-                    # 游標推進到整批最大 seq，不是最後一個推出去的 —— 一批全被
-                    # 過濾掉時才不會卡在原地反覆重讀。
-                    cursor = batch[-1].seq
-                    idle = 0.0
-                    continue
-
-                idle += POLL_INTERVAL_S
-                if idle >= KEEPALIVE_INTERVAL_S:
-                    idle = 0.0
-                    yield comment_frame("keep-alive")
-                time.sleep(POLL_INTERVAL_S)
+            # 專屬連線，活到這個 generator 結束才關閉 —— 不借用請求級的
+            # `provide_conn`（那條連線在端點函式回傳當下就可能被收回）也不
+            # 借用外層的 `store`（那會讓同一條連線被輪詢執行緒與其他請求並行
+            # 使用，psycopg 的連線不是執行緒安全的並行對象）。
+            stream_conn = connect()
+            try:
+                stream = CoreEventStream(stream_conn)
+                local_store = ExerciseStore(stream_conn)
+                cursor = parse_last_event_id(last_event_id_header)
+                if cursor == 0:
+                    cursor = stream.latest_seq(exercise_id)
+                yield from _stream_events(
+                    stream, local_store, exercise_id, cursor, clearance, detection_labels
+                )
+            finally:
+                stream_conn.close()
 
         return StreamingResponse(
             generate(),
@@ -482,6 +481,38 @@ def create_app(
         )
 
     return application
+
+
+def _stream_events(
+    stream: CoreEventStream,
+    store: ExerciseStore,
+    exercise_id: str,
+    cursor: int,
+    clearance: int,
+    labels: Mapping[str, Mapping[str, str]],
+) -> Iterator[str]:
+    idle = 0.0
+    while True:
+        current = store.current()
+        if current is None or current.exercise_id != exercise_id:
+            # 演練結束（或已被別場取代）→ 乾淨關閉，不留懸掛連線。
+            return
+
+        batch = stream.after(exercise_id, cursor)
+        if batch:
+            for _, frame in frames_for(batch, clearance, labels):
+                yield frame
+            # 游標推進到整批最大 seq，不是最後一個推出去的 —— 一批全被
+            # 過濾掉時才不會卡在原地反覆重讀。
+            cursor = batch[-1].seq
+            idle = 0.0
+            continue
+
+        idle += POLL_INTERVAL_S
+        if idle >= KEEPALIVE_INTERVAL_S:
+            idle = 0.0
+            yield comment_frame("keep-alive")
+        time.sleep(POLL_INTERVAL_S)
 
 
 app = create_app()
