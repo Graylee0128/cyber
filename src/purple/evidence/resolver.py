@@ -32,21 +32,13 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
+from disclosure import CALLER_CLEARANCE, visibility_rank
 
 from purple.evidence.backends import ContextLine, EvidenceBackend, EvidenceQuery
 
 #: 上下文窗的預設半寬。observed_at 前後各取這麼長 —— 足以看清事件前後脈絡，
 #: 又不至於把整場演練都撈回來。
 DEFAULT_WINDOW = timedelta(minutes=5)
-
-#: visibility 的機密階序。數字越大越機密。
-#: public ⊂ blue ⊂ purple ⊂ instructor —— 是一條線性階序，不是互斥集合。
-VISIBILITY_RANK = {"public": 0, "blue": 1, "purple": 2, "instructor": 3}
-
-#: 呼叫者身分 → clearance。與 VISIBILITY_RANK 同軸：clearance N 的人看得到
-#: rank ≤ N 的行。red 只看得到 public（Battleboard 等級）。
-CALLER_CLEARANCE = {"red": 0, "blue": 1, "purple": 2, "instructor": 3}
-
 
 class EvidenceError(Exception):
     """Evidence 解析的基底例外。"""
@@ -96,12 +88,6 @@ def clearance(caller: Caller) -> int:
             f"known: {sorted(CALLER_CLEARANCE)}"
         ) from None
 
-
-def _visibility_rank(visibility: str) -> int:
-    """visibility 的機密階。未知 visibility → fail closed，當成最嚴格一級。"""
-    return VISIBILITY_RANK.get(visibility, max(VISIBILITY_RANK.values()))
-
-
 def filter_by_visibility(lines: Iterable[ContextLine], caller: Caller) -> tuple[ContextLine, ...]:
     """依呼叫者 clearance 逐行過濾上下文（純函數）。
 
@@ -110,7 +96,7 @@ def filter_by_visibility(lines: Iterable[ContextLine], caller: Caller) -> tuple[
     單一收斂點做（ADR ②），前端不各自決定顯示什麼。
     """
     level = clearance(caller)
-    return tuple(line for line in lines if _visibility_rank(line.visibility) <= level)
+    return tuple(line for line in lines if visibility_rank(line.visibility) <= level)
 
 
 def _parse_observed_at(value: object) -> datetime:

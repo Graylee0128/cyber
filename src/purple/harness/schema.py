@@ -3,8 +3,9 @@
 契約在 `docs/p1-output-contract.md` §2。散文會被繞過，斷言不會 ——
 `evidence_ref` 之所以不會在某次 PR 裡悄悄長回來，靠的是這裡。
 """
-
 from __future__ import annotations
+from disclosure import VISIBILITY_BY_EVENT_TYPE, expected_visibility
+
 
 import json
 from datetime import datetime
@@ -36,28 +37,8 @@ BACKEND_WORDS = ("loki", "logql", "promql")
 
 LIFECYCLES = frozenset({"firing", "resolved"})
 
-#: spec §2.4：visibility 由 event_type 決定，Grafana rule 不得覆寫。
-VISIBILITY_BY_EVENT_TYPE = {
-    "attack.detected": "public",
-    "detection.hit": "blue",
-    "detection.miss": "purple",
-    "response.executed": "blue",
-    "response.failed": "purple",
-}
-#: `exercise.*` 一律 instructor。
-EXERCISE_PREFIX = "exercise."
-EXERCISE_VISIBILITY = "instructor"
-
-
 class SchemaViolation(AssertionError):
     """事件不符合 Core Event 契約。繼承 AssertionError，讓 pytest 直接當成斷言失敗。"""
-
-
-def expected_visibility(event_type: str) -> str | None:
-    if event_type.startswith(EXERCISE_PREFIX):
-        return EXERCISE_VISIBILITY
-    return VISIBILITY_BY_EVENT_TYPE.get(event_type)
-
 
 def assert_core_event(event: dict) -> None:
     """符合契約就靜靜通過，不符合就拋出指名問題的 SchemaViolation。"""
