@@ -32,7 +32,7 @@ import pytest
 
 from purple.harness import assert_core_event, loki_line_count, wait_for_event
 from purple.metrics.gaps import MissClass, classify_from_registry
-from purple.registry.production import registry_for_scenario
+from purple.registry.production import registry_for_fixture
 from purple.store.events import CoreEventStore
 
 pytestmark = [
@@ -202,7 +202,7 @@ def test_uncovered_action_is_detection_gap_not_visibility_gap(events):
     _ok(f"真 Loki 查到 {uncovered_lines} 行 → telemetry_present=True")
 
     _step("實採③：source_state ← production registry 查 Falco heartbeat")
-    registry = registry_for_scenario(
+    registry = registry_for_fixture(
         "falco-uncovered-01",
         loki_url=LOKI_URL,
         now=lambda: datetime.now(timezone.utc),

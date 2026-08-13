@@ -49,8 +49,15 @@ class ScenarioDefinition:
 
 @dataclass(frozen=True)
 class ScenarioCatalog:
+    """`sources:` 是平台級 heartbeat 定義；`scenarios:` 與 `fixtures:` 語意分開
+    （#43）——前者是真 scenario（期望清單改由 `scenarios/<id>/metadata.yaml`
+    提供，這裡目前恆為空），後者是驗證 pipeline／registry 機制用的測試載具。
+    兩者絕不合併成同一份清單：按 scenario 迭代時 fixture 不會被算進去。
+    """
+
     signals: tuple[HeartbeatSignal, ...]
     scenarios: tuple[ScenarioDefinition, ...]
+    fixtures: tuple[ScenarioDefinition, ...] = ()
 
     def signal(self, source_id: str) -> HeartbeatSignal:
         for signal in self.signals:
@@ -59,11 +66,31 @@ class ScenarioCatalog:
         raise CatalogError(f"未知 source {source_id!r}")
 
     def scenario_sources(self, scenario_id: str) -> tuple[ScenarioSource, ...]:
-        definition = next((item for item in self.scenarios if item.id == scenario_id), None)
+        """僅在 `scenarios:`（真 scenario）裡查。"""
+        return self._expected_sources(scenario_id, self.scenarios, "scenario", self.fixtures, "fixture")
+
+    def fixture_sources(self, fixture_id: str) -> tuple[ScenarioSource, ...]:
+        """僅在 `fixtures:`（測試載具）裡查。"""
+        return self._expected_sources(fixture_id, self.fixtures, "fixture", self.scenarios, "scenario")
+
+    def _expected_sources(
+        self,
+        item_id: str,
+        items: tuple[ScenarioDefinition, ...],
+        label: str,
+        other_items: tuple[ScenarioDefinition, ...],
+        other_label: str,
+    ) -> tuple[ScenarioSource, ...]:
+        definition = next((item for item in items if item.id == item_id), None)
         if definition is None:
-            raise CatalogError(f"未知 scenario {scenario_id!r}")
+            if any(item.id == item_id for item in other_items):
+                raise CatalogError(
+                    f"{item_id!r} 是 {other_label}，不是 {label}；改用 "
+                    f"{'fixture_sources' if other_label == 'fixture' else 'scenario_sources'}()"
+                )
+            raise CatalogError(f"未知 {label} {item_id!r}")
         expected = set(definition.expected_sources)
-        # 輸出走訪 catalog 的固定來源順序；未被 scenario 列為 expected 的來源明確為 absent。
+        # 輸出走訪 catalog 的固定來源順序；未被列為 expected 的來源明確為 absent。
         return tuple(ScenarioSource(signal.id, signal.id in expected) for signal in self.signals)
 
 
@@ -76,6 +103,17 @@ def _nonempty(value: object, label: str) -> str:
 def _items(raw: object, label: str) -> list[Mapping]:
     if not isinstance(raw, list) or not raw:
         raise CatalogError(f"{label} 必須是非空清單")
+    if not all(isinstance(item, Mapping) for item in raw):
+        raise CatalogError(f"{label} 每一筆必須是 mapping")
+    return list(raw)
+
+
+def _optional_items(raw: object, label: str) -> list[Mapping]:
+    """同 `_items`，但允許空清單／缺席鍵 —— `scenarios:` 目前恆為空（#43）。"""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise CatalogError(f"{label} 必須是清單")
     if not all(isinstance(item, Mapping) for item in raw):
         raise CatalogError(f"{label} 每一筆必須是 mapping")
     return list(raw)
@@ -106,25 +144,34 @@ def load_catalog(path: Path | str = DEFAULT_CATALOG_PATH) -> ScenarioCatalog:
         query = _nonempty(heartbeat.get("query"), f"source {source_id!r} query")
         signals.append(HeartbeatSignal(source_id, provider, query))
 
-    scenarios: list[ScenarioDefinition] = []
-    scenario_ids: set[str] = set()
-    for index, item in enumerate(_items(raw.get("scenarios"), "scenarios")):
-        scenario_id = _nonempty(item.get("id"), f"scenarios[{index}].id")
-        if scenario_id in scenario_ids:
-            raise CatalogError(f"重複 scenario {scenario_id!r}")
-        scenario_ids.add(scenario_id)
+    scenarios = _parse_definitions(raw.get("scenarios"), "scenarios", "scenario", source_ids)
+    fixtures = _parse_definitions(raw.get("fixtures"), "fixtures", "fixture", source_ids)
+
+    return ScenarioCatalog(tuple(signals), tuple(scenarios), tuple(fixtures))
+
+
+def _parse_definitions(
+    raw: object, block_label: str, item_label: str, source_ids: set[str]
+) -> list[ScenarioDefinition]:
+    """解析 `scenarios:` 或 `fixtures:` 其中一個區塊；兩者結構相同但語意分開（#43）。"""
+    definitions: list[ScenarioDefinition] = []
+    ids: set[str] = set()
+    for index, item in enumerate(_optional_items(raw, block_label)):
+        item_id = _nonempty(item.get("id"), f"{block_label}[{index}].id")
+        if item_id in ids:
+            raise CatalogError(f"重複 {item_label} {item_id!r}")
+        ids.add(item_id)
         expected_raw = item.get("expected_sources")
         if not isinstance(expected_raw, list):
-            raise CatalogError(f"scenario {scenario_id!r} expected_sources 必須是清單")
-        expected = tuple(_nonempty(source, f"scenario {scenario_id!r} source") for source in expected_raw)
+            raise CatalogError(f"{item_label} {item_id!r} expected_sources 必須是清單")
+        expected = tuple(_nonempty(source, f"{item_label} {item_id!r} source") for source in expected_raw)
         if len(expected) != len(set(expected)):
-            raise CatalogError(f"scenario {scenario_id!r} expected_sources 有重複")
+            raise CatalogError(f"{item_label} {item_id!r} expected_sources 有重複")
         unknown = set(expected) - source_ids
         if unknown:
-            raise CatalogError(f"scenario {scenario_id!r} 引用未知 source {sorted(unknown)!r}")
-        scenarios.append(ScenarioDefinition(scenario_id, expected))
-
-    return ScenarioCatalog(tuple(signals), tuple(scenarios))
+            raise CatalogError(f"{item_label} {item_id!r} 引用未知 source {sorted(unknown)!r}")
+        definitions.append(ScenarioDefinition(item_id, expected))
+    return definitions
 
 
 class HeartbeatReader(Protocol):
@@ -180,9 +227,18 @@ class RegistryService:
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
 
     def get(self, scenario_id: str) -> Registry:
-        """P2／WS7 可直接呼叫的查詢 seam：scenario_id -> Registry。"""
+        """P2／WS7 可直接呼叫的查詢 seam：scenario_id -> Registry。僅查真 scenario。"""
+        return self._evaluate(scenario_id, self.catalog.scenario_sources)
+
+    def get_fixture(self, fixture_id: str) -> Registry:
+        """同 `get`，但查 `fixtures:`——測試載具走這條，不混進 scenario 查詢（#43）。"""
+        return self._evaluate(fixture_id, self.catalog.fixture_sources)
+
+    def _evaluate(
+        self, item_id: str, lookup: Callable[[str], tuple[ScenarioSource, ...]]
+    ) -> Registry:
         observed_at = self.now()
-        declarations = self.catalog.scenario_sources(scenario_id)
+        declarations = lookup(item_id)
         collected: dict[str, datetime] = {}
         for declaration in declarations:
             if not declaration.expected:
@@ -191,7 +247,7 @@ class RegistryService:
             latest = self.heartbeats.latest(signal.id, signal.query, observed_at)
             if latest is not None:
                 collected[signal.id] = latest
-        return evaluate_registry(scenario_id, declarations, collected, observed_at)
+        return evaluate_registry(item_id, declarations, collected, observed_at)
 
 
 def registry_for_scenario(
@@ -201,7 +257,20 @@ def registry_for_scenario(
     loki_url: str | None = None,
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> Registry:
-    """Production convenience API；刻意是 Python 函式而不是新 HTTP server。"""
+    """Production convenience API；刻意是 Python 函式而不是新 HTTP server。僅查真 scenario。"""
     catalog = load_catalog(catalog_path)
     reader = LokiHeartbeatReader(base_url=loki_url or os.environ.get("PURPLE_LOKI_URL", "http://loki:3100"))
     return RegistryService(catalog, reader, now=now).get(scenario_id)
+
+
+def registry_for_fixture(
+    fixture_id: str,
+    *,
+    catalog_path: Path | str = DEFAULT_CATALOG_PATH,
+    loki_url: str | None = None,
+    now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+) -> Registry:
+    """同 `registry_for_scenario`，但查 `fixtures:`——供 pipeline／registry 機制驗證用。"""
+    catalog = load_catalog(catalog_path)
+    reader = LokiHeartbeatReader(base_url=loki_url or os.environ.get("PURPLE_LOKI_URL", "http://loki:3100"))
+    return RegistryService(catalog, reader, now=now).get_fixture(fixture_id)
