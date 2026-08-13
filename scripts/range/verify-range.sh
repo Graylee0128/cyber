@@ -40,10 +40,12 @@ cat > "$PROBE_PY" <<'PY'
 import socket, sys
 s = socket.socket(); s.settimeout(3)
 s.connect((sys.argv[1], 80))   # 連得上是唯一的硬條件
+path = sys.argv[2] if len(sys.argv) > 2 else "/probe"
 # 送不出去不算失敗：netns 模式的 stub listener accept 完就 conn.close()，
 # 這個 sendall 可能撞上 RST；但 source IP 在 accept 當下就記下來了。
 try:
-    s.sendall(b"GET /probe HTTP/1.1\r\nHost: range-target\r\nConnection: close\r\n\r\n")
+    request = f"GET {path} HTTP/1.1\r\nHost: range-target\r\nConnection: close\r\n\r\n"
+    s.sendall(request.encode())
     s.recv(256)
 except OSError:
     pass
@@ -51,8 +53,8 @@ s.close()
 PY
 trap 'rm -f "$PROBE_PY"' EXIT
 
-probe_target_from_red() {  # probe_target_from_red <紅隊節點名>
-  ip netns exec "$1" python3 "$PROBE_PY" "$TARGET" 2>/dev/null
+probe_target_from_red() {  # probe_target_from_red <紅隊節點名> [path]
+  ip netns exec "$1" python3 "$PROBE_PY" "$TARGET" "${2:-/probe}" 2>/dev/null
 }
 
 # 查 Loki：某個 selector 在 <since_s> 秒內有幾行。用於「現在這一刻通不通」的實證。
@@ -348,8 +350,10 @@ fi
 
 if [ "$TARGET_MODE" = vm ] && [ -f "$REPO/scripts/range/verify-p1-fields.py" ]; then
   echo "=== P1 最終驗收：range-target/Falco 四欄（VM clock 已由 nonce console 證明） ==="
+  # 欄位驗收必須自己製造本輪 Falco action，不能靠 Loki 裡碰巧殘留的舊事件。
+  probe_target_from_red "${RED_NS_PREFIX}1" /exec || true
   PYTHONPATH="$REPO/src" python3 "$REPO/scripts/range/verify-p1-fields.py" \
-    --loki-url "$LOKI_URL" --app range-target --falco || fails=1
+    --loki-url "$LOKI_URL" --app range-target --falco --wait-seconds 30 || fails=1
 fi
 
 if [ "$fails" -ne 0 ]; then

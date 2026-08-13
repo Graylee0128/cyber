@@ -284,6 +284,12 @@ def test_build_range_enforces_contract1_allowlist_and_runs_deny_canary():
     assert 'ip netns exec ns-receiver python3 "$DIR/stub_listener.py"' in text
 
 
+def test_vm_p1_verifier_generates_fresh_falco_action_and_waits_for_delivery():
+    text = VERIFY_RANGE.read_text(encoding="utf-8")
+    assert 'probe_target_from_red "${RED_NS_PREFIX}1" /exec' in text
+    assert "--falco --wait-seconds 30" in text
+
+
 def test_six_kali_must_be_distinguishable():
     assert EXPECTED_KALI == 6
     # 塌成兩個主機 IP → 失敗
