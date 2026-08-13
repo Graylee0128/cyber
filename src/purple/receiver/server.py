@@ -27,11 +27,18 @@ log = logging.getLogger("purple.receiver.server")
 
 PORT = int(os.environ.get("PURPLE_RECEIVER_PORT", "8000"))
 
+# 演練預設關閉：自動 enqueue 只給測試載具／demo 用，必須明確開啟（票 48）。
+# 開啟時 enqueue 出的命令 triggered_by="auto"，計分（#33）不採計。
+AUTO_RESPONSE = os.environ.get("PURPLE_AUTO_RESPONSE", "false").lower() == "true"
+
 
 class WebhookHandler(BaseHTTPRequestHandler):
     # receiver 與 pull endpoints 同一個 Z-MGMT 行程，queue 不需跨行程同步。
     # 測試可用 subclass 換成自己的 queue，避免共享狀態。
     response_queue = InMemoryCommandQueue()
+    # 測試載具（如 test_http_pull 的全鏈路測試）可用 subclass 覆寫成 True；
+    # 生產預設跟 AUTO_RESPONSE 走，演練不自動 enqueue（票 48）。
+    auto_response = AUTO_RESPONSE
 
     def do_GET(self) -> None:
         if self.path == "/healthz":
@@ -67,6 +74,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 records=AlertRecordStore(conn),
                 fingerprints=FingerprintIndex(conn),
                 response_queue=self.response_queue,
+                auto_response=self.auto_response,
             )
         except Exception as exc:  # 收下故障要現形，別讓 Grafana 一直重試打爆
             log.exception("ingest 失敗")
