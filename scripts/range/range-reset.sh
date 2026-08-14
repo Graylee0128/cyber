@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 票 #13 Slice 4 —— Reset：把整組 range 拆乾淨再重起。演練之間一鍵回到已知狀態。
 #
-# 選項原封轉給 range-up.sh（--with-red / --with-falco）。
+# 選項原封轉給 range-up.sh（--with-red / --no-falco）。
 # golden image 不刪（重建很久）；要連 golden 一起丟：加 --purge-golden。
 # 需 root。**不在 CI**。
 set -euo pipefail

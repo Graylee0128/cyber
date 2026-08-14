@@ -6,9 +6,12 @@
 #
 # 選項：
 #   --with-red     另起六台紅隊容器接 VLAN30（attach-red.sh），並略過 netns red 免 IP 衝突
-#   --with-falco   靶機用 golden image（Falco/Alloy/app 已在內）跑在無網 VLAN20；
-#                  golden 不存在會先 build-golden-target.sh 產出；
-#                  並把 compose 的 Loki／receiver 掛上 VLAN10，讓 VM push telemetry／pull response
+#   --with-falco   （預設已開，此旗標僅相容舊呼叫，無作用）
+#   --no-falco     靶機改用乾淨 cloud image（無 Falco/Alloy/app/mariadb）跑在無網 VLAN20；
+#                  只在需要純網路骨架、不需要真攻擊面時使用（例：只測拓樸契約）
+#
+# 2026-08-14：golden（Falco/Alloy/app 已烤進）改為預設，不再要求呼叫端記得加旗標——
+# 沒有真攻擊面的「靶機」對這個平台的用途來說不是合理的預設狀態（見 #44）。
 #
 # 需 root + Slice 2 依賴。**不在 CI**（巢狀虛擬化）。冪等：內部各步自帶清理。
 set -euo pipefail
@@ -23,12 +26,13 @@ CACHE="/var/lib/libvirt/images"
 GOLDEN="$CACHE/range-target-golden.qcow2"
 
 WITH_RED=0
-WITH_FALCO=0
+WITH_FALCO=1
 for arg in "$@"; do
   case "$arg" in
     --with-red)   WITH_RED=1 ;;
     --with-falco) WITH_FALCO=1 ;;
-    *) echo "未知選項：$arg（可用 --with-red / --with-falco）"; exit 2 ;;
+    --no-falco)   WITH_FALCO=0 ;;
+    *) echo "未知選項：$arg（可用 --with-red / --no-falco）"; exit 2 ;;
   esac
 done
 

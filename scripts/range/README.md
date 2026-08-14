@@ -74,7 +74,7 @@ sudo bash scripts/range/teardown-range.sh  # 拆掉（冪等，Reset 雛形）
 - `build-vm-falco.sh` — Slice 2b-①：真 VM 內裝 Falco（modern-eBPF），驗抓到已知動作
 - `build-golden-target.sh` — Slice 4：產出 Falco 已烤進的 golden 靶機 image
 - `attach-red.sh` — Slice 4：六台紅隊容器接 VLAN30（各自 source IP）
-- `range-up.sh` — Slice 4：一鍵起整組 range（IaC；`--with-red` / `--with-falco`）
+- `range-up.sh` — Slice 4：一鍵起整組 range（IaC；`--with-red`；golden/Falco 預設開，`--no-falco` 關）
 - `range-reset.sh` — Slice 4：Reset（拆乾淨再重起）
 - `measure-log-retention.sh` — Slice 3-②：Loki 行數 + 磁碟用量 + retention 量測（#12）
 - `lib-cloudimg.sh` — 共用：cloud image 下載 + `qemu-img check` 完整性把關（防半截 image）

@@ -198,8 +198,8 @@ T1059）、`test_falco_disabled_rule_is_detection_gap_not_visibility_gap` 綠（
 單主機把整組 range 起起來（組合 Slice 1 + 2a，選配 golden Falco 靶機與六台紅隊）：
 
 ```bash
-# 一鍵起：靶機真 VM(VLAN20) + 四區骨架。加 --with-red 起六台 kali、--with-falco 用 golden
-sudo bash scripts/range/range-up.sh --with-red --with-falco
+# 一鍵起：靶機真 VM(VLAN20，golden/Falco 預設開) + 四區骨架。加 --with-red 起六台 kali
+sudo bash scripts/range/range-up.sh --with-red
 
 # 驗四契約 + 六 source IP
 sudo bash scripts/range/verify-range.sh
@@ -208,11 +208,12 @@ sudo bash scripts/range/verify-range.sh
 for i in $(seq 1 6); do docker exec range-red$i curl -s -m3 http://10.167.20.10/ >/dev/null && echo red$i打了; done
 
 # 演練之間 Reset（拆乾淨再重起，選項原封轉給 range-up）
-sudo bash scripts/range/range-reset.sh --with-red --with-falco
+sudo bash scripts/range/range-reset.sh --with-red
 ```
 
-- `--with-falco` 第一次會先 `build-golden-target.sh` 烤 golden（Falco 裝進 image，約
-  3–6 分鐘，走 NAT），之後靶機在**無網 VLAN20** 開機 Falco 自動就位。
+- golden/Falco 預設開（第一次會先 `build-golden-target.sh` 烤 golden，約 3–6 分鐘，走
+  NAT），之後靶機在**無網 VLAN20** 開機 Falco 自動就位。只要純網路骨架、不需要真攻擊面
+  時才加 `--no-falco`。
 - 六台 kali 用 `RED_IMAGE` 換映像（預設 `nicolaka/netshoot`；真 kali：
   `RED_IMAGE=kalilinux/kali-rolling sudo bash scripts/range/range-up.sh --with-red`）。
 - 拆除一切：`sudo bash scripts/range/teardown-range.sh`（含 red 容器與 golden build VM）。
