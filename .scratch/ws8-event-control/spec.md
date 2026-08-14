@@ -242,7 +242,13 @@ provisioner 的輪詢延遲，`player_id` 必須明確落在其中一邊。
 
 1. `requested` 超過 **T 秒** → 標 `failed`，provisioner 自動重試一次
 2. 再失敗 → 釋放座位、`player_id` 作廢、玩家回領號畫面，**中控同時告警給 instructor**
-3. **T 的值由承載 spike 量出的「容器啟動到 ready」時間決定**，本檔不預設數字
+3. **T 的值由承載 spike 量出的「容器啟動到 ready」時間決定**（[#78](https://github.com/Graylee0128/cyber/issues/78) 實測）：
+
+   容器啟動到**網路掛載完成**的時間，在 6→150 台這個區間穩定在 **~0.5 秒/台**（線性）。
+   這量的是 `attach-red.sh` 的 `sleep infinity` 容器接上 OVS 的時間，**不是完整服務就緒**——
+   沒有真正的 seat 應用程式（ttyd、實際環境）要初始化，所以 **0.5 秒是 T 的下限，不是終值**。
+   #62 的 seat provisioner 落地、用真容器重量一次後，數字只會更大，不會更小；本檔仍不
+   預設最終數字，理由不變（避免拿模擬值頂替真容器的量測）。
 
 已知代價：Range Core 會看到一個「已鑄造但尚未報到」的 `player_id` 空窗期。
 紅隊中途領號時該玩家的計分起點就是 `ready` 那一刻 —— 純時間制下這是晚到者自負的結果
