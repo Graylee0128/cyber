@@ -26,9 +26,14 @@ FORBIDDEN_SUDOERS_TOKENS = (
 
 
 def test_sudoers_allowlist_has_no_collector_tampering_path():
-    lower = SUDOERS.lower()
+    # 只看有效規則行（非註解、非空白）——說明文件裡提到 falco/alloy 是在解釋
+    # 「為什麼」，不是在放行規則，不該被這條檢查誤判。
+    active = "\n".join(
+        line for line in SUDOERS.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ).lower()
     for token in FORBIDDEN_SUDOERS_TOKENS:
-        assert token.lower() not in lower, f"sudoers 出現禁止字樣：{token}"
+        assert token.lower() not in active, f"sudoers 有效規則出現禁止字樣：{token}"
 
 
 def test_sudoers_grants_nothing_wide_open():
