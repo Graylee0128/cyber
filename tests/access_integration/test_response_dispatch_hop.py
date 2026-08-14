@@ -101,14 +101,25 @@ def _dispatch_status(exercise_id: str, event_id: str) -> str | None:
     return None if row is None else row[0]
 
 
-@pytest.fixture
-def running_exercise():
-    """一場乾淨的 running exercise。
+def _clear_exercises() -> None:
+    """把上一條測試留下的 exercise 清乾淨——**running 與 prepared 都要清**。
 
-    同一個 profile 裡的 admission 測試也會動 exercise 狀態，所以先 reset
-    （沒有在跑就回 404，那是正常起點，不是失敗）再 start。
+    `POST /api/exercises/reset` 只刪 `state = 'running'`（`reset_current()`），
+    prepared 的那筆會留著並讓後續 `start` 回 409「an exercise is already
+    prepared」。同一個 compose profile 裡的 `test_admission_access.py` 走的正是
+    prepare 路徑，且檔名排序在本檔之前——所以只靠 reset 會依測試順序而時綠時紅。
+    這是測試載具的清場，不是 production 行為：`exercise_players` 等衍生資料表
+    都是 `ON DELETE CASCADE`。
     """
     _request(RANGE_URL, "/api/exercises/reset", "POST", INSTRUCTOR_TOKEN, {})
+    with psycopg.connect(PG_DSN, autocommit=True) as conn:
+        conn.execute("DELETE FROM exercises WHERE state IN ('running', 'prepared')")
+
+
+@pytest.fixture
+def running_exercise():
+    """一場乾淨的 running exercise。"""
+    _clear_exercises()
     status, started = _request(
         RANGE_URL,
         "/api/exercises/start",
@@ -121,7 +132,7 @@ def running_exercise():
     )
     assert status == 201, started
     yield started["exercise_id"]
-    _request(RANGE_URL, "/api/exercises/reset", "POST", INSTRUCTOR_TOKEN, {})
+    _clear_exercises()
 
 
 def test_contain_crosses_z_app_to_z_mgmt_and_lands_in_the_real_queue(running_exercise):
