@@ -72,14 +72,16 @@ server {
     # 這兩塊必須排在下面通用的 eval gateway 之前（regex location 依出現順序比對）。
     # `revealed` 由前綴決定，不是呼叫端 —— 公開層前綴一律強制 false。
 
+    # 查詢字串寫死在 proxy_pass 裡，**不用** `$is_args$args`：`$is_args` 由
+    # 原始請求決定，客戶端沒帶查詢字串時它是空的，`set $args` 設進去的值會被
+    # 整段丟掉。那樣公開層仍安全（後端預設 false），但 instructor 會靜默地
+    # 拿到 pending 狀態 —— 一個不會有任何錯誤訊號的失效。
     location ~ ^/gw/(?:red|blue|purple)/eval/(?<bb_public>api/exercises/[^/]+/battleboard)$ {
-        set $args "revealed=false";
-        proxy_pass http://$evaluation/$bb_public$is_args$args;
+        proxy_pass http://$evaluation/$bb_public?revealed=false;
     }
 
     location ~ ^/gw/instructor/eval/(?<bb_admin>api/exercises/[^/]+/battleboard)$ {
-        set $args "revealed=true";
-        proxy_pass http://$evaluation/$bb_admin$is_args$args;
+        proxy_pass http://$evaluation/$bb_admin?revealed=true;
     }
 
     # ---------- Range Core ----------

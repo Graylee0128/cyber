@@ -35,8 +35,13 @@ pytestmark = [
 UI_URL = os.environ.get("PURPLE_UI_URL", "http://localhost:8090")
 
 
-def _get(path: str, method: str = "GET"):
-    request = Request(UI_URL + path, method=method)
+def _get(path: str, method: str = "GET", payload: dict | None = None):
+    body = None
+    headers = {}
+    if payload is not None:
+        body = json.dumps(payload).encode()
+        headers["Content-Type"] = "application/json"
+    request = Request(UI_URL + path, data=body, headers=headers, method=method)
     try:
         with urlopen(request, timeout=15) as response:
             raw = response.read()
@@ -47,6 +52,10 @@ def _get(path: str, method: str = "GET"):
             return error.code, json.loads(raw) if raw else None
         except json.JSONDecodeError:
             return error.code, {"raw": raw.decode(errors="replace")}
+
+
+def _post(path: str, payload: dict | None):
+    return _get(path, method="POST", payload=payload)
 
 
 def test_static_screens_are_served():
@@ -115,13 +124,33 @@ def test_evaluation_api_has_a_deployment_exit():
 def test_battleboard_projection_never_leaks_the_real_technique():
     """公開層前綴拿到的投影裡沒有任何 MITRE 編號。
 
-    registry 未凍結時是 409（沒有可陳述的分母），那也算通過 —— 這條要防的是
-    「有資料時洩題」，不是「一定要有資料」。
+    先真的種一份 registry 並凍結 —— 拿一個不存在的 exercise 去問只會拿到 404，
+    那種測試永遠是綠的，也永遠證明不了「有資料時不洩題」。
+
+    `admission-e2e` 這個 scenario 的 attack_chain 帶著 T1190，所以只要投影裡
+    出現任何 `T1` 開頭的字串，就是那個編號漏出去了。
     """
-    status, body = _get("/gw/red/eval/api/exercises/does-not-exist/battleboard")
-    assert status in (200, 404, 409), body
-    if status != 200:
-        return
+    exercise_id = "ui-battleboard-probe"
+    seed_status, seed_body = _post(
+        f"/gw/purple/eval/api/exercises/{exercise_id}/actions",
+        {"scenario_id": "admission-e2e"},
+    )
+    # 409 = 這場已經種過（同一個 job 重跑）。兩者都代表 registry 存在。
+    assert seed_status in (201, 409), seed_body
+    freeze_status, freeze_body = _post(
+        f"/gw/purple/eval/api/exercises/{exercise_id}/actions/freeze", None
+    )
+    assert freeze_status in (200, 409), freeze_body
+
+    status, body = _get(f"/gw/red/eval/api/exercises/{exercise_id}/battleboard")
+    # 503 = 這個 profile 沒有 Loki，evaluation 拿不到遙測後端。那是 access-plane
+    # profile 的已知範圍限制（不假裝成功、不回空資料），不是投影邏輯壞掉。
+    assert status in (200, 503), body
+    if status == 503:
+        pytest.skip("access-plane profile 沒有遙測後端，evaluation 無法組裝")
+
     assert body["revealed"] is False
     serialized = json.dumps(body)
     assert "T1" not in serialized, f"公開投影洩漏了技法編號：{serialized}"
+    assert all(event["attack_label"].startswith("Attack #") for event in body["events"]), body
+    assert all(event["disclosure"] == "pending" for event in body["events"]), body
