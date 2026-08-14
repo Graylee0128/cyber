@@ -181,6 +181,14 @@ def _attach_container_to_vlan(
     subprocess.run(["ip", "link", "set", host_if, "up"], check=True)
     subprocess.run(["ip", "link", "set", "cs0", "netns", name], check=True)
     subprocess.run(["ip", "netns", "exec", name, "ip", "link", "set", "cs0", "name", "eth0"], check=True)
+    # 明確指定 MAC——不能靠核心自動配發。VM 上實測抓到：好幾個容器的 eth0
+    # 自動配到**同一個** MAC（IPv6 甚至報 dadfailed），導致同 VLAN 內誰都
+    # ARP 不到誰，包括 ping 不到自己的 gateway。從 IP 推導、天生跟 IP 一樣
+    # 唯一，locally-administered 前綴 `02:00`（IEEE 保留給本地管理位址用）。
+    subprocess.run(
+        ["ip", "netns", "exec", name, "ip", "link", "set", "eth0", "address", _mac_for_ip(ip)],
+        check=True,
+    )
     subprocess.run(["ip", "netns", "exec", name, "ip", "addr", "add", f"{ip}/24", "dev", "eth0"], check=True)
     subprocess.run(["ip", "netns", "exec", name, "ip", "link", "set", "eth0", "up"], check=True)
     subprocess.run(["ip", "netns", "exec", name, "ip", "link", "set", "lo", "up"], check=True)
@@ -188,6 +196,14 @@ def _attach_container_to_vlan(
         ["ip", "netns", "exec", name, "ip", "route", "add", "default", "via", gw],
         capture_output=True, check=False,
     )
+
+
+def _mac_for_ip(ip: str) -> str:
+    """從 IP 位址推導一個保證唯一的 MAC——跟 IP 一樣唯一，不必另外維護一份
+    配發紀錄。`02` 前綴是 IEEE 保留給 locally-administered 位址的其中一種
+    合法值（第二個位元組的第二個 bit 是 1、broadcast bit 是 0）。"""
+    octets = [int(x) for x in ip.split(".")]
+    return "02:00:" + ":".join(f"{o:02x}" for o in octets)
 
 
 def _next_free_ip(prefix: str, first: int, existing_ips: set[str], *, count: int = 1) -> list[str]:

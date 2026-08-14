@@ -11,12 +11,24 @@ from scripts.range.seat_provisioner import (
     _allow_seat_pair,
     _ensure_blue_seat_pair_isolation,
     _ensure_docker_user_drop,
+    _mac_for_ip,
     _revoke_ip_flows,
     _seat_id_from_blue_name,
     host_if_name,
     run,
     sweep_orphans,
 )
+
+
+def test_mac_for_ip_is_unique_and_deterministic():
+    """VM 上實測抓到：不明確指定 MAC，核心自動配發會撞號（好幾個容器的 eth0
+    配到同一個 MAC，IPv6 甚至報 dadfailed），同 VLAN 內誰都 ARP 不到誰，連
+    自己的 gateway 都 ping 不通。這是比 flow 規則更底層、影響紅藍兩隊的 bug。
+    """
+    assert _mac_for_ip("10.167.60.12") == "02:00:0a:a7:3c:0c"
+    assert _mac_for_ip("10.167.60.12") == _mac_for_ip("10.167.60.12")  # 決定性
+    assert _mac_for_ip("10.167.60.12") != _mac_for_ip("10.167.60.13")  # 不同 IP 不撞號
+    assert _mac_for_ip("10.167.60.12")[:2] == "02"  # locally-administered 前綴
 
 
 def test_host_if_name_is_stable_across_interpreter_restarts():
