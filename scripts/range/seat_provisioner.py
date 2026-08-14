@@ -18,8 +18,11 @@ response 走 agent pull）同一條邏輯：**只有已經有 host 權限的一�
 （`a`=DMZ／`b`=內部，見 `build_blue_seat_container`）。兩隊隔離機制刻意
 **同款**：共用各自的 VLAN（30／60）＋ OVS `protected=true`，不是 spec §6.4
 引用的外部參考架構那種「每 seat 一條獨立 172.31.<X>.0/24 網路」字面做法——
-理由見 `build_blue_seat_container` 的 docstring。**host 層單一 Falco、
-`RED→BLUE` DMZ-only 防火牆規則仍是後續階段**，本檔不做。
+理由見 `build_blue_seat_container` 的 docstring。host 層單一 Falco見
+docker-compose.yml／deploy/falco/rules.d/purplescope.yaml；`RED→BLUE`
+DMZ-only 防火牆規則見 `_allow_red_to_blue_dmz`。**紅隊 seat-to-seat 隔離
+的動態驗證仍是後續階段**（機制跟已驗證過的靜態骨架同款 protected port，
+但沒有針對真容器另外實測過）。
 
 **失敗路徑刻意不在這裡處理**：容器建立失敗就什麼都不做，seat 留在 `requested`。
 admission 既有的 `expire_requested()`（`sweeper.py`，§4.4 逾時三段式）會在 T 秒後
@@ -290,6 +293,30 @@ def _revoke_ip_flows(bridge: str, ip: str) -> None:
         )
 
 
+def _allow_red_to_blue_dmz(router_ns: str, ip_a: str) -> None:
+    """開放 RED→BLUE 到這個座位的 DMZ 主機 a（build-range.sh 宣告的空集合
+    `blue_dmz_ips` 動態補成員）。刻意**只**加 a，b 永遠不進這個集合——WS8
+    spec §6.3 要的是「打得到 DMZ、要打內部得自己橫向移動」，開 b 等於免費
+    跳過那一步。`nft add element` 對已存在的成員是 no-op，冪等，provisioner
+    每輪重跑都可以放心呼叫。"""
+    subprocess.run(
+        ["ip", "netns", "exec", router_ns, "nft", "add", "element", "inet", "range_fw",
+         "blue_dmz_ips", "{", ip_a, "}"],
+        check=True, capture_output=True,
+    )
+
+
+def _revoke_red_to_blue_dmz(router_ns: str, ip_a: str) -> None:
+    """座位釋放時把 a 的位址從 `blue_dmz_ips` 拿掉——跟 `_revoke_ip_flows`
+    同一個理由：IP 被下一個座位撿走前不清掉，RED 會意外打得到新座位的 DMZ，
+    即使新座位根本沒有把自己的 a 位址加進來過。"""
+    subprocess.run(
+        ["ip", "netns", "exec", router_ns, "nft", "delete", "element", "inet", "range_fw",
+         "blue_dmz_ips", "{", ip_a, "}"],
+        capture_output=True, check=False,
+    )
+
+
 def build_blue_seat_container(
     seat_id: str, *, image: str, zones: dict[str, str], existing_ips: set[str],
 ) -> dict[str, Any]:
@@ -306,6 +333,11 @@ def build_blue_seat_container(
 
     真的 Z-BLUE image（`purplescope/blue-seat:latest`）CMD 本身就是 ttyd，
     不像紅隊要另外 Popen 一個 stub_listener.py。
+
+    **RED→BLUE DMZ-only**：這裡也順手把 a 位址加進 `blue_dmz_ips`
+    （`_allow_red_to_blue_dmz`）——build-range.sh 的 nft 規則只放行到這個
+    集合裡的位址，b 永遠不在集合內。這是 build-range.sh 自己註解點名
+    「由 #62 補」的那個缺口（見該檔 nft 區塊），現在補上。
     """
     prefix, _, first_str = zones["BLUE_IP_FIRST"].rpartition(".")
     ip_a, ip_b = _next_free_ip(prefix, int(first_str), existing_ips, count=2)
@@ -327,6 +359,7 @@ def build_blue_seat_container(
         endpoints.append({"terminal": terminal, "host": ip, "port": TTYD_PORT})
 
     _allow_seat_pair(bridge, ip_a, ip_b)
+    _allow_red_to_blue_dmz(zones["RANGE_ROUTER_NS"], ip_a)
     return {"endpoints": endpoints}
 
 
@@ -415,19 +448,26 @@ def sweep_orphans(client: AdmissionClient, *, zones: dict[str, str] | None = Non
     """provisioner 重啟後的孤兒回收：紅隊（`seat-red-*`）與藍隊（`seat-blue-*`）
     各掃各的——不碰 `range-red*`（#78 spike 用的舊命名，不是同一批）。
 
-    `zones`：可選——只有清藍隊 OVS flow 白名單需要知道 bridge 名字與 IP
-    prefix。單元測試不帶 zones 時退化成不清 flow（純孤兒回收邏輯照樣測），
-    生產路徑（`run()`）一定會傳。
+    `zones`：可選——只有清藍隊 OVS flow 白名單／RED→BLUE DMZ 白名單需要知道
+    bridge／router netns 名字與 IP prefix。單元測試不帶 zones 時退化成不清、
+    不動（純孤兒回收邏輯照樣測），生產路徑（`run()`）一定會傳。
     """
     bridge = (zones or {}).get("RANGE_BRIDGE", "br-range")
+    router_ns = (zones or {}).get("RANGE_ROUTER_NS", "ns-router")
     blue_prefix, _, _ = (zones or {}).get("BLUE_IP_FIRST", "0.0.0.0").rpartition(".")
 
     def _clean_blue_flows(name: str) -> None:
         if zones is None:
             return
         ip = _container_ip(name, blue_prefix)
-        if ip is not None:
-            _revoke_ip_flows(bridge, ip)
+        if ip is None:
+            return
+        _revoke_ip_flows(bridge, ip)
+        # 只有 a（DMZ）進過 blue_dmz_ips，b 從沒加過——刪不存在的成員 nft 會
+        # 回非 0（"No such file or directory"），但 `_revoke_red_to_blue_dmz`
+        # 本來就 check=False 吞掉這個結果（跟 _revoke_ip_flows 同款），不必
+        # 為了省這一次呼叫特地判斷 terminal 字元，兩台都呼叫比多一個分支簡單。
+        _revoke_red_to_blue_dmz(router_ns, ip)
 
     return _sweep_orphans_for(
         name_prefix=CONTAINER_PREFIX, seat_id_from_name=_seat_id_from_red_name,

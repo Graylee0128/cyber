@@ -8,11 +8,13 @@ import pytest
 
 from scripts.range.seat_provisioner import (
     ProvisionerConfig,
+    _allow_red_to_blue_dmz,
     _allow_seat_pair,
     _ensure_blue_seat_pair_isolation,
     _ensure_docker_user_drop,
     _mac_for_ip,
     _revoke_ip_flows,
+    _revoke_red_to_blue_dmz,
     _seat_id_from_blue_name,
     host_if_name,
     run,
@@ -112,7 +114,8 @@ def _run(config, **kw):
 # 測試的 load_zones 假值都要帶這幾把 key，不能空字典。
 _ZONES = {
     "RANGE_NET_PREFIX": "10.167", "Z_RED_VLAN": "30", "Z_BLUE_VLAN": "60",
-    "RANGE_BRIDGE": "br-range",
+    "RANGE_BRIDGE": "br-range", "RANGE_ROUTER_NS": "ns-router",
+    "BLUE_IP_FIRST": "10.167.60.12",
 }
 
 
@@ -346,6 +349,67 @@ def test_revoke_ip_flows_clears_both_directions(monkeypatch):
     assert len(del_calls) == 2
     assert any("nw_src=10.167.60.12" in c[3] for c in del_calls)
     assert any("nw_dst=10.167.60.12" in c[3] for c in del_calls)
+
+
+def test_allow_red_to_blue_dmz_adds_only_the_a_address(monkeypatch):
+    """RED→BLUE 只放行 DMZ 主機 a——build-range.sh 宣告的 blue_dmz_ips 集合
+    起手是空的，這支函式是唯一會往裡面加東西的地方（見 build_blue_seat_container
+    的 docstring）。"""
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        "scripts.range.seat_provisioner.subprocess.run",
+        lambda args, **kw: (calls.append(args), _FakeCompleted(""))[1],
+    )
+
+    _allow_red_to_blue_dmz("ns-router", "10.167.60.12")
+
+    assert calls == [[
+        "ip", "netns", "exec", "ns-router", "nft", "add", "element", "inet",
+        "range_fw", "blue_dmz_ips", "{", "10.167.60.12", "}",
+    ]]
+
+
+def test_revoke_red_to_blue_dmz_removes_the_a_address(monkeypatch):
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        "scripts.range.seat_provisioner.subprocess.run",
+        lambda args, **kw: (calls.append(args), _FakeCompleted(""))[1],
+    )
+
+    _revoke_red_to_blue_dmz("ns-router", "10.167.60.12")
+
+    assert calls == [[
+        "ip", "netns", "exec", "ns-router", "nft", "delete", "element", "inet",
+        "range_fw", "blue_dmz_ips", "{", "10.167.60.12", "}",
+    ]]
+
+
+def test_sweep_orphans_revokes_red_to_blue_dmz_for_removed_blue_seats(monkeypatch):
+    """孤兒回收拆掉藍隊容器時，順便把它的位址從 blue_dmz_ips 清掉——不清的話
+    RED 打得到下一個撿走這個 IP 的新座位的 DMZ，即使新座位還沒建好。"""
+    calls: list[list[str]] = []
+
+    def fake_run(args, **kw):
+        calls.append(args)
+        if args[:2] == ["docker", "ps"] and any("seat-red-" in a for a in args):
+            return _FakeCompleted("")
+        if args[:2] == ["docker", "ps"] and any("seat-blue-" in a for a in args):
+            return _FakeCompleted("seat-blue-a-gone1\nseat-blue-b-gone1\n")
+        if args[:4] == ["ip", "netns", "exec", "seat-blue-a-gone1"]:
+            return _FakeCompleted("4: eth0    inet 10.167.60.12/24 scope global eth0\\       valid_lft forever preferred_lft forever\n")
+        if args[:4] == ["ip", "netns", "exec", "seat-blue-b-gone1"]:
+            return _FakeCompleted("4: eth0    inet 10.167.60.13/24 scope global eth0\\       valid_lft forever preferred_lft forever\n")
+        return _FakeCompleted("")
+
+    monkeypatch.setattr("scripts.range.seat_provisioner.subprocess.run", fake_run)
+    admission = FakeAdmission()
+
+    removed = sweep_orphans(admission, zones=_ZONES)
+
+    assert removed == 2
+    nft_del_calls = [c for c in calls if c[:6] == ["ip", "netns", "exec", "ns-router", "nft", "delete"]]
+    revoked_ips = {c[-2] for c in nft_del_calls}
+    assert revoked_ips == {"10.167.60.12", "10.167.60.13"}
 
 
 class _FakeCompleted:
