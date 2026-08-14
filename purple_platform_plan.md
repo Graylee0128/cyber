@@ -162,29 +162,47 @@ last_heartbeat  ← 各來源每 30s 上報，90s 未報轉 stale
       開機自驗且 boot nonce 相符。nftables 強制 telemetry 三埠 allowlist；response control
       只精準放行 `MGMT_RECEIVER_IP:8000`，其他 MGMT 主機的 `:8000` 與 `:22` 有反向斷言
 - [x] `RED → MGMT` 實測 deny（契約 3 的實測）
-- [ ] 每個來源的四項欄位驗證通過（§2.3：來源 IP · 目的 · 時間 · 動作結果）
-      —— **無專屬驗證**。管線測試證明事件走得完，但沒有一條測試逐來源斷言那四項可查詢與聚合，
-      見 [#29](https://github.com/Graylee0128/cyber/issues/29)
-- [ ] 所有來源完成時間同步驗證
-      —— `config/clock-nodes.yaml` 目前只有 `checker-host`。且不是取消註解就好：
-      Falco／Alloy 現在是靶機 VM 內的 systemd unit 而非容器，`probe: docker` 探不到，
-      見 [#29](https://github.com/Graylee0128/cyber/issues/29)
-- [ ] SQLi 一條鏈跑通：`attack → log → alert → webhook → agent pull → ipset → 封鎖生效`
-      —— 前四跳已在真環境實測；**後兩跳（agent pull → ipset）只到 unit 層**，由 [#44](https://github.com/Graylee0128/cyber/issues/44) 承接（原 #17 已吸收）
+- [x] 每個來源的四項欄位驗證通過（§2.3：來源 IP · 目的 · 時間 · 動作結果）
+      —— [#29](https://github.com/Graylee0128/cyber/issues/29) 已交付關閉（PR #81）。
+      逐來源以聚合 LogQL 斷言四項可查詢：vulnerable-app／range-target 走
+      `source_ip · path · ts · outcome`，Falco 走 `proc.cmdline` 解析出的 SOURCE_IP。
+      **有 mutation proof**：拿掉真 producer 的 `source_ip` 或任一 normalized 結果，
+      驗證器就紅 —— 這條打勾不是靠「管線走得完」推論的。
+      非動作來源明文排除並附理由（Prometheus 是取樣計數器、Alloy／response-agent 是傳輸
+      與控制 heartbeat，都不是離散動作日誌）
+- [x] 所有來源完成時間同步驗證
+      —— [#29](https://github.com/Graylee0128/cyber/issues/29)／PR #81。**機制與原文設想不同**：
+      沒有把 Falco／Alloy 加進 `config/clock-nodes.yaml`（它們是 VM 內的 systemd unit，
+      `probe: docker` 本來就探不到），改為靶機 VM 開機時對 Z-MGMT 的獨立 HTTP `Date`
+      時鐘比對，不需要 VM 憑證、也不用新開防火牆埠。閾值分層：T1／T2 直接探測 100ms、
+      T4 VM 網路探測 5s。缺 `Date`、逾時、或偏移超過閾值都讓開機契約 FAIL（fail closed）
+- [x] SQLi 一條鏈跑通：`attack → log → alert → webhook → agent pull → ipset → 封鎖生效`
+      —— [#44](https://github.com/Graylee0128/cyber/issues/44) 已交付關閉（PR #92／#95／#99），
+      golden 重烤後六跳全通。**封鎖的觸發方式已依 [#48](https://github.com/Graylee0128/cyber/issues/48)
+      改變**：演練模式不自動 enqueue，改由藍隊動作經 Range Core 派送
+      （`triggered_by="manual"`，[#51](https://github.com/Graylee0128/cyber/issues/51) 的跨容器
+      e2e 實證），auto 模式只留給測試載具 —— 原文的「一條鏈」現在有兩條觸發路徑
 - [x] 事件 schema 定版並交付給三個消費者
       —— Core Event schema 定版（[ADR 0001](./docs/adr/0001-p1-output-contract.md)），
       `assert_core_event` 為契約守門；P2 由 canonical #21／#26／#28 承接
-- [ ] source registry 由 **scenario 期望清單 ＋ 實際 heartbeat** 合成，P2 可查詢
+- [x] source registry 由 **scenario 期望清單 ＋ 實際 heartbeat** 合成，P2 可查詢
       —— 原文寫「可由部署狀態自動產生」，與 §2.5 及 [ADR 0001](./docs/adr/0001-p1-output-contract.md) ⑧
       直接衝突（那裡明文禁止單靠部署狀態推導：Falco 掛掉會從推導結果消失、變成
       「未部署」，等於把設備故障洗成不在範圍）。2026-08-10 依 §2.5 修正措辭。
-      現況：`evaluate_registry` 是純函式，全 repo 只有它自己與測試建構 `Registry`，
-      兩份輸入都沒有生產路徑，見 [#18](https://github.com/Graylee0128/cyber/issues/18)
+      [#18](https://github.com/Graylee0128/cyber/issues/18) 已交付關閉（PR #73）：
+      `purple.registry.production` 的 `RegistryService` ＋ `LokiHeartbeatReader` 是生產路徑，
+      `registry_for_scenario()` 供 P2 直接查詢。**真主機驗收**：三個 collector 從真 Loki
+      讀到 healthy，停掉 VM 內的 `falco-modern-bpf.service` 後，Falco 在 90 秒容忍窗內
+      維持 healthy、超過才轉 stale —— 故障不會被靜默洗成「未部署」
 
-**現況：9 項中 5 項有實測證據，4 項未完成。** 未完成的都有票在追：
-[#44](https://github.com/Graylee0128/cyber/issues/44)（第 7 項；原 #17 已吸收）、
-[#18](https://github.com/Graylee0128/cyber/issues/18)（第 9 項）、
-[#29](https://github.com/Graylee0128/cyber/issues/29)（第 5、6 項；原 #30 已吸收）。
+**現況：9 項全數有實測證據。** 最後三項於 2026-08-12／13 補齊
+（[#18](https://github.com/Graylee0128/cyber/issues/18) 第 9 項、
+[#29](https://github.com/Graylee0128/cyber/issues/29) 第 5、6 項；原 #30 已吸收），
+第 7 項由 [#44](https://github.com/Graylee0128/cyber/issues/44) 於 2026-08-14 關閉（原 #17 已吸收）。
+
+> ⚠️ 打勾的是**這九條驗收**，不是「P1 沒有已知問題」。第 7 項的封鎖觸發路徑已被
+> [#48](https://github.com/Graylee0128/cyber/issues/48) 改成人在迴圈，與原文寫的全自動鏈
+> 不是同一條路；讀這張表時要一併看那條註記。
 
 ---
 
