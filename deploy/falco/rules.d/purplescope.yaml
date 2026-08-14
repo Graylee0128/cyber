@@ -57,3 +57,23 @@
   output: "PurpleScope uncovered action (cmd=%proc.cmdline pid=%proc.pid parent=%proc.pname)"
   priority: NOTICE
   tags: [purplescope, uncovered]
+
+# #62 WS8 spec §6.2：Z-BLUE 座位帳號的 sudo allowlist v1 刻意留空（見
+# deploy/blue-seat/sudoers.d/blue），所以**任何**一次 sudo 呼叫都值得記錄——
+# 不是「密碼打錯」這種噪音，是「帳號嘗試了 allowlist 之外的事」本身。
+#
+# 這條證明的是 §6.7「host 層單一 Falco 觀察所有 seat 容器」不是空話：實測
+# 過 host 這支 Falco（privileged + modern_ebpf）本來就看得到 seat-blue-*
+# 容器裡的 syscall，不需要在容器內額外跑一份 Falco（那正是 §6.7 想避免的：
+# 容器裡沒有 collector，玩家碰不到）。用 container.name 而非 container.id
+# 認 seat——id 是每次建置都變的，name 遵守 `seat-blue-<terminal>-<uuid>`
+# 這個固定前綴（見 scripts/range/seat_provisioner.py 的 BLUE_CONTAINER_PREFIX）。
+- rule: PurpleScope Blue Seat Sudo Attempt
+  desc: a blue seat account invoked sudo - v1 allowlist is empty, any attempt is notable
+  condition: >
+    evt.type=execve and
+    proc.name=sudo and
+    container.name startswith "seat-blue-"
+  output: "PurpleScope blue seat sudo attempt (cmd=%proc.cmdline pid=%proc.pid container=%container.name)"
+  priority: WARNING
+  tags: [purplescope, T1548, privilege-escalation]
