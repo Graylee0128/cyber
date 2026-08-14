@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blue SOC Console</title>
+<link rel="stylesheet" href="../assets/base.css">
+<style>
+  .alert {
+    padding: 12px; border: 1px solid var(--border); border-radius: 6px;
+    margin-bottom: 8px; cursor: pointer; background: #131a2a;
+  }
+  .alert:hover { border-color: #4a5a80; }
+  .alert.active { border-color: var(--blue); background: var(--blue-dim); }
+  .alert .head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+  .alert .id { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--muted); }
+  .alert .meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .sev-high { color: var(--red); font-weight: 700; }
+  .sev-medium { color: var(--amber); font-weight: 700; }
+  .sev-low { color: var(--muted); font-weight: 700; }
+  .evidence-line {
+    font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+    padding: 4px 0; border-bottom: 1px solid var(--border); white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .grafana { width: 100%; height: 520px; border: 1px solid var(--border); border-radius: 6px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <h1>Blue SOC Console</h1>
+    <div class="sub" id="subtitle">載入中…</div>
+  </div>
+  <div class="who"><span class="dot-live" id="live"></span>身分 <b>blue</b></div>
+</div>
+
+<div id="banner" class="banner"></div>
+
+<div class="tabs">
+  <div class="tab active" data-screen="ops">事件處置</div>
+  <div class="tab" data-screen="scoring">計分與反應時間</div>
+  <div class="tab" data-screen="grafana">遙測儀表板</div>
+</div>
+
+<section id="screen-ops">
+  <div class="grid sidebar">
+    <div>
+      <div class="panel">
+        <div class="panel-title">告警佇列（即時）</div>
+        <div id="alerts"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <div class="panel-title">事件細節</div>
+        <div id="detail"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">處置動作</div>
+        <div id="actions"></div>
+        <div class="note" id="action-note"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="screen-scoring" hidden>
+  <div class="panel">
+    <div class="panel-title">藍隊計分</div>
+    <table>
+      <thead>
+        <tr><th>事件</th><th>偵測（秒）</th><th>封鎖（秒）</th><th>判讀</th><th>已處置</th><th>得分</th></tr>
+      </thead>
+      <tbody id="scoring-rows"></tbody>
+    </table>
+    <div id="scoring-empty"></div>
+  </div>
+</section>
+
+<section id="screen-grafana" hidden>
+  <div class="panel">
+    <div class="panel-title">Grafana</div>
+    <div class="sub">
+      SOC Console 不重做一套 incident 佇列 UI：底層儀表板直接嵌入，這一層只負責導覽與身分。
+    </div>
+    <iframe class="grafana" id="grafana-frame" title="grafana"></iframe>
+  </div>
+</section>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,142 @@
+# Product UI 的靜態伺服器 ＋ 每身分一個的後端 gateway。
+#
+# ## 這個檔案就是 UI 的權限邊界
+#
+# Range Core、Evidence API、Admission 的身分都由**部署時注入的服務 token**換出。
+# 那個保證（「呼叫者無法自報身分」）只在 token 不在呼叫者手上時才成立 ——
+# 所以 token 一路到這裡為止，瀏覽器拿不到、也不需要拿到。
+#
+# 前綴決定身分：`/gw/blue/...` 的請求會被貼上 blue 的 token，clearance 就是 blue，
+# 後端據此做欄位級遮蔽。前端沒有任何辦法要求更高的 clearance —— 它連 token
+# 長什麼樣都不知道。這與 `disclosure.identity` 的設計是同一件事的兩端。
+#
+# ## envsubst
+#
+# 官方 nginx 映像的 entrypoint 會把 `/etc/nginx/templates/*.template` 做環境變數
+# 展開後放到 `/etc/nginx/conf.d/`。所以本檔只含 `server`／`map`，不含 `http {}`。
+
+# token 表：身分 → 該身分在各服務的 token。**表以外沒有第二個地方決定誰是誰。**
+# 沒設到的身分拿到空字串 → 後端回 403（fail closed，不是預設放行）。
+map $gw_id $core_token {
+    default    "";
+    red        "${RANGE_CORE_TOKEN_RED}";
+    blue       "${RANGE_CORE_TOKEN_BLUE}";
+    purple     "${RANGE_CORE_TOKEN_PURPLE}";
+    instructor "${RANGE_CORE_TOKEN_INSTRUCTOR}";
+}
+
+map $gw_id $evidence_token {
+    default    "";
+    blue       "${PURPLE_EVIDENCE_TOKEN_BLUE}";
+    purple     "${PURPLE_EVIDENCE_TOKEN_PURPLE}";
+    instructor "${PURPLE_EVIDENCE_TOKEN_INSTRUCTOR}";
+}
+
+server {
+    listen 8080;
+    server_name _;
+
+    # proxy_pass 帶變數時需要 resolver（Docker 內建 DNS）。
+    resolver 127.0.0.11 ipv6=off valid=10s;
+
+    set $range_core   "${UI_RANGE_CORE_UPSTREAM}";
+    set $evaluation   "${UI_EVALUATION_UPSTREAM}";
+    set $evidence     "${UI_EVIDENCE_UPSTREAM}";
+    set $admission    "${UI_ADMISSION_UPSTREAM}";
+    set $grafana      "${UI_GRAFANA_UPSTREAM}";
+
+    # 前端一律同源，不需要 CORS；順手擋掉點擊劫持與 MIME 猜測。
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header X-Content-Type-Options nosniff always;
+
+    # ---------- 靜態畫面 ----------
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    # 教官與紫隊的畫面不是公開層。網段限制是**唯一**擋得住「拿到網址就進得去」
+    # 的東西 —— 這一層之上還沒有登入（Admission 的 session 目前只認得終端機，
+    # 沒有「這個 session 是不是教官」的端點）。見 ui/README.md 已知缺口。
+    location ~ ^/(instructor|purple|event-control)/ {
+        allow ${UI_PRIVILEGED_CIDR};
+        deny all;
+        try_files $uri $uri/ =404;
+    }
+
+    # ---------- Battleboard 揭露開關 ----------
+    #
+    # 這兩塊必須排在下面通用的 eval gateway 之前（regex location 依出現順序比對）。
+    # `revealed` 由前綴決定，不是呼叫端 —— 公開層前綴一律強制 false。
+
+    location ~ ^/gw/(?:red|blue|purple)/eval/(?<bb_public>api/exercises/[^/]+/battleboard)$ {
+        set $args "revealed=false";
+        proxy_pass http://$evaluation/$bb_public$is_args$args;
+    }
+
+    location ~ ^/gw/instructor/eval/(?<bb_admin>api/exercises/[^/]+/battleboard)$ {
+        set $args "revealed=true";
+        proxy_pass http://$evaluation/$bb_admin$is_args$args;
+    }
+
+    # ---------- Range Core ----------
+
+    # SSE 專用：關掉緩衝（buffering 開著時事件會卡在 nginx 裡直到湊滿一個 buffer，
+    # 「即時推送」就變成批次），並把逾時放到大於後端 300 秒的連線壽命上限。
+    location ~ ^/gw/(?<gw_id>red|blue|purple|instructor)/core/api/events/live$ {
+        proxy_set_header Authorization "Bearer $core_token";
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+        proxy_pass http://$range_core/api/events/live;
+    }
+
+    location ~ ^/gw/(?<gw_id>red|blue|purple|instructor)/core/(?<core_path>.*)$ {
+        proxy_set_header Authorization "Bearer $core_token";
+        proxy_pass http://$range_core/$core_path$is_args$args;
+    }
+
+    # ---------- Evaluation Engine ----------
+    #
+    # 沒有 token：Evaluation API 本身不做身分驗證。它之所以還是安全的，是因為
+    # 它只住 Z-MGMT、不對外發佈 —— 瀏覽器唯一到得了它的路徑就是這條 gateway。
+    # 這件事一旦改變（例如把 8002 port 對外開），這個假設就破了。
+
+    location ~ ^/gw/(?:red|blue|purple|instructor)/eval/(?<eval_path>.*)$ {
+        proxy_pass http://$evaluation/$eval_path$is_args$args;
+    }
+
+    # ---------- Evidence API ----------
+
+    location ~ ^/gw/(?<gw_id>blue|purple|instructor)/evidence/(?<evidence_path>.*)$ {
+        proxy_set_header Authorization "Bearer $evidence_token";
+        proxy_pass http://$evidence/evidence/$evidence_path;
+    }
+
+    # ---------- Admission（只有 instructor 有這條）----------
+
+    location ~ ^/gw/instructor/admission/(?<admission_path>.*)$ {
+        allow ${UI_PRIVILEGED_CIDR};
+        deny all;
+        proxy_set_header Authorization "Bearer ${ADMISSION_INSTRUCTOR_TOKEN}";
+        proxy_pass http://$admission/admission/$admission_path$is_args$args;
+    }
+
+    # ---------- Grafana（Blue SOC 的儀表板分頁）----------
+
+    location /grafana/ {
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_pass http://$grafana/;
+    }
+
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+    }
+}

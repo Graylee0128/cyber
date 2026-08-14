@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Event Control</title>
+<link rel="stylesheet" href="../assets/base.css">
+<style>
+  .cap { display: flex; gap: 24px; flex-wrap: wrap; }
+  .cap .box { flex: 1; min-width: 200px; }
+  .token {
+    font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+    background: #0d1220; border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; word-break: break-all; margin-top: 6px;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <h1>Event Control</h1>
+    <div class="sub">會議中控 —— 憑據、座位、會話。<code>player_id</code> 的唯一產生點。</div>
+  </div>
+  <div class="who">身分 <b>instructor</b></div>
+</div>
+
+<div id="banner" class="banner"></div>
+
+<div class="panel">
+  <div class="panel-title">場次</div>
+  <div class="row">
+    <input id="exercise-id" placeholder="exercise_id" style="min-width:280px">
+    <button class="primary" id="btn-load">載入</button>
+  </div>
+  <div class="note">
+    這裡的 exercise_id 要對應一場**已預備**的演練（Range Core 的 prepare 由 Admission 服務身分發起）。
+  </div>
+</div>
+
+<div class="grid c2">
+  <div class="panel">
+    <div class="panel-title">座位池</div>
+    <div class="cap">
+      <div class="box">
+        <div class="k">紅隊上限</div>
+        <input id="red-cap" type="number" min="0" value="0" style="width:100%">
+      </div>
+      <div class="box">
+        <div class="k">藍隊上限</div>
+        <input id="blue-cap" type="number" min="0" value="0" style="width:100%">
+      </div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button id="btn-set-caps">設定上限</button>
+      <button class="danger" id="btn-lock">鎖定並建置藍隊座位</button>
+    </div>
+    <div class="note">
+      鎖定是不可逆的：座位一旦建置，上限就不再是可調的參數，而是這場演練的既成事實。
+    </div>
+    <div class="section-label">目前可用量</div>
+    <div id="availability"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">遠端邀請連結</div>
+    <div class="row">
+      <button id="btn-issue-link">簽發一次性連結</button>
+    </div>
+    <div id="links"></div>
+    <div class="note">
+      token 只在簽發當下回傳一次。這一頁不保存它 —— 關掉就沒了，要重發一條新的。
+    </div>
+
+    <div class="section-label">維運</div>
+    <div class="row">
+      <button id="btn-expire">清理逾時的領位請求</button>
+    </div>
+    <div id="expire-result"></div>
+  </div>
+</div>
+
+<div class="grid c2">
+  <div class="panel">
+    <div class="panel-title">座位告警</div>
+    <div id="alerts"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">單一座位操作</div>
+    <div class="row">
+      <input id="seat-id" placeholder="seat_id" style="flex:1">
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="btn-rebind">重新綁定會話</button>
+      <button class="danger" id="btn-release">釋出座位</button>
+    </div>
+    <div class="note">
+      重新綁定會發一張新的 session cookie 給**這個瀏覽器**，不是給玩家的瀏覽器 ——
+      它的用途是教官代為接手一個卡住的座位，不是遠端幫玩家登入。
+    </div>
+
+    <div class="section-label">完整座位表</div>
+    <div id="seat-table-link"></div>
+  </div>
+</div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

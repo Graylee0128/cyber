@@ -46,9 +46,10 @@ jobs:
 
       - name: Bring up the narrow access plane
         run: >-
-          docker compose --profile admission-e2e up -d --build --wait --wait-timeout 180
+          docker compose --profile admission-e2e up -d --build --wait --wait-timeout 240
           admission-edge admission-range-core admission-receiver
           admission-red-terminal admission-blue-terminal
+          admission evaluation-api ui
 
       - name: Show access-plane services
         if: always()
@@ -65,6 +66,9 @@ jobs:
           PURPLE_EDGE_PORT: "8088"
           # #51：封鎖路徑的 Z-MGMT 端（Range Core 跨容器打的那一跳）。
           PURPLE_RECEIVER_URL: http://localhost:8004
+          # #75/#76：Product UI 的 gateway。權限邊界住在 nginx 設定裡 ——
+          # 只有經真的 nginx 打真的後端容器才驗得到。
+          PURPLE_UI_URL: http://localhost:8090
         run: python -m pytest -v -s tests/access_integration/
 
       - name: Dump access-plane logs on failure
