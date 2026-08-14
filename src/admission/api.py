@@ -183,6 +183,21 @@ def create_app(
             raise HTTPException(status_code=404, detail="active remote link not found")
         return Response(status_code=204)
 
+    @application.get("/admission/seats/pending")
+    def pending(team: str | None = None, _actor: str = Depends(instructor),
+                c=Depends(provide_conn)) -> list[dict]:
+        # #62：host 側 Seat Provisioner Agent 輪詢用（WS8 spec §4.1，pull 模式——
+        # 中控／admission 不主動去叫 provisioner 建容器，provisioner 自己來問）。
+        return SeatStore(c).list_requested(team)
+
+    @application.get("/admission/seats/active")
+    def active(team: str | None = None, _actor: str = Depends(instructor),
+               c=Depends(provide_conn)) -> list[str]:
+        # #62：provisioner 孤兒回收用——跟 pending 不同，這裡包含 ready／claimed。
+        # 拆容器前必須確認座位「已經不算數」（released／failed），不能只看
+        # 它是不是還在 requested，否則會把剛建好、正常在用的座位一起拆掉。
+        return SeatStore(c).list_active(team)
+
     @application.post("/admission/seats/{seat_id}/ready", status_code=204)
     def ready(seat_id: str, body: EndpointsRequest, _actor: str = Depends(instructor),
               svc: AdmissionService = Depends(service)) -> Response:

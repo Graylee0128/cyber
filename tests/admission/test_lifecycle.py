@@ -90,3 +90,31 @@ def test_notifier_failure_cannot_rollback_release_or_durable_alert(pg_connection
     assert service.expire_requests(10) == {"retry": 0, "released": 1}
     assert SeatStore(pg_connection).get(claim["seat_id"])["state"] == "released"
     assert pg_connection.execute("SELECT reason FROM admission_alert").fetchall() == [("provisioning_timeout",)]
+
+
+# ── #62：provisioner 輪詢用查詢 ──────────────────────────────────────────
+def test_list_requested_excludes_ready_and_free_seats(pg_connection):
+    PoolConfigStore(pg_connection).set_caps("EX", 2, 0)
+    service = AdmissionService(pg_connection, publisher=RangeFake())
+    still_waiting = service.allocate("EX", "red")
+    about_to_be_ready = service.allocate("EX", "red")
+    endpoints = [{"terminal": "main", "host": "10.167.30.12", "port": 7681}]
+    service.ready(about_to_be_ready["seat_id"], endpoints)
+
+    pending = SeatStore(pg_connection).list_requested("red")
+
+    assert [s["seat_id"] for s in pending] == [still_waiting["seat_id"]]
+
+
+def test_list_active_includes_ready_but_not_released(pg_connection):
+    PoolConfigStore(pg_connection).set_caps("EX", 2, 0)
+    service = AdmissionService(pg_connection, publisher=RangeFake())
+    ready_seat = service.allocate("EX", "red")
+    released_seat = service.allocate("EX", "red")
+    endpoints = [{"terminal": "main", "host": "10.167.30.13", "port": 7681}]
+    service.ready(ready_seat["seat_id"], endpoints)
+    service.release(released_seat["seat_id"], actor="instructor")
+
+    active = SeatStore(pg_connection).list_active("red")
+
+    assert active == [ready_seat["seat_id"]]
