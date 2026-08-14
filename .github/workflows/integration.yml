@@ -47,7 +47,8 @@ jobs:
       - name: Bring up the narrow access plane
         run: >-
           docker compose --profile admission-e2e up -d --build --wait --wait-timeout 180
-          admission-edge admission-range-core admission-red-terminal admission-blue-terminal
+          admission-edge admission-range-core admission-receiver
+          admission-red-terminal admission-blue-terminal
 
       - name: Show access-plane services
         if: always()
@@ -62,7 +63,9 @@ jobs:
           PURPLE_RANGE_CORE_URL: http://localhost:8003
           PURPLE_EDGE_HOST: localhost
           PURPLE_EDGE_PORT: "8088"
-        run: python -m pytest -v -s tests/access_integration/test_admission_access.py
+          # #51：封鎖路徑的 Z-MGMT 端（Range Core 跨容器打的那一跳）。
+          PURPLE_RECEIVER_URL: http://localhost:8004
+        run: python -m pytest -v -s tests/access_integration/
 
       - name: Dump access-plane logs on failure
         if: failure()
