@@ -156,6 +156,36 @@ Telemetry 欄要回答的問題），並在畫面上標明少了哪一層，而�
 `scenarios/<id>/briefing.md` 是檔案，沒有任何 HTTP 出口。Player Portal 的 Mission 面板
 目前只顯示 scenario 的中繼資料（名稱、難度、時長、目標主機）。
 
+### 6. Evaluation API 目前對任何真 scenario 都會 500（**這個 PR 之前就存在，不是新引入的**）
+
+寫 `test_ui_gateway.py` 時撞到的：`GET /api/exercises/{id}/evaluation`（既有端點）與本 PR
+新加的 `GET /api/exercises/{id}/battleboard`，只要 `exercise_id` 對應的是一個**真** scenario
+（不是驗證 pipeline 用的 fixture），一律 500。
+
+原因在 `config/scenario-sources.yaml`：
+
+```yaml
+# WS2 的真實起點是零個 scenario；這裡刻意留空，不得回填（spec §6.2）。
+scenarios: []
+```
+
+`EvaluationAssembler.build()` 會呼叫 `source_registry(scenario_id)`（production 預設是
+`purple.registry.production.registry_for_scenario`），那支函式只查這份清單的 `scenarios:`
+區塊——清單刻意留空，所以查詢無條件拋 `CatalogError`，而 `purple/evaluation/api.py` 的
+`_session()` 例外處理沒有接住 `CatalogError`（只接 `RegistryError`／`TechniqueRejected`／
+`psycopg.IntegrityError`），於是變成未攔截的 500。
+
+這不是 UI 這批交付造成的——`get_evaluation` 端點在這個 PR 之前就有這個洞，本 PR 只是第一次
+真的經 gateway 打到它、才被看見。目前唯一能通過整條評分管線的是驗證 pipeline 用的 fixture
+（`sqli-01`／`bruteforce-01`／`falco-*`，見同一份 YAML 的 `fixtures:` 區塊），但 fixture 不是
+scenario，`registry_for_scenario` 也查不到它們。
+
+**這與 #47（第一個真 scenario 落地）直接相關**：`admission-e2e`、`p2-latency-baseline`（#90
+Phase 4 的量測載具）都還沒在這份清單登記，Purple Console 的涵蓋率表與 Battleboard 的攻防進度
+在它們身上會直接 500，不是空資料。#47 完工、或 #18／#47 把 `expected_sources` 的真相來源統一
+（scenario `metadata.yaml` 裡已經有這個欄位，跟這份獨立清單重複了）之前，這條路徑修不了，
+且修法屬另一票，不在本 PR 範圍。
+
 ## 這次一併補的後端出口
 
 三個「判定邏輯早就寫好、但部署裡沒有出口」的縫：

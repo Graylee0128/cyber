@@ -25,6 +25,7 @@ from purple.evaluation.evaluator import EvaluationService
 from purple.evaluation.latency import LatencyAssembler, LatencySummary, summarize_latency
 from purple.evidence.backends import BackendUnavailable
 from purple.receiver.whitelist import TechniqueRejected, default_whitelist
+from purple.registry.production import CatalogError
 from purple.store.alerts import AlertRecordStore
 from purple.store.db import connect, ensure_schema
 from purple.store.events import CoreEventStore
@@ -118,6 +119,12 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except BackendUnavailable as exc:
             # 遙測後端故障。503 而非 200＋空資料：後者會被讀成「藍隊什麼都沒看到」。
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except CatalogError as exc:
+            # `config/scenario-sources.yaml` 目前對真 scenario 刻意留空
+            # （WS2 spec §6.2，見 ui/README.md 已知缺口 #6）—— 這不是伺服器故障，
+            # 是這個 exercise 的 scenario 還沒在來源清單登記。503 而非未攔截的
+            # 500：呼叫端至少能分辨「暫時算不出來」與「程式壞了」，且不洩漏 traceback。
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         finally:
             conn.close()

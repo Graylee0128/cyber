@@ -35,6 +35,16 @@ pytestmark = [
 UI_URL = os.environ.get("PURPLE_UI_URL", "http://localhost:8090")
 
 
+def _parse(raw: bytes):
+    """靜態畫面回的是 HTML／CSS／JS，不是 JSON —— 這裡不能假設每個回應都是 JSON。"""
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {"raw": raw.decode(errors="replace")}
+
+
 def _get(path: str, method: str = "GET", payload: dict | None = None):
     body = None
     headers = {}
@@ -44,14 +54,9 @@ def _get(path: str, method: str = "GET", payload: dict | None = None):
     request = Request(UI_URL + path, data=body, headers=headers, method=method)
     try:
         with urlopen(request, timeout=15) as response:
-            raw = response.read()
-            return response.status, (json.loads(raw) if raw else None)
+            return response.status, _parse(response.read())
     except HTTPError as error:
-        raw = error.read()
-        try:
-            return error.code, json.loads(raw) if raw else None
-        except json.JSONDecodeError:
-            return error.code, {"raw": raw.decode(errors="replace")}
+        return error.code, _parse(error.read())
 
 
 def _post(path: str, payload: dict | None):
@@ -72,8 +77,8 @@ def test_static_screens_are_served():
         "/assets/base.css",
         "/assets/api.js",
     ):
-        status, _ = _get(path)
-        assert status == 200, f"{path} 沒有被服務出來"
+        status, body = _get(path)
+        assert status == 200, f"{path} 沒有被服務出來：{body}"
 
 
 def test_gateway_injects_the_service_token():
@@ -144,11 +149,13 @@ def test_battleboard_projection_never_leaks_the_real_technique():
     assert freeze_status in (200, 409), freeze_body
 
     status, body = _get(f"/gw/red/eval/api/exercises/{exercise_id}/battleboard")
-    # 503 = 這個 profile 沒有 Loki，evaluation 拿不到遙測後端。那是 access-plane
-    # profile 的已知範圍限制（不假裝成功、不回空資料），不是投影邏輯壞掉。
+    # 503 有兩個可能原因，都是已知範圍限制而非投影邏輯壞掉：
+    #   1. 這個 profile 沒有 Loki，evaluation 拿不到遙測後端
+    #   2. `config/scenario-sources.yaml` 的 `scenarios:` 清單刻意留空
+    #      （WS2 spec §6.2），`admission-e2e` 還沒登記——見 ui/README.md 已知缺口 #6
     assert status in (200, 503), body
-    if status == 503:
-        pytest.skip("access-plane profile 沒有遙測後端，evaluation 無法組裝")
+    if status != 200:
+        pytest.skip(f"evaluation 回 503（已知缺口，見 ui/README.md）：{body}")
 
     assert body["revealed"] is False
     serialized = json.dumps(body)
