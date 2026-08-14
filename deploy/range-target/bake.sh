@@ -303,7 +303,12 @@ if [ "$bake_fail" != 0 ]; then
   echo "DIAG| ---- alloy 設定與前景實跑（把解析錯誤逼出來）----"
   { ls -l /etc/alloy/; echo "[config 前 5 行]"; head -5 /etc/alloy/config.alloy; } 2>&1 | diag
   # 前景跑一次：unit 的 stdout 有時被吞，直接跑最能拿到真正的錯誤訊息。
-  timeout 15 alloy run /etc/alloy/config.alloy --storage.path=/tmp/alloy-probe 2>&1 | tail -25 | diag
+  # --server.http.listen-addr 給隨機空 port：正式 purplescope-alloy.service 已佔預設的
+  # 12345，不指定的話這個 probe 會噴 `failed to listen on 127.0.0.1:12345 address already
+  # in use`，把真正的失敗原因蓋掉（2026-08-14：#90 重烤時那行紅字讓人誤判成 port 衝突，
+  # 實際是 golden 少複製 disclosure/projection.py）。
+  timeout 15 alloy run /etc/alloy/config.alloy --storage.path=/tmp/alloy-probe \
+    --server.http.listen-addr=127.0.0.1:0 2>&1 | tail -25 | diag
   set -e
   trap 'on_error $LINENO' ERR
 fi

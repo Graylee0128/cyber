@@ -72,6 +72,7 @@ class TestScenarioCatalog:
             "falco-exec-01",
             "falco-secret-03",
             "falco-uncovered-01",
+            "sqli-target-44",
         }
 
     def test_fixture_lookup_via_scenario_sources_is_rejected(self):

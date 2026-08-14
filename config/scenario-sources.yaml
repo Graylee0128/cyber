@@ -44,3 +44,8 @@ fixtures:
 
   - id: falco-uncovered-01
     expected_sources: [falco, alloy, response-agent]
+
+  # 靶機 VM 的可計分 SQLi（票 #44 攻擊面；#90 Phase 4 latency 量測的來源）。
+  # 遙測經 target 側 Alloy → Z-MGMT Loki，來源與 falco-* 同一台 VM。
+  - id: sqli-target-44
+    expected_sources: [alloy, response-agent]

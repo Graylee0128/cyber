@@ -1,0 +1,83 @@
+# P2 Latency Baseline（#90 Phase 4）
+#
+# 20 個同技法（T1190）的 SQLi 註冊動作，唯一目的是把 detection latency 量到
+# 統計上站得住的 20 個樣本（p50/p95）。每個 action 各自的 action_id 讓偵測層
+# （SQLInjectionBurstTarget，by source_ip, action_id）各自 firing，Evaluation
+# 以 action_id 逐次關聯，不靠時間窗鄰近性。這不是敘事型 scenario —— 它是量測載具。
+id: p2-latency-baseline
+name: P2 Latency Baseline
+difficulty: baseline
+duration: 30m
+objectives:
+  - id: detect-sqli-baseline
+    evaluation: telemetry
+    points: 1
+    telemetry_signal:
+      action_id: sqli-lat-01
+targets:
+  - host: range-target
+    surfaces: [product-sqli]
+expected_sources: [alloy, response-agent]
+detection: [SQLInjectionBurstTarget]
+attack_chain:
+  - id: sqli-lat-01
+    technique: T1190
+    description: SQLi latency sample 01 — UNION probe on /product with a registered action marker.
+  - id: sqli-lat-02
+    technique: T1190
+    description: SQLi latency sample 02 — UNION probe on /product with a registered action marker.
+  - id: sqli-lat-03
+    technique: T1190
+    description: SQLi latency sample 03 — UNION probe on /product with a registered action marker.
+  - id: sqli-lat-04
+    technique: T1190
+    description: SQLi latency sample 04 — UNION probe on /product with a registered action marker.
+  - id: sqli-lat-05
+    technique: T1190
+    description: SQLi latency sample 05 — UNION probe on /product with a registered action marker.
+  - id: sqli-lat-06
+    technique: T1190
+    description: SQLi latency sample 06 — UNION probe on /product with a registered action marker.
+  - id: sqli-lat-07
+    technique: T1190
+    description: SQLi latency sample 07 — UNION probe on /product with a registered action marker.
+  - id: sqli-lat-08
+    technique: T1190
+    description: SQLi latency sample 08 — UNION probe on /product with a registered action marker.
+  - id: sqli-lat-09
+    technique: T1190
+    description: SQLi latency sample 09 — UNION probe on /product with a registered action marker.
+  - id: sqli-lat-10
+    technique: T1190
+    description: SQLi latency sample 10 — UNION probe on /product with a registered action marker.
+  - id: sqli-lat-11
+    technique: T1190
+    description: SQLi latency sample 11 — UNION probe on /product with a registered action marker.
+  - id: sqli-lat-12
+    technique: T1190
+    description: SQLi latency sample 12 — UNION probe on /product with a registered action marker.
+  - id: sqli-lat-13
+    technique: T1190
+    description: SQLi latency sample 13 — UNION probe on /product with a registered action marker.
+  - id: sqli-lat-14
+    technique: T1190
+    description: SQLi latency sample 14 — UNION probe on /product with a registered action marker.
+  - id: sqli-lat-15
+    technique: T1190
+    description: SQLi latency sample 15 — UNION probe on /product with a registered action marker.
+  - id: sqli-lat-16
+    technique: T1190
+    description: SQLi latency sample 16 — UNION probe on /product with a registered action marker.
+  - id: sqli-lat-17
+    technique: T1190
+    description: SQLi latency sample 17 — UNION probe on /product with a registered action marker.
+  - id: sqli-lat-18
+    technique: T1190
+    description: SQLi latency sample 18 — UNION probe on /product with a registered action marker.
+  - id: sqli-lat-19
+    technique: T1190
+    description: SQLi latency sample 19 — UNION probe on /product with a registered action marker.
+  - id: sqli-lat-20
+    technique: T1190
+    description: SQLi latency sample 20 — UNION probe on /product with a registered action marker.
+reset_scope: exercise
