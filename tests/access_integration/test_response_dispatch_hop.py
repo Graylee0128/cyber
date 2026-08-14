@@ -104,15 +104,19 @@ def _dispatch_status(exercise_id: str, event_id: str) -> str | None:
 def _clear_exercises() -> None:
     """把上一條測試留下的 exercise 清乾淨——**running 與 prepared 都要清**。
 
-    `POST /api/exercises/reset` 只刪 `state = 'running'`（`reset_current()`），
-    prepared 的那筆會留著並讓後續 `start` 回 409「an exercise is already
-    prepared」。同一個 compose profile 裡的 `test_admission_access.py` 走的正是
-    prepare 路徑，且檔名排序在本檔之前——所以只靠 reset 會依測試順序而時綠時紅。
+    `POST /api/exercises/reset` 只刪 `exercises` 裡 `state = 'running'` 的那筆
+    （`reset_current()`）。**prepared 住在另一張表** `exercise_preparations`
+    （`exercises.py:363` 的 `start()` 就是查那張表才回 409「an exercise is
+    already prepared」），reset 碰不到它。同一個 compose profile 裡的
+    `test_admission_access.py` 走的正是 prepare 路徑，且檔名排序在本檔之前
+    ——所以只靠 reset 會依測試順序而時綠時紅。
+
     這是測試載具的清場，不是 production 行為：`exercise_players` 等衍生資料表
     都是 `ON DELETE CASCADE`。
     """
     _request(RANGE_URL, "/api/exercises/reset", "POST", INSTRUCTOR_TOKEN, {})
     with psycopg.connect(PG_DSN, autocommit=True) as conn:
+        conn.execute("DELETE FROM exercise_preparations")
         conn.execute("DELETE FROM exercises WHERE state IN ('running', 'prepared')")
 
 
