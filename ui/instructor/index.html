@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Instructor Console</title>
+<link rel="stylesheet" href="../assets/base.css">
+<style>
+  .raw {
+    font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+    padding: 6px 0; border-bottom: 1px solid var(--border);
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .dot {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13px; padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--border); margin: 0 6px 6px 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <h1>Instructor Console</h1>
+    <div class="sub" id="subtitle">載入中…</div>
+  </div>
+  <div class="who"><span class="dot-live" id="live"></span>身分 <b>instructor</b>　·　唯一的全知角色</div>
+</div>
+
+<div id="banner" class="banner"></div>
+
+<div class="grid c2">
+  <div class="panel">
+    <div class="panel-title">演練生命週期</div>
+    <div class="row">
+      <select id="scenario-select"></select>
+      <button class="primary" id="btn-start">開始演練</button>
+      <button id="btn-prepare">預備（供 Admission 領位）</button>
+      <button class="danger" id="btn-reset">結束並重置</button>
+    </div>
+    <div class="note">
+      重置只清演練狀態、保留稽核軌跡。它不接受任何分數或完成度的覆寫參數 ——
+      那是刻意的：覆寫要走有稽核的管道，不能藏在重置裡。
+    </div>
+    <div class="section-label">目前狀態</div>
+    <div id="lifecycle"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">維運動作</div>
+    <div class="row">
+      <button id="btn-sync">重掃遙測 Objective</button>
+      <button id="btn-latency">計算並保存延遲摘要</button>
+    </div>
+    <div id="ops-result"></div>
+    <div class="section-label">Admission 告警</div>
+    <div id="admission-alerts"></div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-title">攻防進度（即時真實狀態，不受公開層的延遲揭露限制）</div>
+  <div id="chain"></div>
+  <div class="note">
+    技法在這裡仍是匿名標籤：Instructor 看真實 MITRE 編號走 Purple Console 與下方的
+    Raw Event 通道，這個 widget 不兼任那個通道。
+  </div>
+</div>
+
+<div class="grid c2">
+  <div class="panel">
+    <div class="panel-title">比分</div>
+    <div id="scores"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">Raw Event（未遮蔽）</div>
+    <div id="raw"></div>
+  </div>
+</div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

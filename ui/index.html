@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cyber Range 平台介面</title>
+<link rel="stylesheet" href="./assets/base.css">
+<style>
+  .card {
+    display: block; text-decoration: none; color: inherit;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 20px;
+  }
+  .card:hover { border-color: #4a5a80; }
+  .card .name { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+  .card .aud { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+  .card .desc { font-size: 13px; color: var(--text); }
+  .card .gw { color: var(--muted); font-size: 12px; margin-top: 10px; }
+</style>
+</head>
+<body>
+
+<h1>Cyber Range 平台介面</h1>
+<div class="sub">
+  六個畫面，audience 完全不同。越往下看到的細節越多；Battleboard 是唯一的公開層，
+  資訊量刻意最少。
+</div>
+
+<div class="grid c3">
+  <a class="card" href="./battleboard/">
+    <div class="name">Battleboard</div>
+    <div class="aud">全場 · 教室大螢幕</div>
+    <div class="desc">比分、計時、匿名化的攻防進度、sanitized 時間軸。不含技法編號與偵測細節。</div>
+    <div class="gw">gateway：red（clearance 0）</div>
+  </a>
+
+  <a class="card" href="./player/">
+    <div class="name">Player Portal — Red</div>
+    <div class="aud">Red</div>
+    <div class="desc">Mission、Objective、Hint（先講扣分）、Flag 提交、嵌入式終端機。</div>
+    <div class="gw">gateway：red</div>
+  </a>
+
+  <a class="card" href="./player/blue.html">
+    <div class="name">Player Portal — Blue</div>
+    <div class="aud">Blue</div>
+    <div class="desc">Mission、全場級團隊 KPI、事件處置概況、嵌入式終端機。</div>
+    <div class="gw">gateway：blue</div>
+  </a>
+
+  <a class="card" href="./blue-soc/">
+    <div class="name">Blue SOC Console</div>
+    <div class="aud">Blue</div>
+    <div class="desc">告警佇列、證據時窗、五種處置動作、反應時間計分、Grafana。</div>
+    <div class="gw">gateway：blue（technique 已遮蔽）</div>
+  </a>
+</div>
+
+<div class="grid c3" style="margin-top:16px">
+  <a class="card" href="./purple/">
+    <div class="name">Purple Console</div>
+    <div class="aud">分析師 · Instructor</div>
+    <div class="desc">ATT&CK 涵蓋率表、動作下鑽、缺口分類、Exercise Report 預覽。</div>
+    <div class="gw">gateway：purple</div>
+  </a>
+
+  <a class="card" href="./instructor/">
+    <div class="name">Instructor Console</div>
+    <div class="aud">Instructor</div>
+    <div class="desc">演練生命週期、即時真實攻防狀態、未遮蔽 raw event、維運動作。</div>
+    <div class="gw">gateway：instructor（clearance 3）</div>
+  </a>
+
+  <a class="card" href="./event-control/">
+    <div class="name">Event Control</div>
+    <div class="aud">會議中控</div>
+    <div class="desc">座位池、遠端邀請連結、座位告警與單一座位操作。</div>
+    <div class="gw">gateway：instructor → Admission</div>
+  </a>
+</div>
+
+</body>
+</html>

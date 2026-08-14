@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Purple Console</title>
+<link rel="stylesheet" href="../assets/base.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <h1>Purple Console</h1>
+    <div class="sub" id="subtitle">載入中…</div>
+  </div>
+  <div class="who">身分 <b>purple</b>　·　只讀 Evaluation API，無 raw query 權</div>
+</div>
+
+<div id="banner" class="banner"></div>
+
+<div class="tabs">
+  <div class="tab active" data-screen="coverage">畫面一・涵蓋率表</div>
+  <div class="tab" data-screen="drilldown">畫面二・動作下鑽</div>
+  <div class="tab" data-screen="report">Exercise Report</div>
+</div>
+
+<!-- 畫面一 -->
+<section id="screen-coverage">
+  <div class="panel">
+    <div class="panel-title">本場演練涉及的技法　·　⏳ 未知不進涵蓋率分母</div>
+    <table>
+      <thead>
+        <tr><th>技法（Technique）</th><th>紅隊</th><th>藍隊</th><th>動作數</th></tr>
+      </thead>
+      <tbody id="coverage-rows"></tbody>
+    </table>
+    <div id="coverage-empty"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">核心指標（四個數字同進同出）</div>
+    <div class="metrics" id="coverage-metrics"></div>
+    <div class="note">
+      分母為 0 時顯示「—」而非 0%：「沒有可算的東西」與「算出來是零」對藍隊的意思完全相反。
+    </div>
+  </div>
+</section>
+
+<!-- 畫面二 -->
+<section id="screen-drilldown" hidden>
+  <button class="link" id="back-to-coverage">← 返回涵蓋率表</button>
+  <div class="panel" id="drilldown-panel"></div>
+</section>
+
+<!-- Exercise Report -->
+<section id="screen-report" hidden>
+  <div class="panel">
+    <div class="panel-title">Exercise Report　·　收尾產出，非 Console 即時畫面</div>
+    <div id="report-body"></div>
+    <div class="note" id="report-note"></div>
+  </div>
+</section>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

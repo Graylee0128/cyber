@@ -9,6 +9,11 @@ from fastapi import FastAPI, HTTPException
 import psycopg
 from pydantic import BaseModel, ConfigDict, Field
 
+from purple.battleboard.sanitize import (
+    build_attack_label_map,
+    project_instructor_event,
+    project_public_event,
+)
 from purple.evaluation.action_registry import (
     ActionRegistryStore,
     RegisteredAction,
@@ -20,6 +25,7 @@ from purple.evaluation.evaluator import EvaluationService
 from purple.evaluation.latency import LatencyAssembler, LatencySummary, summarize_latency
 from purple.evidence.backends import BackendUnavailable
 from purple.receiver.whitelist import TechniqueRejected, default_whitelist
+from purple.registry.production import CatalogError
 from purple.store.alerts import AlertRecordStore
 from purple.store.db import connect, ensure_schema
 from purple.store.events import CoreEventStore
@@ -114,6 +120,12 @@ def create_app(
         except BackendUnavailable as exc:
             # 遙測後端故障。503 而非 200＋空資料：後者會被讀成「藍隊什麼都沒看到」。
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except CatalogError as exc:
+            # `config/scenario-sources.yaml` 目前對真 scenario 刻意留空
+            # （WS2 spec §6.2，見 ui/README.md 已知缺口 #6）—— 這不是伺服器故障，
+            # 是這個 exercise 的 scenario 還沒在來源清單登記。503 而非未攔截的
+            # 500：呼叫端至少能分辨「暫時算不出來」與「程式壞了」，且不洩漏 traceback。
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         finally:
             conn.close()
 
@@ -154,6 +166,24 @@ def create_app(
             mode_of=mode_of,
         )
 
+    @app.get("/api/techniques")
+    def list_techniques():
+        """白名單的 technique 名稱與**判讀限制**（#26 acceptance criteria）。
+
+        Console 要在每個 technique 旁常駐顯示判讀限制（例如 T1005「僅代表敏感檔
+        被開啟，未證明內容外流」），而那段文字的唯一來源是 `config/techniques.yaml`
+        —— 在這條端點出現以前它沒有任何 HTTP 出口，前端拿不到。
+
+        由後端吐而不是讓前端自己解析 YAML：白名單是欄位治理的核心（ADR ⑤），
+        它的解析規則（層級一致性檢查）住在 `parse_whitelist`，複製一份到前端等於
+        讓兩邊對不起來時沒有任何訊號。
+        """
+        whitelist = default_whitelist()
+        return [
+            {"id": t.id, "name": t.name, "tactic": t.tactic, "note": t.note}
+            for t in whitelist.techniques
+        ]
+
     @app.post("/api/exercises/{exercise_id}/actions", status_code=201)
     def register(exercise_id: str, payload: RegistryInput):
         scenario = next(
@@ -191,6 +221,65 @@ def create_app(
         都無法判斷準不準（#21 §3.2 陷阱①）。所以是 409 conflict，不是 200 空集合。
         """
         return _session(lambda conn: render_evaluation(_assembler(conn).build(exercise_id)))
+
+    @app.get("/api/exercises/{exercise_id}/battleboard")
+    def get_battleboard(exercise_id: str, revealed: bool = False):
+        """Battleboard 能吃的**唯一**事件形狀（#82）。
+
+        `purple.battleboard.sanitize` 的純函數在這條端點出現以前沒有任何 HTTP 出口
+        —— 規則寫好了卻沒有出口，等於畫面只能自己遮，而前端遮是假的
+        （devtools 打開就看到）。所以 sanitization 在這裡發生，回應裡**根本沒有**
+        rule／payload／query／secret／ban TTL／internal IP 這些欄位可以外洩。
+
+        `revealed` 是 Q4 的揭露開關，預設 `False`（公開層一律 pending）。
+        **它由部署決定，不是由呼叫端決定**：Evaluation Engine 只住 Z-MGMT、
+        不對外發佈，瀏覽器只能經 `deploy/ui/nginx.conf` 的 gateway 前綴進來，
+        而該設定為公開前綴強制寫死 `revealed=false`、只有 instructor 前綴帶
+        `revealed=true`。與服務 token 由 nginx 注入是同一個機制：身分綁在前綴上，
+        呼叫端填什麼都無效。
+        """
+
+        def _run(conn):
+            service = _assembler(conn).build(exercise_id)
+            results = list(service.evaluate())
+            labels = build_attack_label_map([result.action_id for result in results])
+            if revealed:
+                events = [
+                    project_instructor_event(
+                        result, attack_label=labels[result.action_id], team="red"
+                    )
+                    for result in results
+                ]
+                return {
+                    "revealed": True,
+                    "events": [
+                        {"attack_label": e.attack_label, "team": e.team, "state": e.state.value}
+                        for e in events
+                    ],
+                }
+            public = [
+                project_public_event(
+                    result,
+                    attack_label=labels[result.action_id],
+                    team="red",
+                    round_ended=False,
+                )
+                for result in results
+            ]
+            return {
+                "revealed": False,
+                "events": [
+                    {
+                        "attack_label": e.attack_label,
+                        "team": e.team,
+                        "state": e.state.value,
+                        "disclosure": e.disclosure.value,
+                    }
+                    for e in public
+                ],
+            }
+
+        return _session(_run)
 
     @app.post("/api/exercises/{exercise_id}/latency")
     def compute_latency(exercise_id: str):

@@ -52,6 +52,10 @@ services:
       ADMISSION_INSTRUCTOR_TOKEN: e2e-service-token
       ADMISSION_INSTRUCTOR_ACTOR: e2e-instructor
       ADMISSION_SESSION_TTL_SECONDS: "3600"
+      # 中控畫面（#76）的兩個動作：簽發一次性邀請連結、清理逾時的領位請求。
+      # 這兩個變數沒配到時端點回 503 而不是壞掉 —— 但畫面上的按鈕就是死的。
+      ADMISSION_REMOTE_LINK_TTL_SECONDS: "1800"
+      ADMISSION_REQUEST_TIMEOUT_SECONDS: "300"
       ADMISSION_RANGE_CORE_URL: http://admission-range-core:8000
       ADMISSION_RANGE_CORE_TOKEN: e2e-admission-token
     ports:
@@ -87,6 +91,10 @@ services:
       PURPLE_RESPONSE_URL: http://admission-receiver:8000
       RANGE_CORE_TOKEN_INSTRUCTOR: e2e-instructor-token
       RANGE_CORE_TOKEN_BLUE: e2e-blue-token
+      # Product UI 的另外兩個 gateway 身分（#75）。沒配到的身分沒有合法 token，
+      # 該 gateway 的每個請求都會 403 —— fail closed，不是預設放行。
+      RANGE_CORE_TOKEN_RED: e2e-red-token
+      RANGE_CORE_TOKEN_PURPLE: e2e-purple-token
     ports:
       - "8003:8000"
     networks:
@@ -351,6 +359,10 @@ services:
       PURPLE_LOKI_URL: http://loki:3100
       # #52 B2：Console 的 identity 由這個 token 換出，不接受呼叫端自填。
       PURPLE_EVIDENCE_TOKEN_BLUE: "dev-blue-token"
+      # Purple Console 與 Instructor Console 也要查證據（#26／#75）。
+      # 每個身分各自的 token：一邊外洩不會換出另一邊的 clearance。
+      PURPLE_EVIDENCE_TOKEN_PURPLE: "dev-purple-token"
+      PURPLE_EVIDENCE_TOKEN_INSTRUCTOR: "dev-instructor-token"
       # #49：`Detection #N` 標籤的排序來源。image 只帶 src/ 與 config/，
       # 規則檔因此用 volume 掛進來。掛不到 → 標籤全空 → rule 欄位對紅藍完全拿掉
       # （fail closed：少一個欄位，不會多一個答案）。
@@ -395,6 +407,85 @@ services:
     # grafana 映像是 alpine，有 curl（無 wget）。/api/health 回 200＝就緒。
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:3000/api/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # WS4-P2 的 Evaluation API（`purple.evaluation.api`）—— Action Registry、
+  # 四態判定、latency 摘要、Battleboard sanitized 投影、technique 判讀限制。
+  #
+  # **在這個 service 出現以前它沒有被部署過。** 既有的 `evaluation-engine`
+  # 名字看起來像它，實際跑的是 `purple.evidence.service`（Evidence API），
+  # 是不同的程式、不同的 port。Purple Console 與 Battleboard 要的端點因此在
+  # 部署裡完全不存在 —— 單元測試全綠也照樣沒有出口，跟 #51 少配兩個環境變數
+  # 是同一類的縫。
+  evaluation-api:
+    build:
+      context: .
+      dockerfile: deploy/admission/Dockerfile.range-core
+    command: ["uvicorn", "purple.evaluation.api:app", "--host", "0.0.0.0", "--port", "8002"]
+    profiles: ["admission-e2e"]
+    environment:
+      PURPLE_PG_DSN: postgresql://admission:admission-e2e@admission-postgres:5432/admission
+      PURPLE_LOKI_URL: http://loki:3100
+    ports:
+      - "8005:8002"
+    networks:
+      - z-mgmt
+    depends_on:
+      admission-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8002/api/techniques')\""]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # 六個產品畫面 ＋ 每身分一個的後端 gateway（WS7 #75／WS8 #76／WS4-P2 #26）。
+  #
+  # 服務 token 全部注入在**這裡**，不進瀏覽器。UI 同時上 z-app（Product UI 的
+  # 歸屬區）與 z-mgmt（要打得到 Evaluation／Evidence／Admission）。
+  ui:
+    image: nginx:1.27-alpine
+    profiles: ["admission-e2e"]
+    volumes:
+      - ./deploy/ui/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./ui:/usr/share/nginx/html:ro
+    environment:
+      UI_RANGE_CORE_UPSTREAM: admission-range-core:8000
+      UI_EVALUATION_UPSTREAM: evaluation-api:8002
+      UI_EVIDENCE_UPSTREAM: evaluation-engine:8001
+      UI_ADMISSION_UPSTREAM: admission:8000
+      UI_GRAFANA_UPSTREAM: grafana:3000
+      # 本機 demo 用的寬鬆值。**正式環境必須收斂到 Z-MGMT 網段** ——
+      # 這一條是目前唯一擋得住「拿到網址就進得去教官控台」的東西。
+      UI_PRIVILEGED_CIDR: 0.0.0.0/0
+      RANGE_CORE_TOKEN_RED: e2e-red-token
+      RANGE_CORE_TOKEN_BLUE: e2e-blue-token
+      RANGE_CORE_TOKEN_PURPLE: e2e-purple-token
+      RANGE_CORE_TOKEN_INSTRUCTOR: e2e-instructor-token
+      PURPLE_EVIDENCE_TOKEN_BLUE: dev-blue-token
+      PURPLE_EVIDENCE_TOKEN_PURPLE: dev-purple-token
+      PURPLE_EVIDENCE_TOKEN_INSTRUCTOR: dev-instructor-token
+      # 與 `admission` service 的 ADMISSION_INSTRUCTOR_TOKEN 必須相同 ——
+      # 這是 Admission 自己的 token 命名空間，跟 Range Core 的那組無關。
+      ADMISSION_INSTRUCTOR_TOKEN: e2e-service-token
+    ports:
+      - "8090:8080"
+    networks:
+      - z-app
+      - z-mgmt
+    depends_on:
+      admission-range-core:
+        condition: service_healthy
+      evaluation-api:
+        condition: service_healthy
+    healthcheck:
+      # **127.0.0.1，不是 localhost。** 這個 template 只有 `listen 8080`（IPv4），
+      # 官方映像那支自動補 IPv6 listener 的腳本只改預設 conf、不改 template。
+      # `localhost` 在容器裡先解到 ::1，於是 nginx 明明服務正常、healthcheck 卻
+      # 一路 connection refused 到逾時。
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || exit 1"]
       interval: 3s
       timeout: 3s
       retries: 20
