@@ -68,6 +68,53 @@ docker compose up -d grafana evaluation-engine loki
 `evaluation-engine` 讀的是預設 profile 那座庫，access plane 產生的 event id 在那裡查不到。
 要完整的證據鏈就得讓兩邊指向同一座庫，那屬部署決策，不在本次範圍。
 
+## 完成度對照
+
+逐項對照 SA 的畫面清單與 `.scratch/` 六份視覺提案。`△` 是有做但受限於後端資料面，
+`✗` 是後端沒有對應能力、做不了。
+
+**Battleboard**（SA §5.4 的八個 widget）
+
+| widget | 狀態 | 備註 |
+|---|---|---|
+| Match Header | ✅ | |
+| Red-Blue Score | ✅ | |
+| Round Timer | ✅ | 由 `ends_at` 每秒倒數 |
+| Attack Chain Progress | ✅ | 匿名化為 `Attack #N` |
+| Scenario-based MITRE ATT&CK | △ | 與上一項合併。**沒有依 tactic 分階段**（mock 有 Initial Access／Execution／…）—— sanitized 投影不回 tactic，而 tactic 本身就會洩漏這關考什麼 |
+| Defense Status | △ | 依 Q4 決策縮成中性計數。揭露前不顯示「已偵測 3/4」——那個分子就是還沒公開的答案 |
+| Live Timeline | ✅ | |
+| Objective Progress | ✅ | |
+
+**Player Portal**（SA §5.1 功能清單）
+
+Mission ✅／Target ✅／Difficulty ✅／Hint ✅（先講扣分）／Objective ✅／Score ✅／
+RemainingTime ✅／FlagSubmission ✅／Shell ✅（iframe 到 Z-EDGE 的 ttyd 路由）。
+Login `✗` —— 領位與登入屬 Admission 的 join 流程，不在這一頁。
+
+**Blue SOC Console**
+
+Alert ✅／Evidence ✅／Timeline ✅／Response Action ✅（五個動作的封閉列舉，判讀類送出即鎖）／
+Grafana ✅（依 spec Q2 決策，純嵌入不重做 incident 佇列）。
+Incident △ —— 後端沒有 incident 聚合模型，佇列的單位是 event 不是 incident。
+
+**Purple Console**
+
+畫面一 ✅／畫面二 △（見缺口 4）／Exercise Report ✅ 即時預覽（持久化快照屬 #28，是另一份東西）。
+
+**Instructor Console**
+
+生命週期 ✅／即時真實攻防狀態 ✅／Raw Event ✅／維運動作 ✅。
+**Override Score 與 Inject Event `✗`** —— 後端完全沒有這兩條端點（全部路由清點過，沒有
+override／inject 路徑），所以做不了。spec Q3 已定案「要留稽核、與 #55 統一管道」，
+但那是對還不存在的功能所做的決策。
+
+**Event Control**
+
+座位池上限與鎖定 ✅／一次性邀請連結簽發與撤銷 ✅／座位告警 ✅／單一座位 rebind 與 release ✅／
+逾時清理 ✅。完整座位表 △ —— Admission 只有伺服器端渲染的 HTML 版（`/admission/instructor/{id}/console`），
+沒有 JSON 端點，所以連出去而不是再刻一份會漂掉的表。
+
 ## 已知缺口
 
 這些是**真的沒做**，不是沒寫完。放在這裡是為了它們不會被畫面的完整度掩蓋掉。
