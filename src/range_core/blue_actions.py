@@ -174,3 +174,25 @@ class MappingExecutionEvidence:
 
     def has_evidence(self, event_id: str) -> bool:
         return bool(self.by_event.get(event_id))
+
+
+class DispatchOutcome(Protocol):
+    """`contain` 是否真的把封鎖命令送進 Z-MGMT 的佇列（#51／WS3 spec §5.2）。
+
+    Blue Action 先落地、再派送——落地一定成功（不然整筆動作都不存在），
+    派送才會失敗。這個 Protocol 只回答「派送成功了嗎」，不是「動作合不
+    合法」，兩者是完全不同的問題：合法但派送失敗的 `contain` 不該給
+    `Contain < 60 sec` 的分數——AC 明講「不得出現有分數沒封鎖」。
+    """
+
+    def dispatched(self, event_id: str) -> bool: ...
+
+
+@dataclass(frozen=True)
+class MappingDispatchOutcome:
+    """以對照表實作的派送結果（`event_id → 派送成功了嗎`）。"""
+
+    by_event: Mapping[str, bool]
+
+    def dispatched(self, event_id: str) -> bool:
+        return bool(self.by_event.get(event_id))

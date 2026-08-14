@@ -34,6 +34,11 @@ from range_core.blue_actions import (
 )
 from range_core.objectives import Clock, SystemClock
 
+#: `set_dispatch_status` 只接受的兩個值——跟 `exercises.py` schema 裡
+#: `exercise_blue_actions_dispatch_status_check` 那條 CHECK constraint
+#: 對齊，應用層先擋一次，資料庫是最終防線。
+DISPATCH_STATUSES = frozenset({"dispatched", "failed"})
+
 
 class UnknownEvent(BlueActionRejected):
     """`event_id` has no detection Core Event on record for this exercise.
@@ -97,6 +102,25 @@ class BlueActionStore:
             ) from exc
 
         return parsed
+
+    def set_dispatch_status(
+        self, exercise_id: str, event_id: str, submitted_at: datetime, status: str
+    ) -> None:
+        """記下這一筆 `contain` 有沒有真的派送成功（#51／WS3 spec §5.2）。
+
+        用 `(exercise_id, event_id, submitted_at)` 定位那一筆——`contain`
+        允許重複送（WS3 spec §4.2 只鎖判讀類動作），所以不能只用
+        `(exercise_id, event_id)`，那會分不清是哪一次的派送結果。
+        `submitted_at` 由 `record()` 當下用同一個 clock 產生，呼叫端把
+        `record()` 回傳的那個值原封不動傳回來即可，不是自己重算一次。
+        """
+        if status not in DISPATCH_STATUSES:
+            raise ValueError(f"unknown dispatch status: {status!r}; must be one of {DISPATCH_STATUSES}")
+        self.conn.execute(
+            "UPDATE exercise_blue_actions SET dispatch_status = %s "
+            "WHERE exercise_id = %s AND event_id = %s AND submitted_at = %s AND action = 'contain'",
+            (status, exercise_id, event_id, submitted_at),
+        )
 
     def _event_exists(self, exercise_id: str, event_id: str) -> bool:
         row = self.conn.execute(
@@ -209,3 +233,27 @@ class StoredExecutionEvidence:
                 (self.exercise_id, event_id),
             ).fetchone()[0]
         )
+
+
+@dataclass(frozen=True)
+class StoredDispatchOutcome:
+    """`contain` 有沒有真的派送成功（#51／WS3 spec §5.2），從
+    `exercise_blue_actions.dispatch_status` 讀。
+
+    只看**第一筆** `contain`（`ORDER BY submitted_at, id LIMIT 1`）——跟
+    `BlueActionLog.first()`／`blue_scoring.score_event` 用同一個事件的
+    `contain_seconds` 一樣只認第一次，兩邊的「第一筆」定義必須一致，
+    不然分數看的是第一次的時間、派送狀態卻看到別次的，兜不起來。
+    """
+
+    conn: psycopg.Connection
+    exercise_id: str
+
+    def dispatched(self, event_id: str) -> bool:
+        row = self.conn.execute(
+            "SELECT dispatch_status FROM exercise_blue_actions "
+            "WHERE exercise_id = %s AND event_id = %s AND action = 'contain' "
+            "ORDER BY submitted_at, id LIMIT 1",
+            (self.exercise_id, event_id),
+        ).fetchone()
+        return row is not None and row[0] == "dispatched"

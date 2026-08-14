@@ -7,6 +7,7 @@ import pytest
 
 from range_core.blue_actions import (
     BlueActionLog,
+    MappingDispatchOutcome,
     MappingExecutionEvidence,
     MappingTechniqueTruth,
     build_action,
@@ -94,6 +95,43 @@ class TestTwoSegmentsShareOneStart:
         score = _score(BlueActionLog())
         assert score.detect_seconds is None and score.contain_seconds is None
         assert score.reaction_time_available is False
+
+
+class TestContainRequiresSuccessfulDispatch:
+    """#51／WS3 spec §5.2：不得出現「有分數沒封鎖」——`dispatch=None`（預設）
+    是 #49 原本沒有派送概念時的行為，不受影響；真的傳 `dispatch` 才會被 gate。
+    """
+
+    def test_no_dispatch_argument_keeps_the_old_behavior(self):
+        """向下相容：不傳 dispatch，contain 一樣照時間門檻計分——#49 的既有
+        呼叫端與測試不必為了這個新概念改寫。"""
+        score = score_event("evt-1", T0, _log(("contain", 30, None)), CONFIG, TRUTH, NO_EVIDENCE)
+        assert score.awarded == CONFIG.points["contain"]
+
+    def test_dispatched_within_threshold_scores(self):
+        dispatch = MappingDispatchOutcome({"evt-1": True})
+        score = score_event(
+            "evt-1", T0, _log(("contain", 30, None)), CONFIG, TRUTH, NO_EVIDENCE, dispatch=dispatch
+        )
+        assert score.awarded == CONFIG.points["contain"]
+
+    def test_failed_dispatch_within_threshold_scores_nothing(self):
+        """時間對、但沒真的派送成功——不給分。這是 AC 明講的那條線。"""
+        dispatch = MappingDispatchOutcome({"evt-1": False})
+        score = score_event(
+            "evt-1", T0, _log(("contain", 30, None)), CONFIG, TRUTH, NO_EVIDENCE, dispatch=dispatch
+        )
+        assert score.awarded == 0
+        assert score.contain_seconds == 30  # 時間仍然算得出來，只是不給分
+
+    def test_failed_dispatch_does_not_affect_other_objectives(self):
+        """contain 沒分不該連坐扣掉 detect_attack——兩個 objective 各自獨立。"""
+        dispatch = MappingDispatchOutcome({"evt-1": False})
+        score = score_event(
+            "evt-1", T0, _log(("acknowledge", 5, None), ("contain", 30, None)),
+            CONFIG, TRUTH, NO_EVIDENCE, dispatch=dispatch,
+        )
+        assert score.awarded == CONFIG.points["detect_attack"]
 
 
 class TestJudgementScoring:

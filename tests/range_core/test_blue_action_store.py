@@ -21,6 +21,7 @@ from purple.store.executions import ActionExecutionStore
 from range_core.blue_action_store import (
     AlreadyJudged,
     BlueActionStore,
+    StoredDispatchOutcome,
     StoredExecutionEvidence,
     UnknownEvent,
 )
@@ -263,3 +264,70 @@ class TestStoredExecutionEvidence:
         evidence = StoredExecutionEvidence(pg_connection, exercise_id)
 
         assert evidence.has_evidence("evt-real-attack") is True
+
+
+class TestDispatchStatus:
+    """#51／WS3 spec §5.2：contain 落地後的派送結果回填。"""
+
+    def test_freshly_recorded_contain_has_no_dispatch_outcome_yet(
+        self, store, pg_connection, running_exercise
+    ):
+        """落地跟派送是兩個先後步驟——落地那一刻還不知道派送結果，
+        `dispatched()` 在真的寫入之前該是保守的 False，不是提前樂觀。"""
+        CoreEventStore(pg_connection).append(_core_event(running_exercise.exercise_id, "evt-1"))
+        store.record(running_exercise.exercise_id, "contain", "evt-1")
+
+        outcome = StoredDispatchOutcome(pg_connection, running_exercise.exercise_id)
+        assert outcome.dispatched("evt-1") is False
+
+    def test_set_dispatched_makes_it_visible(self, store, pg_connection, running_exercise):
+        CoreEventStore(pg_connection).append(_core_event(running_exercise.exercise_id, "evt-1"))
+        recorded = store.record(running_exercise.exercise_id, "contain", "evt-1")
+
+        store.set_dispatch_status(
+            running_exercise.exercise_id, "evt-1", recorded.submitted_at, "dispatched"
+        )
+
+        outcome = StoredDispatchOutcome(pg_connection, running_exercise.exercise_id)
+        assert outcome.dispatched("evt-1") is True
+
+    def test_set_failed_stays_visible_as_not_dispatched(
+        self, store, pg_connection, running_exercise
+    ):
+        CoreEventStore(pg_connection).append(_core_event(running_exercise.exercise_id, "evt-1"))
+        recorded = store.record(running_exercise.exercise_id, "contain", "evt-1")
+
+        store.set_dispatch_status(
+            running_exercise.exercise_id, "evt-1", recorded.submitted_at, "failed"
+        )
+
+        outcome = StoredDispatchOutcome(pg_connection, running_exercise.exercise_id)
+        assert outcome.dispatched("evt-1") is False
+
+    def test_unknown_status_value_is_rejected(self, store, pg_connection, running_exercise):
+        CoreEventStore(pg_connection).append(_core_event(running_exercise.exercise_id, "evt-1"))
+        recorded = store.record(running_exercise.exercise_id, "contain", "evt-1")
+
+        with pytest.raises(ValueError):
+            store.set_dispatch_status(
+                running_exercise.exercise_id, "evt-1", recorded.submitted_at, "maybe"
+            )
+
+    def test_only_the_first_contain_attempt_is_what_scoring_reads(
+        self, store, pg_connection, running_exercise
+    ):
+        """contain 可以重複送（WS3 spec §4.2 只鎖判讀類動作）；派送狀態要看
+        的是第一筆——跟 `blue_scoring` 用 `contain_seconds` 只認第一次一致，
+        兩邊的「第一筆」定義必須是同一個，分數才對得起來。"""
+        CoreEventStore(pg_connection).append(_core_event(running_exercise.exercise_id, "evt-1"))
+        first = store.record(running_exercise.exercise_id, "contain", "evt-1")
+        store.set_dispatch_status(
+            running_exercise.exercise_id, "evt-1", first.submitted_at, "dispatched"
+        )
+
+        outcome = StoredDispatchOutcome(pg_connection, running_exercise.exercise_id)
+        assert outcome.dispatched("evt-1") is True
+
+    def test_no_contain_at_all_is_not_dispatched(self, pg_connection, running_exercise):
+        outcome = StoredDispatchOutcome(pg_connection, running_exercise.exercise_id)
+        assert outcome.dispatched("evt-never-happened") is False
