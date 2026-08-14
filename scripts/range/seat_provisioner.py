@@ -20,9 +20,11 @@ response 走 agent pull）同一條邏輯：**只有已經有 host 權限的一�
 引用的外部參考架構那種「每 seat 一條獨立 172.31.<X>.0/24 網路」字面做法——
 理由見 `build_blue_seat_container` 的 docstring。host 層單一 Falco見
 docker-compose.yml／deploy/falco/rules.d/purplescope.yaml；`RED→BLUE`
-DMZ-only 防火牆規則見 `_allow_red_to_blue_dmz`。**紅隊 seat-to-seat 隔離
-的動態驗證仍是後續階段**（機制跟已驗證過的靜態骨架同款 protected port，
-但沒有針對真容器另外實測過）。
+DMZ-only 防火牆規則見 `_allow_red_to_blue_dmz`。紅隊 seat-to-seat 隔離已在
+10.167.223.45 用兩個真的動態紅隊座位互打驗證過：雙向皆 `No route to host`
+（OVS 兩個 protected port 之間互不通，機制跟已驗證過的靜態骨架同款），
+gateway 仍正常可達——**#62 的四個延伸項目（host Falco、RED→BLUE DMZ、
+紅藍座位隔離）全部交付並在真環境驗證過**。
 
 **失敗路徑刻意不在這裡處理**：容器建立失敗就什麼都不做，seat 留在 `requested`。
 admission 既有的 `expire_requested()`（`sweeper.py`，§4.4 逾時三段式）會在 T 秒後
