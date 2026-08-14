@@ -78,6 +78,15 @@ services:
     environment:
       RANGE_CORE_PG_DSN: postgresql://admission:admission-e2e@admission-postgres:5432/admission
       RANGE_CORE_TOKEN_ADMISSION: e2e-admission-token
+      # #51：封鎖路徑的兩端。Range Core（Z-APP 住戶）打 Z-MGMT 的
+      # `/response/enqueue`——這對變數沒配到，`HttpResponseDispatcher` 會走
+      # 「沒有 base_url／token」那條分支、每次 contain 都 dispatch_status=failed
+      # 且不計分。上線前少配這兩個變數是靜默失效，所以 e2e 必須真的配上去，
+      # 而不是只在單元測試裡對假伺服器驗過。
+      RANGE_CORE_RESPONSE_TOKEN: e2e-response-token
+      PURPLE_RESPONSE_URL: http://admission-receiver:8000
+      RANGE_CORE_TOKEN_INSTRUCTOR: e2e-instructor-token
+      RANGE_CORE_TOKEN_BLUE: e2e-blue-token
     ports:
       - "8003:8000"
     networks:
@@ -86,8 +95,36 @@ services:
     depends_on:
       admission-postgres:
         condition: service_healthy
+      admission-receiver:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import socket;s=socket.create_connection(('localhost',8000),2);s.close()\""]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  # #51：封鎖路徑的 Z-MGMT 端。跟預設 profile 的 `receiver` 是同一個映像與
+  # 同一支程式，只是接 admission 那座 PostgreSQL——access-plane profile 自帶
+  # 一套資料庫，兩個 profile 不共用狀態。這個容器存在的唯一理由是讓
+  # Range Core → Z-MGMT 那一跳走真的網路，而不是測試行程內的假伺服器。
+  admission-receiver:
+    build:
+      context: .
+      dockerfile: deploy/receiver/Dockerfile
+    profiles: ["admission-e2e"]
+    environment:
+      PURPLE_PG_DSN: postgresql://admission:admission-e2e@admission-postgres:5432/admission
+      PURPLE_RECEIVER_PORT: "8000"
+      RANGE_CORE_RESPONSE_TOKEN: e2e-response-token
+    ports:
+      - "8004:8000"
+    networks:
+      - z-mgmt
+    depends_on:
+      admission-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/healthz')\""]
       interval: 2s
       timeout: 3s
       retries: 20
