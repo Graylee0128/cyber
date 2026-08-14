@@ -111,13 +111,15 @@ def _clear_exercises() -> None:
     `test_admission_access.py` 走的正是 prepare 路徑，且檔名排序在本檔之前
     ——所以只靠 reset 會依測試順序而時綠時紅。
 
-    這是測試載具的清場，不是 production 行為：`exercise_players` 等衍生資料表
-    都是 `ON DELETE CASCADE`。
+    用 `TRUNCATE ... CASCADE` 而不是 `DELETE`：`admission_players` 指向
+    `exercise_preparations` 的外鍵**沒有** `ON DELETE CASCADE`，admission 測試
+    領過號之後直接 DELETE 會撞 FK。CASCADE 讓相依的座位／玩家資料一起清掉，
+    這是測試載具的清場，不是 production 行為——production 的 reset 刻意只清
+    演練狀態、保留稽核軌跡（`reset_current()` 的 docstring）。
     """
     _request(RANGE_URL, "/api/exercises/reset", "POST", INSTRUCTOR_TOKEN, {})
     with psycopg.connect(PG_DSN, autocommit=True) as conn:
-        conn.execute("DELETE FROM exercise_preparations")
-        conn.execute("DELETE FROM exercises WHERE state IN ('running', 'prepared')")
+        conn.execute("TRUNCATE exercises, exercise_preparations CASCADE")
 
 
 @pytest.fixture
