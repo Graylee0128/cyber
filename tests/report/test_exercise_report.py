@@ -1,5 +1,7 @@
 """#28 Exercise Report 契約 —— 三個不可省欄位、缺口分類、快照穩定、無 Detection Rate。"""
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from purple.metrics.gaps import MissClass
@@ -12,6 +14,7 @@ from purple.report.exercise_report import (
     UnknownSummary,
     build_exercise_report,
 )
+from purple.retention.window import RetentionWindow
 
 METRICS = {
     "action_coverage": 0.82,
@@ -19,6 +22,10 @@ METRICS = {
     "alert_volume": 4120,
     "excluded_counts": {"unknown": 2, "not_executed": 1},
 }
+
+EXERCISE_START = datetime(2026, 8, 13, 9, 10, tzinfo=timezone.utc)
+EXERCISE_END = datetime(2026, 8, 13, 14, 30, tzinfo=timezone.utc)
+RETENTION = RetentionWindow(exercise_start=EXERCISE_START, exercise_end=EXERCISE_END)
 
 
 def _report(**over):
@@ -33,7 +40,8 @@ def _report(**over):
         unknown_reasons=("Falco 於 14:52–14:58 掉線",),
         mttd_ms=12400,
         mttr_ms=14200,
-        raw_coverage_windows=("09:00–15:00 有 raw",),
+        retention_window=RETENTION,
+        event_timestamps=(EXERCISE_START + timedelta(minutes=5),),
         recommendations=("補 T1059 規則",),
     )
     kw.update(over)
@@ -106,7 +114,7 @@ def test_mutating_source_metrics_does_not_change_the_report():
         red=RedSummary(67, 4, 7),
         coverage_gaps=(CoverageGap("T1059", MissClass.DETECTION_GAP),),
         unknown_reasons=("x",), mttd_ms=1, mttr_ms=1,
-        raw_coverage_windows=("w",),
+        retention_window=RETENTION,
     )
     live["alert_volume"] = 0
     live["excluded_counts"]["unknown"] = 999
@@ -136,5 +144,23 @@ def test_detection_rate_key_is_actively_rejected():
 
 
 def test_raw_coverage_window_is_marked_not_silently_blank():
-    d = _report(raw_coverage_windows=("09:00–15:00 有 raw",)).as_dict()
-    assert d["raw_coverage_windows"] == ["09:00–15:00 有 raw"]
+    d = _report().as_dict()
+    assert d["raw_coverage_windows"] == ["09:15 有 raw"]
+
+
+def test_raw_coverage_window_is_computed_not_caller_supplied():
+    """票 #98 項目 3：過期判定由 retention_window 算，不是呼叫端手填字串。"""
+    within = EXERCISE_START + timedelta(minutes=5)
+    expired = EXERCISE_START - timedelta(hours=2)  # 遠早於保留窗開窗時間
+
+    d = _report(event_timestamps=(within, expired)).as_dict()
+
+    assert d["raw_coverage_windows"] == [
+        f"{expired:%H:%M} raw 已過期",
+        f"{within:%H:%M} 有 raw",
+    ]
+
+
+def test_no_referenced_events_yields_no_windows():
+    d = _report(event_timestamps=()).as_dict()
+    assert d["raw_coverage_windows"] == []

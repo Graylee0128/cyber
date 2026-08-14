@@ -17,9 +17,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import datetime
 
 from purple.metrics.gaps import MissClass
+from purple.retention.window import RetentionWindow, raw_coverage_windows_for
 
 #: 只有這兩種才是「缺口」。hit 不是缺口，unknown／out_of_scope 不進缺口清單。
 _REAL_GAPS = (MissClass.DETECTION_GAP, MissClass.VISIBILITY_GAP)
@@ -133,13 +136,19 @@ def build_exercise_report(
     unknown_reasons: tuple[str, ...],
     mttd_ms: int | None,
     mttr_ms: int | None,
-    raw_coverage_windows: tuple[str, ...],
+    retention_window: RetentionWindow,
+    event_timestamps: Iterable[datetime] = (),
     recommendations: tuple[str, ...] = (),
 ) -> ExerciseReport:
     """從 Evaluation API 的 `metrics` 快照組出報告 —— 數字複製進來，不重算。
 
     `metrics` 必須帶 `alert_volume` 與 `excluded_counts.unknown`；缺了就是上游 API 形狀
     不對，寧可 fail loud 也不要生一份缺欄位的報告。
+
+    `raw_coverage_windows`（票 #98 項目 3）不再由呼叫端手填字串 —— 傳
+    `retention_window` 與報告引用到的 `event_timestamps`，過期判定由
+    `raw_coverage_windows_for` 自動算出，不必倚賴呼叫端手填、也不會靜默
+    留空。
     """
     if "alert_volume" not in metrics:
         raise ReportContractError("metrics 缺 alert_volume —— 告警總量必須與 coverage 並列")
@@ -158,6 +167,6 @@ def build_exercise_report(
         blue=blue,
         coverage_gaps=tuple(coverage_gaps),
         unknown=UnknownSummary(count=unknown_count, reasons=tuple(unknown_reasons)),
-        raw_coverage_windows=tuple(raw_coverage_windows),
+        raw_coverage_windows=raw_coverage_windows_for(retention_window, event_timestamps),
         recommendations=tuple(recommendations),
     )

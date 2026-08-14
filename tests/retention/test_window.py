@@ -6,6 +6,7 @@ from purple.retention.window import (
     POST_WINDOW_MINUTES,
     PRE_WINDOW_MINUTES,
     RetentionWindow,
+    raw_coverage_windows_for,
 )
 
 import pytest
@@ -59,3 +60,54 @@ class TestTimezoneAndOrder:
     def test_end_before_start_is_rejected(self):
         with pytest.raises(ValueError, match="早於"):
             RetentionWindow(END, START)
+
+
+class TestRawCoverageWindowsFor:
+    """票 #98 項目 3：報告引用的事件時間 → 人類可讀的過期判定字串。"""
+
+    def test_no_events_yields_no_windows(self):
+        assert raw_coverage_windows_for(WIN, ()) == ()
+
+    def test_single_event_within_retention(self):
+        ts = datetime(2026, 8, 8, 14, 30, tzinfo=timezone.utc)
+        assert raw_coverage_windows_for(WIN, (ts,)) == ("14:30 有 raw",)
+
+    def test_single_event_outside_retention(self):
+        ts = START - timedelta(hours=3)
+        assert raw_coverage_windows_for(WIN, (ts,)) == (f"{ts:%H:%M} raw 已過期",)
+
+    def test_consecutive_same_status_events_merge_into_one_range(self):
+        events = (
+            datetime(2026, 8, 8, 14, 10, tzinfo=timezone.utc),
+            datetime(2026, 8, 8, 14, 20, tzinfo=timezone.utc),
+            datetime(2026, 8, 8, 14, 40, tzinfo=timezone.utc),
+        )
+        assert raw_coverage_windows_for(WIN, events) == ("14:10–14:40 有 raw",)
+
+    def test_status_change_splits_into_separate_windows(self):
+        expired = START - timedelta(hours=2)
+        within = datetime(2026, 8, 8, 14, 30, tzinfo=timezone.utc)
+        assert raw_coverage_windows_for(WIN, (expired, within)) == (
+            f"{expired:%H:%M} raw 已過期",
+            "14:30 有 raw",
+        )
+
+    def test_input_order_does_not_matter_output_is_chronological(self):
+        expired = START - timedelta(hours=2)
+        within = datetime(2026, 8, 8, 14, 30, tzinfo=timezone.utc)
+        assert raw_coverage_windows_for(WIN, (within, expired)) == (
+            f"{expired:%H:%M} raw 已過期",
+            "14:30 有 raw",
+        )
+
+    def test_alternating_status_produces_alternating_windows(self):
+        """有／過期／有：不能被首尾合併蓋掉中間那段。"""
+        before = START - timedelta(hours=2)
+        during = datetime(2026, 8, 8, 14, 30, tzinfo=timezone.utc)
+        after = END + timedelta(hours=2)
+        result = raw_coverage_windows_for(WIN, (before, during, after))
+        assert result == (
+            f"{before:%H:%M} raw 已過期",
+            "14:30 有 raw",
+            f"{after:%H:%M} raw 已過期",
+        )
