@@ -91,6 +91,11 @@ def _run(config, **kw):
     return run(config, **kw)
 
 
+# run() 一律會算 RED/BLUE 的 CIDR 給 ensure_isolation（就算那個 callable 本身
+# 是 no-op），所以每個測試的 load_zones 假值都要帶這幾把 key，不能空字典。
+_ZONES = {"RANGE_NET_PREFIX": "10.167", "Z_RED_VLAN": "30", "Z_BLUE_VLAN": "60"}
+
+
 def test_config_requires_url_and_token(monkeypatch):
     monkeypatch.delenv("ADMISSION_URL", raising=False)
     monkeypatch.delenv("ADMISSION_PROVISIONER_TOKEN", raising=False)
@@ -109,7 +114,7 @@ def test_config_reads_env(monkeypatch):
 
 
 def test_pending_red_seat_gets_built_and_marked_ready(monkeypatch):
-    monkeypatch.setattr("scripts.range.seat_provisioner.load_zones", lambda: {})
+    monkeypatch.setattr("scripts.range.seat_provisioner.load_zones", lambda: _ZONES)
     monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client: 0)
     admission = FakeAdmission(pending_seats=[{"seat_id": "s1", "exercise_id": "EX", "team": "red", "kind": "shell"}])
     built = {"endpoints": [{"terminal": "main", "host": "10.167.30.11", "port": 7681}]}
@@ -120,7 +125,7 @@ def test_pending_red_seat_gets_built_and_marked_ready(monkeypatch):
 
 
 def test_pending_blue_seat_gets_both_terminals_built_and_marked_ready(monkeypatch):
-    monkeypatch.setattr("scripts.range.seat_provisioner.load_zones", lambda: {})
+    monkeypatch.setattr("scripts.range.seat_provisioner.load_zones", lambda: _ZONES)
     monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client: 0)
     admission = FakeAdmission(pending_seats=[{"seat_id": "b1", "exercise_id": "EX", "team": "blue", "kind": "shell"}])
     built = {"endpoints": [
@@ -135,7 +140,7 @@ def test_pending_blue_seat_gets_both_terminals_built_and_marked_ready(monkeypatc
 
 def test_builder_failure_is_skipped_not_fatal(monkeypatch):
     """見檔頭：建置失敗留給 admission 既有的逾時重試處理，provisioner 只要不當掉。"""
-    monkeypatch.setattr("scripts.range.seat_provisioner.load_zones", lambda: {})
+    monkeypatch.setattr("scripts.range.seat_provisioner.load_zones", lambda: _ZONES)
     monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client: 0)
     admission = FakeAdmission(pending_seats=[{"seat_id": "s1", "exercise_id": "EX", "team": "red", "kind": "shell"}])
 
@@ -148,7 +153,7 @@ def test_builder_failure_is_skipped_not_fatal(monkeypatch):
 
 
 def test_poll_failure_does_not_crash_the_loop(monkeypatch):
-    monkeypatch.setattr("scripts.range.seat_provisioner.load_zones", lambda: {})
+    monkeypatch.setattr("scripts.range.seat_provisioner.load_zones", lambda: _ZONES)
     monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client: 0)
 
     class BrokenAdmission(FakeAdmission):
@@ -160,7 +165,7 @@ def test_poll_failure_does_not_crash_the_loop(monkeypatch):
 
 
 def test_once_mode_does_not_sleep(monkeypatch):
-    monkeypatch.setattr("scripts.range.seat_provisioner.load_zones", lambda: {})
+    monkeypatch.setattr("scripts.range.seat_provisioner.load_zones", lambda: _ZONES)
     monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client: 0)
     calls = []
 
@@ -202,9 +207,9 @@ def test_sweep_orphans_only_removes_containers_not_in_active_set(monkeypatch):
 
     def fake_run(args, **kw):
         calls.append(args)
-        if args[:2] == ["docker", "ps"] and "seat-red-" in args:
+        if args[:2] == ["docker", "ps"] and any("seat-red-" in a for a in args):
             return _FakeCompleted("seat-red-still-active\nseat-red-long-gone\n")
-        if args[:2] == ["docker", "ps"] and "seat-blue-" in args:
+        if args[:2] == ["docker", "ps"] and any("seat-blue-" in a for a in args):
             return _FakeCompleted("")
         return _FakeCompleted("")
 
@@ -225,9 +230,9 @@ def test_sweep_orphans_handles_blue_pairs_independently_of_red(monkeypatch):
 
     def fake_run(args, **kw):
         calls.append(args)
-        if args[:2] == ["docker", "ps"] and "seat-red-" in args:
+        if args[:2] == ["docker", "ps"] and any("seat-red-" in a for a in args):
             return _FakeCompleted("")
-        if args[:2] == ["docker", "ps"] and "seat-blue-" in args:
+        if args[:2] == ["docker", "ps"] and any("seat-blue-" in a for a in args):
             return _FakeCompleted("seat-blue-a-gone1\nseat-blue-b-gone1\nseat-blue-a-live1\nseat-blue-b-live1\n")
         return _FakeCompleted("")
 
