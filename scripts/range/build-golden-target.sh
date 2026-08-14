@@ -51,6 +51,20 @@ qemu-img create -f qcow2 -F qcow2 -b "$BASE" "$BUILD" 10G >/dev/null
 
 echo "▶ 產生 cloud-init（base64 注入 repo 真檔案，免縮排/跳脫地雷）"
 b64() { base64 -w0 "$1"; }
+
+# disclosure 套件**整包**掃進去，不逐檔列舉：#49 加了 projection.py／detection_rules.py
+# 卻沒更新這份清單，golden 少了 projection.py → `disclosure/__init__.py` import 失敗 →
+# response-agent 開機 ModuleNotFoundError → systemd Restart=always 卡在 activating →
+# bake 自證永遠上不了 active（2026-08-14 #90 重烤時抓到）。掃整個 src/disclosure/*.py，
+# 這個套件之後再加模組也不會再漏。
+DISCLOSURE_ENTRIES=""
+for _df in "$REPO"/src/disclosure/*.py; do
+  DISCLOSURE_ENTRIES="${DISCLOSURE_ENTRIES}  - path: /opt/purplescope/disclosure/$(basename "$_df")
+    encoding: b64
+    content: $(b64 "$_df")
+"
+done
+
 UD="$(mktemp)"
 cat > "$UD" <<YAML
 #cloud-config
@@ -113,24 +127,8 @@ write_files:
     encoding: b64
     content: $(b64 "$REPO/src/purple/harness/waiting.py")
   # disclosure：purple/harness/schema.py 現在 import 這個套件（WS7 #52 抽出的揭露契約）。
-  # 漏複製的話 `python3 -m purple.response.service` 開機就 ModuleNotFoundError，
-  # systemd Restart=always 每 5s 重試一次，golden 自證看到的是 unit 卡在
-  # activating(auto-restart) 永遠上不了 active（2026-08-13 實測抓到）。
-  - path: /opt/purplescope/disclosure/__init__.py
-    encoding: b64
-    content: $(b64 "$REPO/src/disclosure/__init__.py")
-  - path: /opt/purplescope/disclosure/clearance.py
-    encoding: b64
-    content: $(b64 "$REPO/src/disclosure/clearance.py")
-  - path: /opt/purplescope/disclosure/event_visibility.py
-    encoding: b64
-    content: $(b64 "$REPO/src/disclosure/event_visibility.py")
-  - path: /opt/purplescope/disclosure/fields.py
-    encoding: b64
-    content: $(b64 "$REPO/src/disclosure/fields.py")
-  - path: /opt/purplescope/disclosure/identity.py
-    encoding: b64
-    content: $(b64 "$REPO/src/disclosure/identity.py")
+  # 整包由上面的 DISCLOSURE_ENTRIES 迴圈掃入（漏一個檔 golden 開機就 ModuleNotFoundError）。
+${DISCLOSURE_ENTRIES}
   - path: /opt/purplescope/response.env
     permissions: '0600'
     content: |
