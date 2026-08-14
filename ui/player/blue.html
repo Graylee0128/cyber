@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Player Portal — Blue</title>
+<link rel="stylesheet" href="../assets/base.css">
+<style>
+  .mission-name { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+  .score-val { font-size: 34px; font-weight: 800; color: var(--blue); }
+  .terminal-frame {
+    width: 100%; height: 420px; border: 1px solid var(--border);
+    border-radius: 6px; background: #05070d;
+  }
+  .timer { font-size: 15px; font-weight: 700; color: var(--amber); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <h1>🔵 Player Portal — Blue</h1>
+    <div class="sub" id="subtitle">載入中…</div>
+  </div>
+  <div class="timer" id="timer">—</div>
+</div>
+
+<div class="tabs">
+  <a class="tab red" href="./index.html" style="text-decoration:none">← 🔴 Red</a>
+  <div class="tab blue active">🔵 Blue</div>
+</div>
+
+<div id="banner" class="banner"></div>
+
+<div class="grid sidebar">
+  <div>
+    <div class="panel">
+      <div class="panel-title">Mission</div>
+      <div class="mission-name" id="mission-name">—</div>
+      <div class="sub" id="mission-meta"></div>
+      <div class="note">
+        藍隊側不做個人化：KPI 本來就是全場級指標，所以這一頁沒有個人 Objective／Hint／Flag。
+        這不是還沒做完，是設計上的結構性差異。
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">團隊 KPI（全場級）</div>
+      <div id="kpi"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">事件處置概況</div>
+      <table>
+        <thead>
+          <tr><th>事件</th><th>偵測（秒）</th><th>封鎖（秒）</th><th>已處置</th><th>得分</th></tr>
+        </thead>
+        <tbody id="event-rows"></tbody>
+      </table>
+      <div id="event-empty"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Shell</div>
+      <div id="terminal-host"></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <div class="panel-title">團隊分數</div>
+      <div class="score-val" id="score">—</div>
+      <div class="note">分數屬於整個藍隊，不歸屬到個人（WS3 spec §5.1：「誰」永遠是隊伍）。</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">作戰畫面</div>
+      <div class="sub">這一頁是任務 HUD。藍隊真正的操作介面是 Blue SOC Console。</div>
+      <a href="../blue-soc/" style="text-decoration:none">
+        <button class="primary">前往 Blue SOC Console →</button>
+      </a>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./blue.js"></script>
+</body>
+</html>

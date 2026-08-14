@@ -73,7 +73,14 @@ jobs:
 
       - name: Dump access-plane logs on failure
         if: failure()
-        run: docker compose --profile admission-e2e logs --no-color --tail 200
+        run: |
+          docker compose --profile admission-e2e logs --no-color --tail 200
+          # healthcheck 失敗時，錯誤訊息只留在 docker 的 health log 裡 ——
+          # 容器 stdout 什麼都不會有，光看服務日誌會以為一切正常。
+          for name in $(docker compose --profile admission-e2e ps -q); do
+            echo "=== health: $(docker inspect -f '{{.Name}}' "$name") ==="
+            docker inspect -f '{{json .State.Health}}' "$name" || true
+          done
 
       - name: Tear down access plane and volumes
         if: always()

@@ -64,6 +64,7 @@ def test_static_screens_are_served():
         "/index.html",
         "/battleboard/index.html",
         "/player/index.html",
+        "/player/blue.html",
         "/blue-soc/index.html",
         "/purple/index.html",
         "/instructor/index.html",

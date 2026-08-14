@@ -481,7 +481,11 @@ services:
       evaluation-api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      # **127.0.0.1，不是 localhost。** 這個 template 只有 `listen 8080`（IPv4），
+      # 官方映像那支自動補 IPv6 listener 的腳本只改預設 conf、不改 template。
+      # `localhost` 在容器裡先解到 ::1，於是 nginx 明明服務正常、healthcheck 卻
+      # 一路 connection refused 到逾時。
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || exit 1"]
       interval: 3s
       timeout: 3s
       retries: 20

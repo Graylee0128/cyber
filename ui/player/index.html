@@ -29,21 +29,23 @@
 
 <div class="topbar">
   <div>
-    <h1>Player Portal</h1>
+    <h1>🔴 Player Portal — Red</h1>
     <div class="sub" id="subtitle">載入中…</div>
   </div>
   <div class="timer" id="timer">—</div>
 </div>
 
+<!-- 紅藍是**兩個頁面**，不是同一頁的兩個分頁。一頁同時扮兩個身分就得同時持有
+     兩個 gateway，而 red 的 clearance 是 0、blue 是 1 —— 紅隊玩家點一下分頁
+     就拿到藍隊的可見範圍。身分綁在入口上，切換身分＝換頁。 -->
 <div class="tabs">
-  <div class="tab red active" data-role="red">🔴 Red</div>
-  <div class="tab blue" data-role="blue">🔵 Blue</div>
+  <div class="tab red active">🔴 Red</div>
+  <a class="tab blue" href="./blue.html" style="text-decoration:none">🔵 Blue →</a>
 </div>
 
 <div id="banner" class="banner"></div>
 
-<!-- ---------- Red ---------- -->
-<section id="view-red">
+<section>
   <div class="grid sidebar">
     <div>
       <div class="panel">
@@ -82,28 +84,6 @@
         <div class="note" id="flag-result"></div>
       </div>
     </div>
-  </div>
-</section>
-
-<!-- ---------- Blue ---------- -->
-<section id="view-blue" hidden>
-  <div class="panel">
-    <div class="panel-title">Mission</div>
-    <div class="mission-name" id="blue-mission">—</div>
-    <div class="sub">
-      藍隊不做個人化計分：P2 的 KPI 本來就是全場級指標，這頁沒有個人 Objective／Hint／Flag。
-    </div>
-  </div>
-
-  <div class="panel">
-    <div class="panel-title">團隊 KPI（全場級）</div>
-    <div id="blue-kpi"></div>
-  </div>
-
-  <div class="panel">
-    <div class="panel-title">作戰畫面</div>
-    <div class="sub">藍隊真正的操作介面是 Blue SOC Console，不是這一頁。</div>
-    <a href="../blue-soc/"><button class="primary">前往 Blue SOC Console →</button></a>
   </div>
 </section>
 

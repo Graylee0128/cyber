@@ -5,7 +5,8 @@
 | 畫面 | 目錄 | Audience | gateway 身分 |
 |---|---|---|---|
 | Battleboard | `battleboard/` | 全場、教室大螢幕 | `red`（clearance 0） |
-| Player Portal | `player/` | Red、Blue | `red` |
+| Player Portal — Red | `player/index.html` | Red | `red` |
+| Player Portal — Blue | `player/blue.html` | Blue | `blue` |
 | Blue SOC Console | `blue-soc/` | Blue | `blue` |
 | Purple Console | `purple/` | 分析師、Instructor | `purple` |
 | Instructor Console | `instructor/` | Instructor | `instructor` |
@@ -42,6 +43,11 @@ Range Core、Evidence API、Admission 的呼叫者身分都由**部署時注入�
 [`deploy/ui/default.conf.template`](../deploy/ui/default.conf.template)，那個檔案就是這層邊界本身。
 
 同樣的機制也管 Battleboard 的延遲揭露：`revealed` 參數由前綴強制寫死，公開前綴永遠 `false`。
+
+**推論：一個頁面只能有一個身分。** 紅藍玩家視角因此是兩個檔案（`player/index.html` 與
+`player/blue.html`），不是同一頁的兩個分頁 —— 分頁式的做法要讓一頁同時持有 red 與 blue
+兩個 gateway，而 red 的 clearance 是 0、blue 是 1，等於給紅隊玩家一個「切一下就升級
+可見範圍」的按鈕。切換身分＝換頁。
 
 ## 跑起來
 

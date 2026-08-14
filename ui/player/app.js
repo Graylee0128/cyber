@@ -1,4 +1,8 @@
-/* Player Portal —— 紅隊與藍隊的玩家視角。
+/* Player Portal（Red）—— 紅隊玩家視角。
+ *
+ * 藍隊在 `blue.html`，是**另一個頁面**而不是這頁的一個分頁：一頁同時扮兩個
+ * 身分就得同時持有兩個 gateway，而 red 的 clearance 是 0、blue 是 1 —— 那等於
+ * 給紅隊玩家一個「切一下就升級可見範圍」的按鈕。身分綁在入口上。
  *
  * ## 這頁刻意不顯示的東西
  *
@@ -12,7 +16,7 @@
  */
 
 import {
-  Gateway, humanize, $, $$, el, clear, renderEmpty, showBanner, countdown, poll,
+  Gateway, humanize, $, el, clear, renderEmpty, showBanner, countdown, poll,
 } from "../assets/api.js";
 
 const api = new Gateway("red");
@@ -66,12 +70,10 @@ function render() {
   $("#mission-meta").textContent =
     `難度 ${scenario.difficulty}　·　時長 ${scenario.duration}　·　`
     + `目標主機 ${scenario.targets.map((t) => t.host).join("、")}`;
-  $("#blue-mission").textContent = `監控中：${scenario.name}`;
 
   renderObjectives();
   renderScore();
   renderFlagOptions();
-  renderBlueKpi();
   renderTerminal();
 }
 
@@ -232,37 +234,7 @@ function renderTerminal() {
   }));
 }
 
-/* ---------- 藍隊 KPI ---------- */
-
-function renderBlueKpi() {
-  const host = clear($("#blue-kpi"));
-  const blue = state.score?.blue;
-  if (!blue) {
-    host.append(el("div", { class: "empty", text: "尚無藍隊計分資料。" }));
-    return;
-  }
-  const events = blue.events ?? [];
-  const resolved = events.filter((e) => e.resolved).length;
-  for (const [label, value] of [
-    ["團隊總分", String(blue.total ?? 0)],
-    ["已處置事件", `${resolved} / ${events.length}`],
-  ]) {
-    host.append(el("div", { class: "stat-row" }, [
-      el("span", { text: label }),
-      el("span", { class: "val", text: value }),
-    ]));
-  }
-}
-
-/* ---------- 分頁與計時 ---------- */
-
-for (const tab of $$(".tab")) {
-  tab.addEventListener("click", () => {
-    for (const other of $$(".tab")) other.classList.toggle("active", other === tab);
-    $("#view-red").hidden = tab.dataset.role !== "red";
-    $("#view-blue").hidden = tab.dataset.role !== "blue";
-  });
-}
+/* ---------- 計時 ---------- */
 
 setInterval(() => {
   $("#timer").textContent = state.exercise?.ends_at
