@@ -61,5 +61,8 @@ def test_sudoers_file_is_installed_with_restrictive_permissions():
 
 
 def test_image_installs_real_ttyd_not_the_t3_stub():
-    assert "apt-get install" in DOCKERFILE and "ttyd" in DOCKERFILE
+    # ttyd 不在 Debian bookworm 的 apt 來源裡（實測過），用官方靜態執行檔，
+    # build 時抓（host 有網），接上無網 VLAN 後零安裝步驟。
+    assert "tsl0922/ttyd/releases/download" in DOCKERFILE
+    assert "chmod +x /usr/local/bin/ttyd" in DOCKERFILE
     assert "ttyd" in DOCKERFILE.rsplit("CMD", 1)[1]

@@ -5,10 +5,20 @@
 #
 # 真 ttyd（不是 deploy/edge/ws_stub.py 那個──那支只是 T3 網路契約測試用的
 # WebSocket 樁，沒有真的 shell，見 attach_red 那批 T3 stub 的用途說明）。
+#
+# ttyd 不在 Debian bookworm 的 apt 來源裡（實測 `apt-get install ttyd` 直接
+# 404：no installation candidate）——用官方靜態執行檔，build 時抓（host 有網），
+# 接上無網 VLAN 後零安裝步驟，跟 deploy/red-attacker/Dockerfile 同一個理由。
 FROM debian:bookworm-slim
 
+ARG TTYD_VERSION=1.7.7
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ttyd sudo \
+    && apt-get install -y --no-install-recommends sudo ca-certificates curl \
+    && curl -fsSL -o /usr/local/bin/ttyd \
+        "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.x86_64" \
+    && chmod +x /usr/local/bin/ttyd \
+    && apt-get purge -y curl \
+    && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
 # 受限帳號，非 root（§6.1）。/bin/bash 給互動 shell；no login password——
