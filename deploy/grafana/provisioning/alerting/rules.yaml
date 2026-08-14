@@ -77,6 +77,69 @@ groups:
           query: '{app="vulnerable-app"} | json | sqli_suspected=`true`'
           threshold: "> 0 / 1m"
 
+      # 靶機 VM（golden，票 #44 的可計分攻擊面）的 SQLi。與上面 compose fixture 分屬兩台：
+      # 這條看 app="range-target"，遙測經 target 側 Alloy 過真 VLAN 到 Z-MGMT Loki。
+      #
+      # by (source_ip, action_id)：source_ip 供封鎖對象（#17）；action_id 從 marker
+      # 的 `action:<id>` regexp 抽出（harness.attacker 埋進 payload），讓同一 source
+      # 的多次註冊攻擊各自成 series → 各自一個 firing → Evaluation 能以 action_id 關聯
+      # 每次的偵測時間點（#90 Phase 4 的 latency 量測；分組不靠時間窗鄰近性）。marker
+      # 沒帶 action 時 regexp 不匹配、label 缺席 → 併成空 action_id，行為與舊式一致。
+      - uid: sqli-injection-burst-target
+        title: SQLInjectionBurstTarget
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 60
+              to: 0
+            datasourceUid: loki
+            model:
+              refId: A
+              datasource:
+                type: loki
+                uid: loki
+              expr: 'sum by (source_ip, action_id) (count_over_time({app="range-target"} | json | sqli_suspected=`true` | regexp `action:(?P<action_id>[A-Za-z0-9._-]+)` [1m]))'
+              queryType: range
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+        labels:
+          event_type: attack.detected
+          technique: T1190
+          team: red
+          severity: high
+          scenario_id: sqli-target-44
+          service: range-target
+        annotations:
+          query: '{app="range-target"} | json | sqli_suspected=`true`'
+          threshold: "> 0 / 1m"
+
       # Brute force：走 metric（PromQL）而非 log。1 分鐘內失敗登入增量 > 10 才 firing，
       # 讓少量正常請求不會誤觸（負向 E2E 靠這個門檻不被 brute force 蓋過）。
       - uid: ssh-brute-force

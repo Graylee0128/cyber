@@ -49,6 +49,17 @@ DB_SOCKET = os.environ.get("TARGET_DB_SOCKET", "/run/mysqld/mysqld.sock")
 _DB_IS_LOCAL = DB_HOST in ("localhost", "127.0.0.1", "::1")
 
 
+# /product 的 SQLi 偵測標記。app 只**記錄**這個布林，不據以擋 —— 攻擊面刻意可利用
+# （票 #44）。偵測交給 Grafana rule 數 sqli_suspected=true 的筆數（與 compose
+# vulnerable-app 同款，見 deploy/grafana rules SQLInjectionBurstTarget）。
+SQLI_MARKERS = ("' or ", " or 1=1", "union select", "-- ", "'--")
+
+
+def _looks_like_sqli(value: str) -> bool:
+    low = value.lower()
+    return any(m in low for m in SQLI_MARKERS)
+
+
 def build_product_query(raw_id: str) -> str:
     """把 id 直接串進 SQL —— 真 SQLi，不是模擬。
 
@@ -132,12 +143,12 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001 — SQL 錯誤原文回給紅隊是 SQLi 的一部分
                 _write_log({"ts": _now(), "app": "range-target", "path": "/product",
                             "source_ip": source_ip, "id": raw_id, "outcome": "db_error",
-                            "error": str(exc)})
+                            "sqli_suspected": _looks_like_sqli(raw_id), "error": str(exc)})
                 self._text(500, f"query error: {exc}\n")
                 return
             _write_log({"ts": _now(), "app": "range-target", "path": "/product",
                         "source_ip": source_ip, "id": raw_id, "outcome": "query",
-                        "rows": len(rows)})
+                        "sqli_suspected": _looks_like_sqli(raw_id), "rows": len(rows)})
             self._text(200, json.dumps(rows, ensure_ascii=False, default=str) + "\n")
             return
 
