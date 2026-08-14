@@ -77,6 +77,68 @@ groups:
           query: '{app="vulnerable-app"} | json | sqli_suspected=`true`'
           threshold: "> 0 / 1m"
 
+      # range-target `/product`（票 #44 的計分攻擊面）：#47 卡點 —— 這條規則之前完全不存在，
+      # 靶機真攻擊面唯一沒接偵測的技法。判定欄位 `sqli_suspected` 由 app.py 算好（同款
+      # `_looks_like_sqli`，比照 vulnerable-app），規則只查欄位，跟上面那條分工一致。
+      #
+      # scenario_id 先用 `range-target-sqli` 佔位 —— #47 的 metadata.yaml 還沒定案真正
+      # scenario id，等那張票選定 id 後這裡要跟著改，否則 Core Event 的 scenario_id
+      # 對不上 scenario 檔，P2 那邊會找不到對應的 scenario。
+      - uid: range-target-sqli-injection
+        title: RangeTargetSQLInjection
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 60
+              to: 0
+            datasourceUid: loki
+            model:
+              refId: A
+              datasource:
+                type: loki
+                uid: loki
+              expr: 'sum by (source_ip) (count_over_time({app="range-target"} | json | path=`/product` | sqli_suspected=`true` [1m]))'
+              queryType: range
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+        labels:
+          event_type: attack.detected
+          technique: T1190
+          team: red
+          severity: high
+          scenario_id: range-target-sqli
+          service: range-target
+        annotations:
+          query: '{app="range-target"} | json | path=`/product` | sqli_suspected=`true`'
+          threshold: "> 0 / 1m"
+
       # Brute force：走 metric（PromQL）而非 log。1 分鐘內失敗登入增量 > 10 才 firing，
       # 讓少量正常請求不會誤觸（負向 E2E 靠這個門檻不被 brute force 蓋過）。
       - uid: ssh-brute-force

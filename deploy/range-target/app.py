@@ -3,7 +3,8 @@
 與 compose 的 vulnerable-app 不同：這支是給**紅隊容器隔著真 VLAN 打**的，而偵測靠
 同一台 VM 內的 Falco（modern-eBPF）看 syscall，不是靠 app 自己判斷。
 
-三個端點：
+端點：
+- `/product`    可注入的商品查詢（票 #44）→ Loki 判定 → Grafana → T1190（計分攻擊面）
 - `/exec`       生一個帶 PURPLESCOPE_EXEC 標記的 shell → Falco 抓 execve → T1059
 - `/readsecret` 讀 /etc/purplescope/secret.txt        → Falco 抓 open   → T1005（SA §7 Scenario 03）
 - `/healthz`    存活探測
@@ -47,6 +48,18 @@ DB_NAME = os.environ.get("TARGET_DB_NAME", "shopdb")
 # socket；用 TCP 連 127.0.0.1 會被認成 webapp@127.0.0.1 而拒絕（實測 1045 access denied）。
 DB_SOCKET = os.environ.get("TARGET_DB_SOCKET", "/run/mysqld/mysqld.sock")
 _DB_IS_LOCAL = DB_HOST in ("localhost", "127.0.0.1", "::1")
+
+# `/product` 沒有 vulnerable-app 那種 app 端算好的判定欄位（原本只記原始 id）——
+# #47 卡在這裡：range-target 攻擊鏈目前一條 Grafana 規則都沒接，LogQL 沒有欄位可比對。
+# 比照 vulnerable-app（deploy/vulnerable-app/app.py `_looks_like_sqli`）補一個同款
+# 判定欄位，讓偵測規則有東西可查——判定邏輯留在 app 端而非 Grafana regex，跟既有
+# SQLInjectionBurst 規則的分工一致（規則只讀欄位、不重新發明字串比對）。
+SQLI_MARKERS = ("' or ", " or 1=1", "union select", "-- ", "'--")
+
+
+def _looks_like_sqli(value: str) -> bool:
+    low = value.lower()
+    return any(marker in low for marker in SQLI_MARKERS)
 
 
 def build_product_query(raw_id: str) -> str:
@@ -127,17 +140,18 @@ class Handler(BaseHTTPRequestHandler):
             # 計分攻擊面（票 #44）：id 直接進 SQL，可 UNION 撈 credentials。
             # 回傳撈到的列，讓紅隊看得到戰利品；來源 IP 照樣入 log（歸屬證據）。
             raw_id = parse_qs(urlparse(self.path).query).get("id", [""])[0]
+            sqli = _looks_like_sqli(raw_id)
             try:
                 rows = _query_products(raw_id)
             except Exception as exc:  # noqa: BLE001 — SQL 錯誤原文回給紅隊是 SQLi 的一部分
                 _write_log({"ts": _now(), "app": "range-target", "path": "/product",
                             "source_ip": source_ip, "id": raw_id, "outcome": "db_error",
-                            "error": str(exc)})
+                            "sqli_suspected": sqli, "error": str(exc)})
                 self._text(500, f"query error: {exc}\n")
                 return
             _write_log({"ts": _now(), "app": "range-target", "path": "/product",
                         "source_ip": source_ip, "id": raw_id, "outcome": "query",
-                        "rows": len(rows)})
+                        "sqli_suspected": sqli, "rows": len(rows)})
             self._text(200, json.dumps(rows, ensure_ascii=False, default=str) + "\n")
             return
 

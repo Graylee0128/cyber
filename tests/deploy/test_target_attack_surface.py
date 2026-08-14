@@ -59,6 +59,33 @@ def test_local_db_connection_uses_the_unix_socket_not_tcp():
     assert "unix_socket=" in APP_SRC and "if _DB_IS_LOCAL" in APP_SRC
 
 
+# ── #47 卡點：range-target 補上 sqli_suspected 判定欄位，Grafana 才有東西可查 ──────
+def test_union_payload_is_flagged_as_suspected_sqli():
+    payload = "0 UNION SELECT id, service, username, password FROM credentials"
+    assert APP._looks_like_sqli(payload) is True
+
+
+def test_benign_numeric_id_is_not_flagged():
+    assert APP._looks_like_sqli("2") is False
+
+
+def test_product_endpoint_writes_sqli_suspected_on_both_outcomes():
+    # 成功查詢與 DB 錯誤兩條路徑都要帶這個欄位 —— Grafana 規則不分結果、只看判定值。
+    assert '"sqli_suspected": sqli' in APP_SRC
+    assert APP_SRC.count('"sqli_suspected": sqli') == 2
+
+
+def test_range_target_has_its_own_grafana_detection_rule():
+    """#47 稽核發現：range-target 攻擊鏈原本一條規則都沒接（唯一的 SQLi 規則綁死舊的
+    vulnerable-app）。這條規則存在，且 LogQL 查的是 range-target 而非 vulnerable-app。"""
+    rules = (ROOT / "deploy" / "grafana" / "provisioning" / "alerting" / "rules.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert "RangeTargetSQLInjection" in rules
+    assert 'app="range-target"' in rules
+    assert "sqli_suspected" in rules
+
+
 # ── #44 二分：fixture 端點行為完全不變 ──────────────────────────────────
 def test_fixture_endpoints_are_untouched():
     # 四個 fixture 路由與 alloy heartbeat 都還在，且新增的計分面沒有動到它們。
