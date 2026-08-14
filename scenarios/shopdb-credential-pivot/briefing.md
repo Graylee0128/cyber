@@ -1,4 +1,4 @@
-# Shopdb Credential Pivot
+# 任務簡報：商店保險庫
 
 ## 情境
 
