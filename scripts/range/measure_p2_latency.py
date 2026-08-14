@@ -35,12 +35,16 @@ sys.path.insert(0, str(REPO / "src"))
 from purple.evaluation.action_registry import ActionRegistryStore, RegisteredAction  # noqa: E402
 from purple.evaluation.latency import LatencyAssembler, summarize_latency  # noqa: E402
 from purple.receiver.whitelist import default_whitelist  # noqa: E402
-from purple.store.db import connect  # noqa: E402
+from purple.store.db import connect, ensure_schema as ensure_purple_schema  # noqa: E402
 from purple.store.events import CoreEventStore  # noqa: E402
 from purple.store.executions import ActionExecutionStore  # noqa: E402
 from purple.store.latency import LatencySummaryStore  # noqa: E402
 from purple.harness.attacker import make_marker  # noqa: E402
-from range_core.exercises import ExerciseStore, PlayerRegistration  # noqa: E402
+from range_core.exercises import (  # noqa: E402
+    ExerciseStore,
+    PlayerRegistration,
+    ensure_schema as ensure_exercise_schema,
+)
 from range_core.scenarios import load_scenario  # noqa: E402
 
 SCENARIO = (
@@ -86,6 +90,11 @@ def main() -> int:
     assert len(actions) == 20, f"latency baseline 需要 20 個動作，實得 {len(actions)}"
 
     conn = connect()
+
+    # compose 沒有跑 range_core admission 服務，這條 PG 因此可能沒有 exercises／
+    # registered_actions 等表。量測前先確保 schema（IF NOT EXISTS，冪等）。
+    ensure_purple_schema(conn)
+    ensure_exercise_schema(conn)
 
     # 乾淨起點：結束任何還在跑的演練（partial unique index 只允許一場 running）。
     conn.execute("UPDATE exercises SET state='ended', ended_at=now() WHERE state='running'")
