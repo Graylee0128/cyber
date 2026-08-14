@@ -42,11 +42,16 @@ purple_ensure_python() {
     echo "❌ python3 -m venv 失敗。先裝：sudo apt-get install -y python3-venv" >&2
     return 1
   fi
-  # 分兩步裝：專案本體與 pytest 各自失敗時訊息才分得清楚
+  # 分步裝：專案本體與各個 dev 依賴各自失敗時訊息才分得清楚
   # （`-e "$repo[dev]"` 這種 extras 寫法在不同 pip 版本行為不一致，不用）。
   "$venv" -m pip install -q --upgrade pip >&2 || true
   "$venv" -m pip install -q -e "$repo" >&2 || { echo "❌ pip install -e 專案失敗" >&2; return 1; }
   "$venv" -m pip install -q "pytest>=8.0" >&2 || { echo "❌ pip install pytest 失敗" >&2; return 1; }
+  # httpx2：新版 starlette.testclient 的硬依賴（本體 fastapi/starlette 沒帶到，
+  # pyproject.toml 的 dev extras 有宣告但這裡沒裝到過——兩台新開的機器各自撞過
+  # 一次 collection error 才發現）。少了它，所有用 TestClient 的 API 測試在
+  # collection 階段就整批炸掉，不是某條測試個別失敗。
+  "$venv" -m pip install -q "httpx2>=2.10" >&2 || { echo "❌ pip install httpx2 失敗" >&2; return 1; }
 
   # sudo 下建的 venv 屬 root，交還原使用者，之後非 root 也能用（否則寫不進 __pycache__）。
   if [ -n "${SUDO_USER:-}" ] && command -v chown >/dev/null 2>&1; then
