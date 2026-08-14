@@ -144,15 +144,24 @@ def host_if_name(seat_id: str) -> str:
 
 
 def _attach_container_to_vlan(
-    name: str, *, host_if: str, bridge: str, vlan: str, ip: str, gw: str, lateral_env: str,
+    name: str, *, host_if: str, bridge: str, vlan: str, ip: str, gw: str,
+    lateral_env: str | None = None,
 ) -> None:
     """把一個已經用 `--network none` 起好的容器接上某個 VLAN（docker --network
     none → veth → OVS tag → netns 設 IP），紅隊、藍隊共用同一套接法——差別只在
-    VLAN／位址／`protected` 開關，不在網路層的接線手法。沿用 `attach-red.sh`。
+    VLAN／位址／隔離手段，不在網路層的接線手法。沿用 `attach-red.sh`。
 
-    `lateral_env`：呼叫端指名要看哪個 `ALLOW_*_LATERAL` 環境變數（`ALLOW_RED_LATERAL`
-    或 `ALLOW_BLUE_LATERAL`，見 zones.env）——刻意讓呼叫端明講，不用 vlan 數字
-    反推，vlan id 改了也不會悄悄接錯隔離開關。
+    `lateral_env`：非 None 時用 OVS `protected` port 當隔離手段，呼叫端指名要看
+    哪個 `ALLOW_*_LATERAL` 環境變數（見 zones.env）——刻意讓呼叫端明講，不用
+    vlan 數字反推，vlan id 改了也不會悄悄接錯隔離開關。**紅隊用這個**（seat
+    彼此沒有合法互通需求，protected 整批擋掉即可）。
+
+    `lateral_env=None`：不設 protected，隔離改由呼叫端另外用 OVS flow 規則
+    做 per-pair 的允許清單。**藍隊用這個**——protected 是整條 bridge 統一生效
+    的開關，擋得住跨 seat 互打，但也會連帶擋掉同一個 seat 內 a↔b 的合法橫向
+    移動（VM 上實測撞到：a ping b 100% packet loss）。protected 表達不出
+    「同 seat 允許、跨 seat 擋」這種依對象而定的規則，只能換 OVS flow
+    （見 `_ensure_blue_seat_pair_isolation`／`_allow_seat_pair`）。
     """
     pid = subprocess.run(
         ["docker", "inspect", "-f", "{{.State.Pid}}", name],
@@ -167,7 +176,7 @@ def _attach_container_to_vlan(
     subprocess.run(["ip", "link", "add", host_if, "type", "veth", "peer", "name", "cs0"], check=True)
     subprocess.run(["ovs-vsctl", "--if-exists", "del-port", bridge, host_if], check=True)
     subprocess.run(["ovs-vsctl", "add-port", bridge, host_if, f"tag={vlan}"], check=True)
-    if os.environ.get(lateral_env) != "1":
+    if lateral_env is not None and os.environ.get(lateral_env) != "1":
         subprocess.run(["ovs-vsctl", "set", "port", host_if, "protected=true"], check=True)
     subprocess.run(["ip", "link", "set", host_if, "up"], check=True)
     subprocess.run(["ip", "link", "set", "cs0", "netns", name], check=True)
@@ -227,6 +236,44 @@ def build_red_seat_container(
     return {"endpoints": [{"terminal": "main", "host": ip, "port": TTYD_PORT}]}
 
 
+def _ensure_blue_seat_pair_isolation(bridge: str, blue_cidr: str) -> None:
+    """VLAN60 預設擋掉同段互打；per-seat 的 a↔b 例外由 `_allow_seat_pair()`
+    個別開。`ovs-ofctl add-flow` 對同一個 match+priority 是**替換**不是疊加，
+    天生冪等——provisioner 每次啟動都可以放心重跑，不用先查有沒有這條規則。
+
+    為什麼不繼續用 `protected=true`（v1 原本的決定）：那個開關是整條 bridge
+    統一生效，擋得住跨 seat 互打，但也連帶擋掉同一個 seat 內 a↔b 的合法橫向
+    移動——VM 上實測撞到（a ping b 100% packet loss），protected 表達不出
+    「同 seat 允許、跨 seat 擋」這種依對象而定的規則，只有 flow 規則做得到。
+    """
+    subprocess.run(
+        ["ovs-ofctl", "add-flow", bridge,
+         f"priority=100,ip,nw_src={blue_cidr},nw_dst={blue_cidr},actions=drop"],
+        check=True, capture_output=True,
+    )
+
+
+def _allow_seat_pair(bridge: str, ip_a: str, ip_b: str) -> None:
+    """開一對藍隊座位的 a↔b 雙向白名單，優先權高於上面的預設 deny。"""
+    for src, dst in ((ip_a, ip_b), (ip_b, ip_a)):
+        subprocess.run(
+            ["ovs-ofctl", "add-flow", bridge,
+             f"priority=200,ip,nw_src={src},nw_dst={dst},actions=normal"],
+            check=True, capture_output=True,
+        )
+
+
+def _revoke_ip_flows(bridge: str, ip: str) -> None:
+    """座位釋放、IP 要回收重新分配前，清掉所有引用這個 IP 的 flow——不清的話，
+    IP 被下一個座位撿到時，舊規則會讓兩個完全不相干的座位（新舊各一半）
+    意外連得到彼此。孤兒回收時對每個被拆的藍隊容器呼叫。"""
+    for direction in ("nw_src", "nw_dst"):
+        subprocess.run(
+            ["ovs-ofctl", "del-flows", bridge, f"ip,{direction}={ip}"],
+            capture_output=True, check=False,
+        )
+
+
 def build_blue_seat_container(
     seat_id: str, *, image: str, zones: dict[str, str], existing_ips: set[str],
 ) -> dict[str, Any]:
@@ -234,18 +281,19 @@ def build_blue_seat_container(
     （VLAN60）。回傳 `[{"terminal":"a",...}, {"terminal":"b",...}]`（見
     `AdmissionService.validate_endpoints`：藍隊固定兩個端點 a／b）。
 
-    **隔離機制沿用 Z-RED 同一套**：共用 VLAN60、OVS `protected=true`——不是
-    spec §6.4 引用的外部參考架構那種「每 seat 一條獨立 172.31.<X>.0/24 網路」
-    字面做法。改用已驗證過的機制，理由：validate_endpoints() 已經寫死 blue
-    endpoint 必須落在 10.167.60.0/24（見 admission/service.py），跟「獨立網路」
-    字面衝突；protected port 本身就擋得住同 VLAN 互打，安全性質等價，風險
-    遠低於重新設計一套 OVS↔docker bridge 之間的 routing（v1 決定，見 PR 說明）。
+    **隔離機制**：共用 VLAN60（不是 spec §6.4 引用的外部參考架構那種「每
+    seat 一條獨立 172.31.<X>.0/24 網路」字面做法——validate_endpoints() 已經
+    寫死 blue endpoint 必須落在 10.167.60.0/24，跟「獨立網路」字面衝突），
+    但**不用** `protected=true`（見 `_ensure_blue_seat_pair_isolation` 的
+    docstring：那個開關表達不出「同 seat 允許、跨 seat 擋」）。改用 OVS flow
+    規則做 per-pair 白名單，預設 deny、只放行自己這一對。
 
     真的 Z-BLUE image（`purplescope/blue-seat:latest`）CMD 本身就是 ttyd，
     不像紅隊要另外 Popen 一個 stub_listener.py。
     """
     prefix, _, first_str = zones["BLUE_IP_FIRST"].rpartition(".")
     ip_a, ip_b = _next_free_ip(prefix, int(first_str), existing_ips, count=2)
+    bridge = zones["RANGE_BRIDGE"]
 
     endpoints = []
     for terminal, ip in (("a", ip_a), ("b", ip_b)):
@@ -257,11 +305,12 @@ def build_blue_seat_container(
             check=True, capture_output=True,
         )
         _attach_container_to_vlan(
-            name, host_if=host_if, bridge=zones["RANGE_BRIDGE"], vlan=zones["Z_BLUE_VLAN"],
-            ip=ip, gw=zones["Z_BLUE_GW"], lateral_env="ALLOW_BLUE_LATERAL",
+            name, host_if=host_if, bridge=bridge, vlan=zones["Z_BLUE_VLAN"],
+            ip=ip, gw=zones["Z_BLUE_GW"],
         )
         endpoints.append({"terminal": terminal, "host": ip, "port": TTYD_PORT})
 
+    _allow_seat_pair(bridge, ip_a, ip_b)
     return {"endpoints": endpoints}
 
 
@@ -304,13 +353,29 @@ def currently_provisioned_blue_ips(zones: dict[str, str]) -> set[str]:
     return _scan_container_ips(BLUE_CONTAINER_PREFIX, prefix)
 
 
+def _container_ip(name: str, ip_prefix: str) -> str | None:
+    """讀一個容器 eth0 目前的 IP（拆容器前呼叫，容器不在了就讀不到）。"""
+    addr = subprocess.run(
+        ["ip", "netns", "exec", name, "ip", "-4", "-o", "addr", "show", "eth0"],
+        capture_output=True, text=True, check=False,
+    ).stdout
+    if addr and ip_prefix in addr:
+        return next(tok.split("/")[0] for tok in addr.split() if tok.startswith(ip_prefix))
+    return None
+
+
 def _sweep_orphans_for(
-    *, name_prefix: str, seat_id_from_name, active_seat_ids: set[str],
+    *, name_prefix: str, seat_id_from_name, active_seat_ids: set[str], on_remove=None,
 ) -> int:
     """孤兒回收的共用引擎。刻意用 `active`（requested＋ready＋claimed）而不是
     `pending`（只有 requested）當判準——已經 `ready`／`claimed` 的座位是正常
     在用的座位，不是孤兒；只看 pending 會在每次重啟時把所有剛建好、正在
-    服務玩家的容器一起砍掉（v1 的真實 bug，見 PR 說明）。"""
+    服務玩家的容器一起砍掉（v1 的真實 bug，見 PR 說明）。
+
+    `on_remove(name)`：**拆容器前**呼叫（此時容器還在、IP 還讀得到）——藍隊
+    用它先記下 IP，容器真的被拆之後再清 OVS flow 白名單（見 `sweep_orphans`）。
+    紅隊不需要，留 None。
+    """
     result = subprocess.run(
         ["docker", "ps", "-a", "--filter", f"name={name_prefix}", "--format", "{{.Names}}"],
         capture_output=True, text=True, check=False,
@@ -321,6 +386,8 @@ def _sweep_orphans_for(
         seat_id = seat_id_from_name(name)
         if seat_id in active_seat_ids:
             continue  # 座位還算數（requested/ready/claimed），容器留著
+        if on_remove is not None:
+            on_remove(name)  # 容器還在，IP 還讀得到，拆之前先處理
         subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False)
         subprocess.run(["ip", "netns", "del", name], capture_output=True, check=False)
         removed += 1
@@ -328,15 +395,30 @@ def _sweep_orphans_for(
     return removed
 
 
-def sweep_orphans(client: AdmissionClient) -> int:
+def sweep_orphans(client: AdmissionClient, *, zones: dict[str, str] | None = None) -> int:
     """provisioner 重啟後的孤兒回收：紅隊（`seat-red-*`）與藍隊（`seat-blue-*`）
-    各掃各的——不碰 `range-red*`（#78 spike 用的舊命名，不是同一批）。"""
+    各掃各的——不碰 `range-red*`（#78 spike 用的舊命名，不是同一批）。
+
+    `zones`：可選——只有清藍隊 OVS flow 白名單需要知道 bridge 名字與 IP
+    prefix。單元測試不帶 zones 時退化成不清 flow（純孤兒回收邏輯照樣測），
+    生產路徑（`run()`）一定會傳。
+    """
+    bridge = (zones or {}).get("RANGE_BRIDGE", "br-range")
+    blue_prefix, _, _ = (zones or {}).get("BLUE_IP_FIRST", "0.0.0.0").rpartition(".")
+
+    def _clean_blue_flows(name: str) -> None:
+        if zones is None:
+            return
+        ip = _container_ip(name, blue_prefix)
+        if ip is not None:
+            _revoke_ip_flows(bridge, ip)
+
     return _sweep_orphans_for(
         name_prefix=CONTAINER_PREFIX, seat_id_from_name=_seat_id_from_red_name,
         active_seat_ids=client.active_seat_ids("red"),
     ) + _sweep_orphans_for(
         name_prefix=BLUE_CONTAINER_PREFIX, seat_id_from_name=_seat_id_from_blue_name,
-        active_seat_ids=client.active_seat_ids("blue"),
+        active_seat_ids=client.active_seat_ids("blue"), on_remove=_clean_blue_flows,
     )
 
 
@@ -384,17 +466,23 @@ def run(
     blue_builder=_default_blue_builder,
     sleep=time.sleep,
     ensure_isolation=_ensure_docker_user_drop,
+    ensure_blue_flow_isolation=_ensure_blue_seat_pair_isolation,
 ) -> None:
     """輪詢主迴圈。`client`／`red_builder`／`blue_builder`／`sleep`／
-    `ensure_isolation` 都可覆寫——單元測試餵假的，不必真的連 admission、
-    不必真的有 docker/OVS/iptables（見 tests/topology/test_seat_provisioner.py）。
-    生產路徑用預設值（真 HTTP、真容器、真防火牆規則）。"""
+    `ensure_isolation`／`ensure_blue_flow_isolation` 都可覆寫——單元測試餵假
+    的，不必真的連 admission、不必真的有 docker/OVS/iptables（見
+    tests/topology/test_seat_provisioner.py）。生產路徑用預設值（真 HTTP、
+    真容器、真防火牆規則）。"""
     admission = client or AdmissionClient(config.admission_url, config.admission_token)
     zones = load_zones()
     prefix = zones["RANGE_NET_PREFIX"]
     ensure_isolation(f"{prefix}.{zones['Z_RED_VLAN']}.0/24", "ALLOW_RED_LATERAL")
     ensure_isolation(f"{prefix}.{zones['Z_BLUE_VLAN']}.0/24", "ALLOW_BLUE_LATERAL")
-    swept = sweep_orphans(admission)
+    # 藍隊改用 flow 規則做同 seat/跨 seat 的差別待遇（見
+    # _ensure_blue_seat_pair_isolation docstring），跟上面 ensure_isolation
+    # 的 protected+DOCKER-USER 是不同機制，兩邊都要跑。
+    ensure_blue_flow_isolation(zones["RANGE_BRIDGE"], f"{prefix}.{zones['Z_BLUE_VLAN']}.0/24")
+    swept = sweep_orphans(admission, zones=zones)
     if swept:
         log.info("swept %d orphan seat container(s) on startup", swept)
 

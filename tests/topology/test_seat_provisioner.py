@@ -8,7 +8,10 @@ import pytest
 
 from scripts.range.seat_provisioner import (
     ProvisionerConfig,
+    _allow_seat_pair,
+    _ensure_blue_seat_pair_isolation,
     _ensure_docker_user_drop,
+    _revoke_ip_flows,
     _seat_id_from_blue_name,
     host_if_name,
     run,
@@ -88,12 +91,17 @@ def _noop(*_args, **_kwargs):
 
 def _run(config, **kw):
     kw.setdefault("ensure_isolation", _noop)
+    kw.setdefault("ensure_blue_flow_isolation", _noop)
     return run(config, **kw)
 
 
-# run() 一律會算 RED/BLUE 的 CIDR 給 ensure_isolation（就算那個 callable 本身
-# 是 no-op），所以每個測試的 load_zones 假值都要帶這幾把 key，不能空字典。
-_ZONES = {"RANGE_NET_PREFIX": "10.167", "Z_RED_VLAN": "30", "Z_BLUE_VLAN": "60"}
+# run() 一律會算 RED/BLUE 的 CIDR、bridge 名字給 ensure_isolation／
+# ensure_blue_flow_isolation（就算那兩個 callable 本身是 no-op），所以每個
+# 測試的 load_zones 假值都要帶這幾把 key，不能空字典。
+_ZONES = {
+    "RANGE_NET_PREFIX": "10.167", "Z_RED_VLAN": "30", "Z_BLUE_VLAN": "60",
+    "RANGE_BRIDGE": "br-range",
+}
 
 
 def test_config_requires_url_and_token(monkeypatch):
@@ -115,7 +123,7 @@ def test_config_reads_env(monkeypatch):
 
 def test_pending_red_seat_gets_built_and_marked_ready(monkeypatch):
     monkeypatch.setattr("scripts.range.seat_provisioner.load_zones", lambda: _ZONES)
-    monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client: 0)
+    monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client, **kw: 0)
     admission = FakeAdmission(pending_seats=[{"seat_id": "s1", "exercise_id": "EX", "team": "red", "kind": "shell"}])
     built = {"endpoints": [{"terminal": "main", "host": "10.167.30.11", "port": 7681}]}
 
@@ -126,7 +134,7 @@ def test_pending_red_seat_gets_built_and_marked_ready(monkeypatch):
 
 def test_pending_blue_seat_gets_both_terminals_built_and_marked_ready(monkeypatch):
     monkeypatch.setattr("scripts.range.seat_provisioner.load_zones", lambda: _ZONES)
-    monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client: 0)
+    monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client, **kw: 0)
     admission = FakeAdmission(pending_seats=[{"seat_id": "b1", "exercise_id": "EX", "team": "blue", "kind": "shell"}])
     built = {"endpoints": [
         {"terminal": "a", "host": "10.167.60.12", "port": 7681},
@@ -141,7 +149,7 @@ def test_pending_blue_seat_gets_both_terminals_built_and_marked_ready(monkeypatc
 def test_builder_failure_is_skipped_not_fatal(monkeypatch):
     """見檔頭：建置失敗留給 admission 既有的逾時重試處理，provisioner 只要不當掉。"""
     monkeypatch.setattr("scripts.range.seat_provisioner.load_zones", lambda: _ZONES)
-    monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client: 0)
+    monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client, **kw: 0)
     admission = FakeAdmission(pending_seats=[{"seat_id": "s1", "exercise_id": "EX", "team": "red", "kind": "shell"}])
 
     def failing_builder(seat_id, **_):
@@ -154,7 +162,7 @@ def test_builder_failure_is_skipped_not_fatal(monkeypatch):
 
 def test_poll_failure_does_not_crash_the_loop(monkeypatch):
     monkeypatch.setattr("scripts.range.seat_provisioner.load_zones", lambda: _ZONES)
-    monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client: 0)
+    monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client, **kw: 0)
 
     class BrokenAdmission(FakeAdmission):
         def pending(self, team):
@@ -166,7 +174,7 @@ def test_poll_failure_does_not_crash_the_loop(monkeypatch):
 
 def test_once_mode_does_not_sleep(monkeypatch):
     monkeypatch.setattr("scripts.range.seat_provisioner.load_zones", lambda: _ZONES)
-    monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client: 0)
+    monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client, **kw: 0)
     calls = []
 
     _run(
@@ -182,7 +190,7 @@ def test_run_checks_isolation_for_both_vlans_at_startup(monkeypatch):
         "scripts.range.seat_provisioner.load_zones",
         lambda: {"RANGE_NET_PREFIX": "10.167", "Z_RED_VLAN": "30", "Z_BLUE_VLAN": "60"},
     )
-    monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client: 0)
+    monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client, **kw: 0)
     calls = []
 
     run(
@@ -190,12 +198,29 @@ def test_run_checks_isolation_for_both_vlans_at_startup(monkeypatch):
         red_builder=lambda seat_id, **_: {"endpoints": []},
         blue_builder=lambda seat_id, **_: {"endpoints": []},
         ensure_isolation=lambda cidr, env: calls.append((cidr, env)),
+        ensure_blue_flow_isolation=_noop,
     )
 
     assert calls == [
         ("10.167.30.0/24", "ALLOW_RED_LATERAL"),
         ("10.167.60.0/24", "ALLOW_BLUE_LATERAL"),
     ]
+
+
+def test_run_checks_blue_flow_isolation_at_startup(monkeypatch):
+    monkeypatch.setattr("scripts.range.seat_provisioner.load_zones", lambda: _ZONES)
+    monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client, **kw: 0)
+    calls = []
+
+    run(
+        _config(), client=FakeAdmission(),
+        red_builder=lambda seat_id, **_: {"endpoints": []},
+        blue_builder=lambda seat_id, **_: {"endpoints": []},
+        ensure_isolation=_noop,
+        ensure_blue_flow_isolation=lambda bridge, cidr: calls.append((bridge, cidr)),
+    )
+
+    assert calls == [("br-range", "10.167.60.0/24")]
 
 
 def test_sweep_orphans_only_removes_containers_not_in_active_set(monkeypatch):
@@ -267,6 +292,51 @@ def test_docker_user_drop_is_idempotent_and_skipped_when_lateral_allowed(monkeyp
     monkeypatch.setenv("ALLOW_BLUE_LATERAL", "1")
     _ensure_docker_user_drop("10.167.60.0/24", "ALLOW_BLUE_LATERAL")
     assert calls == []  # 開了 lateral，完全不碰 iptables
+
+
+def test_blue_default_deny_flow_uses_the_blue_cidr(monkeypatch):
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        "scripts.range.seat_provisioner.subprocess.run",
+        lambda args, **kw: (calls.append(args), _FakeCompleted(""))[1],
+    )
+
+    _ensure_blue_seat_pair_isolation("br-range", "10.167.60.0/24")
+
+    assert len(calls) == 1
+    assert calls[0][:3] == ["ovs-ofctl", "add-flow", "br-range"]
+    assert "nw_src=10.167.60.0/24,nw_dst=10.167.60.0/24,actions=drop" in calls[0][3]
+
+
+def test_allow_seat_pair_opens_both_directions(monkeypatch):
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        "scripts.range.seat_provisioner.subprocess.run",
+        lambda args, **kw: (calls.append(args), _FakeCompleted(""))[1],
+    )
+
+    _allow_seat_pair("br-range", "10.167.60.12", "10.167.60.13")
+
+    flow_specs = {c[3] for c in calls}
+    assert any("nw_src=10.167.60.12,nw_dst=10.167.60.13" in f for f in flow_specs)
+    assert any("nw_src=10.167.60.13,nw_dst=10.167.60.12" in f for f in flow_specs)
+
+
+def test_revoke_ip_flows_clears_both_directions(monkeypatch):
+    """座位釋放、IP 要被下一個座位撿走前，舊的允許規則要先清乾淨——不清的話
+    兩個不相干的座位會透過殘留規則意外連得到彼此（v1 抓到的第二個真實 bug）。"""
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        "scripts.range.seat_provisioner.subprocess.run",
+        lambda args, **kw: (calls.append(args), _FakeCompleted(""))[1],
+    )
+
+    _revoke_ip_flows("br-range", "10.167.60.12")
+
+    del_calls = [c for c in calls if c[:2] == ["ovs-ofctl", "del-flows"]]
+    assert len(del_calls) == 2
+    assert any("nw_src=10.167.60.12" in c[3] for c in del_calls)
+    assert any("nw_dst=10.167.60.12" in c[3] for c in del_calls)
 
 
 class _FakeCompleted:
