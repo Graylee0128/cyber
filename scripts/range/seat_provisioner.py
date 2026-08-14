@@ -43,6 +43,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -122,6 +123,18 @@ class AdmissionClient:
             return False
 
 
+def host_if_name(seat_id: str) -> str:
+    """host 端 veth 名（<=15 字元，見 attach-red.sh 同款限制）。
+
+    刻意不用內建 `hash()`：它對字串有 per-process 隨機化（`PYTHONHASHSEED`），
+    provisioner 重啟後對同一個 `seat_id` 會算出不同名字，讓上一輪的 OVS port
+    變孤兒——重啟時 `del-port` 用的是「這輪」算出的新名字，刪不到舊名字那個
+    port。實測抓到：連續兩次跑同一個 seat 累積出兩個 `hs*` port。`zlib.crc32`
+    跨進程、跨重啟都穩定，同一個 seat_id 永遠算出同一個名字。
+    """
+    return f"hs{zlib.crc32(seat_id.encode()) % 100000}"
+
+
 def build_red_seat_container(
     seat_id: str, *, image: str, zones: dict[str, str], existing_ips: set[str],
 ) -> dict[str, Any]:
@@ -146,7 +159,7 @@ def build_red_seat_container(
     )
 
     name = f"{CONTAINER_PREFIX}{seat_id}"
-    host_if = f"hs{abs(hash(seat_id)) % 100000}"  # <=15 字元，見 attach-red.sh 同款限制
+    host_if = host_if_name(seat_id)
 
     subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False)
     subprocess.run(

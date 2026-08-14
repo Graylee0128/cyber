@@ -6,7 +6,35 @@ from __future__ import annotations
 
 import pytest
 
-from scripts.range.seat_provisioner import ProvisionerConfig, run, sweep_orphans
+from scripts.range.seat_provisioner import ProvisionerConfig, host_if_name, run, sweep_orphans
+
+
+def test_host_if_name_is_stable_across_interpreter_restarts():
+    """真的在 VM 上跑到過：用內建 hash() 命名時，provisioner 重啟一次就在同一個
+    seat 上留下兩個 OVS port（見 PR 說明）。crc32 對同一個 seat_id 永遠算出
+    同一個名字，跨 subprocess 重跑驗證——單一進程內比較沒有意義，因為
+    PYTHONHASHSEED 隨機化是 per-process 的，同進程內兩次呼叫本來就會一樣。
+    """
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    seat_id = "fbb51f79-1f4d-4996-b8e2-b3f55b39daed"
+    script = (
+        f"import sys; sys.path.insert(0, {str(repo_root)!r}); "
+        "from scripts.range.seat_provisioner import host_if_name; "
+        f"print(host_if_name({seat_id!r}))"
+    )
+    outputs = {
+        subprocess.run(
+            [sys.executable, "-c", script], capture_output=True, text=True, check=True,
+            env={**os.environ, "PYTHONHASHSEED": seed},
+        ).stdout.strip()
+        for seed in ("0", "1", "random")
+    }
+    assert outputs == {host_if_name(seat_id)}
 
 
 class FakeAdmission:
