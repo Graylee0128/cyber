@@ -61,11 +61,12 @@ class TestScenarioCatalog:
             ("response-agent", True),
         ]
 
-    def test_shipped_catalog_has_no_real_scenarios_yet(self):
-        # WS2 的真實起點是零個 scenario（spec §6.2）；fixture 不算進去（#43）。
+    def test_shipped_catalog_has_exactly_the_one_v1_scenario(self):
+        # #47 落地 WS2 v1 的唯一一個真 scenario（spec §6.3）；在此之前刻意是零個。
+        # fixture 與 scenario 語意分開（#43），fixture 不算進 scenarios。
         catalog = load_catalog()
 
-        assert catalog.scenarios == ()
+        assert {s.id for s in catalog.scenarios} == {"shopdb-credential-pivot"}
         assert {fixture.id for fixture in catalog.fixtures} == {
             "sqli-01",
             "bruteforce-01",

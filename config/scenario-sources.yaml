@@ -22,9 +22,12 @@ sources:
       # agent 每次成功 pull 後寫一筆；Alloy 以獨立 stream 轉送。
       query: '{job="response-agent"}'
 
-# 真 scenario 的 expected_sources 由 scenarios/<id>/metadata.yaml 提供（#42）。
-# WS2 的真實起點是零個 scenario；這裡刻意留空，不得回填（spec §6.2）。
-scenarios: []
+# 真 scenario 的 expected_sources 以 scenarios/<id>/metadata.yaml 為準（#42）；這裡的
+# 條目是 P2 evaluation 解析 source registry 的入口，兩邊必須一致（#47 落地第一個真 scenario）。
+# 在 #47 之前這裡刻意留空（WS2 從零起，spec §6.2）；#47 是**唯一**該回填它的票。
+scenarios:
+  - id: shopdb-credential-pivot
+    expected_sources: [alloy, response-agent]
 
 # 這五個 id 不是 scenario —— 它們是驗證 pipeline／registry 機制用的測試載具
 # （sqli-01／bruteforce-01 只在 compose 存在；falco-* 是刻意的一鍵觸發端點）。

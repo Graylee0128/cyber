@@ -302,7 +302,9 @@ def test_flat_scenario_yaml_is_rejected_with_migration_instruction(tmp_path: Pat
         ScenarioCatalog.from_directory(tmp_path)
 
 
-def test_production_scenario_catalog_is_intentionally_empty():
+def test_production_scenario_catalog_ships_the_one_v1_scenario():
+    # #47 交了 WS2 v1 的唯一一個真 scenario。在此之前這裡刻意是空的（WS2 從零起）；
+    # 現在恰好一個，多一個就違反「v1 只交一個做完整」（spec §6.3）。
     catalog = ScenarioCatalog.from_directory(REPO_ROOT / "scenarios")
 
-    assert catalog.scenarios == ()
+    assert [s.id for s in catalog.scenarios] == ["shopdb-credential-pivot"]
