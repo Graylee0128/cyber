@@ -1,0 +1,70 @@
+# WS2 v1 的唯一一個真 scenario（票 #47）—— 一個做完整，十個決策一次全踩過。
+#
+# 跑在真 range 的 golden 靶機（range-target，票 #44 攻擊面）上。攻擊鏈是單機縱深：
+#   web SQLi 撈出 DB 憑證 → 拿憑證開第二道門（直連 :3306）→ 讀出保險庫的 flag。
+# flag 光靠第一段 SQLi 撈不到（webapp 帳號對 vault 無 grant，seed.sql 的授權邊界），
+# 非得先撈 dbadmin 帳密、再以它重連不可 —— 這是「內容鏈接」而非平台 gating（§3.2）。
+#
+# 十個決策的落點：
+#   §2.1 expected_sources 寫在這裡，P2 讀得到
+#   §2.2 detection 引用真的存在的規則（SQLInjectionBurstTarget）；intentional_gaps
+#        明示一個刻意無覆蓋的 technique（T1078：撈到的憑證直連 DB，沒有任何 Grafana 規則）
+#   §2.3 attack_chain 載入成 #21 Action Registry 的初始內容並凍結
+#   §3.1 可計分攻擊面（product-sqli）真的要打進去；fixture 端點不掛 objective
+#   §3.2 攻擊面宣告在 targets.surfaces；關卡靠內容鏈接（授權邊界）而非平台 gating
+#   §3.3 單機縱深：targets 是清單，但只有一台
+#   §4.1 objective 扁平，無 requires
+#   §4.2 briefing 只給任務目標，攻擊鏈住這個檔、玩家看不到
+#   §5.1 flag 由 range-up 注入，未經利用取不到
+#   §5.2 reset_scope=exercise：攻擊鏈全程唯讀（SELECT），不弄髒靶機
+id: shopdb-credential-pivot
+name: Shopdb Credential Pivot
+difficulty: foundational
+duration: 45m
+
+objectives:
+  # 技術類：走遙測自動判定。偵測到 catalog 上的 SQLi 就得分，歸屬到個別 kali
+  # （WS1 §1.3，source_ip 可分辨）。telemetry_signal 指向 attack_chain 的註冊動作，
+  # 靠 action_id 關聯，不靠 technique＋時間窗鄰近性。
+  - id: detect-catalog-sqli
+    evaluation: telemetry
+    points: 100
+    telemetry_signal:
+      action_id: sqli-extract-credentials
+  # 奪旗：走提交比對。未經利用（先 SQLi 撈憑證、再 pivot 進 vault）取不到 flag。
+  - id: capture-vault-flag
+    evaluation: submission
+    points: 200
+
+# 攻擊面宣告（§3.2）。product-sqli 是可計分面（真漏洞）；mysql-3306 是第二道門。
+# fixture 端點（/exec /readsecret /uncovered /healthz）刻意不列 —— 它們不掛 objective。
+targets:
+  - host: range-target
+    surfaces: [product-sqli, mysql-3306]
+
+# §2.1：這條 scenario 期望哪些遙測來源活著。P2 以此判分母與可見性缺口。
+expected_sources: [alloy, response-agent]
+
+# §2.2：第一段 SQLi 有偵測覆蓋（SQLInjectionBurstTarget，票 #90 落地的規則）。
+detection: [SQLInjectionBurstTarget]
+
+# §2.2：刻意無覆蓋的 technique。撈到的 dbadmin 憑證直連 :3306 讀 flag（T1078 Valid
+# Accounts）沒有任何 Grafana 規則 —— 遙測看得到（app log 有連線）但沒有告警，於是在
+# P2 側呈現為**偵測缺口**（DETECTION_GAP）而非可見性缺口。這是 ADR ③ 要能分辨的東西。
+intentional_gaps: [T1078]
+
+attack_chain:
+  - id: sqli-extract-credentials
+    technique: T1190
+    description: >-
+      UNION-based SQLi on the public product catalog to read the credentials
+      table and recover the database admin account.
+  - id: dbadmin-vault-pivot
+    technique: T1078
+    description: >-
+      Reuse the recovered database admin credentials to connect directly to
+      the database and read the flag from the vault the web account cannot reach.
+
+# §5.2：攻擊鏈全程唯讀（SELECT），不寫靶機、不留髒狀態 → exercise 級重置即可，
+# 不必重建環境。flag 輪換是 range-up（環境級）的事，與此正交。
+reset_scope: exercise
