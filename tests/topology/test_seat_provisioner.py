@@ -186,10 +186,7 @@ def test_once_mode_does_not_sleep(monkeypatch):
 
 
 def test_run_checks_isolation_for_both_vlans_at_startup(monkeypatch):
-    monkeypatch.setattr(
-        "scripts.range.seat_provisioner.load_zones",
-        lambda: {"RANGE_NET_PREFIX": "10.167", "Z_RED_VLAN": "30", "Z_BLUE_VLAN": "60"},
-    )
+    monkeypatch.setattr("scripts.range.seat_provisioner.load_zones", lambda: _ZONES)
     monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client, **kw: 0)
     calls = []
 
