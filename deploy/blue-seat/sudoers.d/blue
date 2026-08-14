@@ -1,0 +1,16 @@
+# Z-BLUE 座位帳號的 sudo allowlist（票 #62，WS8 spec §6.1／§6.2）。
+#
+# 藍隊拿受限帳號＋這份 allowlist，不是 root。§6.7 把 collector（Falco/Alloy）
+# 移到 host 層之後，這台容器裡本來就看不到、碰不到它們——但 §6.2 的約束仍然
+# 保留當第二層防線（文件原文：「降級為第二層防線」，不是撤銷）。
+#
+# 硬約束（不得違反，見 tests/deploy/test_blue_seat_image.py 機械檢查）：
+#   - 不得含 Falco／Alloy 的設定檔與 systemd unit 路徑
+#   - 不得含它們所在目錄的寫入權
+#   - 不得含任何能停用/重啟服務、或取得 root shell 的萬用手段
+#
+# v1 刻意留空（NOPASSWD 清單只放佔位註解）：具體要放行哪些指令屬於 WS2
+# scenario 宣告的範圍（例如某個 scenario 需要玩家重啟自己的本機 app 服務）——
+# WS8／WS6 只負責這個邊界本身，不猜未來的 scenario 需要什麼。要加規則，
+# 一行一條、指名到完整路徑（不用萬用字元），新增規則同樣要過上面那條
+# 機械檢查。
