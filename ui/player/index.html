@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Player Portal</title>
+<link rel="stylesheet" href="../assets/base.css">
+<style>
+  .mission-name { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+  .obj { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .obj:last-child { border-bottom: none; }
+  .obj .check { font-size: 16px; width: 24px; flex-shrink: 0; }
+  .obj .body { flex: 1; }
+  .obj .title { font-weight: 600; margin-bottom: 4px; }
+  .obj .meta { color: var(--muted); font-size: 12px; }
+  .obj .hint-text {
+    margin-top: 8px; padding: 10px 12px; background: #1a1530;
+    border: 1px solid #3a2f66; border-radius: 6px; font-size: 13px; color: #c9b8ff;
+  }
+  .score-val { font-size: 34px; font-weight: 800; }
+  .terminal-frame {
+    width: 100%; height: 420px; border: 1px solid var(--border);
+    border-radius: 6px; background: #05070d;
+  }
+  .timer { font-size: 15px; font-weight: 700; color: var(--amber); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <h1>Player Portal</h1>
+    <div class="sub" id="subtitle">載入中…</div>
+  </div>
+  <div class="timer" id="timer">—</div>
+</div>
+
+<div class="tabs">
+  <div class="tab red active" data-role="red">🔴 Red</div>
+  <div class="tab blue" data-role="blue">🔵 Blue</div>
+</div>
+
+<div id="banner" class="banner"></div>
+
+<!-- ---------- Red ---------- -->
+<section id="view-red">
+  <div class="grid sidebar">
+    <div>
+      <div class="panel">
+        <div class="panel-title">Mission</div>
+        <div class="mission-name" id="mission-name">—</div>
+        <div class="sub" id="mission-meta"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Objective</div>
+        <div id="objectives"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Shell</div>
+        <div id="terminal-host"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <div class="panel-title">目前分數</div>
+        <div class="score-val" id="score">—</div>
+        <div class="note" id="score-note"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">提交 Flag</div>
+        <div class="row">
+          <select id="flag-objective"></select>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <input id="flag-input" placeholder="flag{…}" style="flex:1">
+          <button class="primary" id="flag-submit">提交</button>
+        </div>
+        <div class="note" id="flag-result"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ---------- Blue ---------- -->
+<section id="view-blue" hidden>
+  <div class="panel">
+    <div class="panel-title">Mission</div>
+    <div class="mission-name" id="blue-mission">—</div>
+    <div class="sub">
+      藍隊不做個人化計分：P2 的 KPI 本來就是全場級指標，這頁沒有個人 Objective／Hint／Flag。
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">團隊 KPI（全場級）</div>
+    <div id="blue-kpi"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">作戰畫面</div>
+    <div class="sub">藍隊真正的操作介面是 Blue SOC Console，不是這一頁。</div>
+    <a href="../blue-soc/"><button class="primary">前往 Blue SOC Console →</button></a>
+  </div>
+</section>
+
+<!-- Hint 確認 -->
+<div class="modal-backdrop" id="hint-modal" hidden>
+  <div class="modal">
+    <h2>確定要看提示嗎？</h2>
+    <div id="hint-cost"></div>
+    <div class="note">
+      扣分金額在按下去之前就告訴你，是刻意的：不顯示等於暗坑。
+      要不要精算是你的策略選擇，不是平台替你決定的事。
+    </div>
+    <div class="actions">
+      <button id="hint-cancel">取消</button>
+      <button class="danger" id="hint-confirm">確定，扣分並顯示</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
