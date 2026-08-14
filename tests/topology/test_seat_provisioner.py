@@ -6,7 +6,14 @@ from __future__ import annotations
 
 import pytest
 
-from scripts.range.seat_provisioner import ProvisionerConfig, host_if_name, run, sweep_orphans
+from scripts.range.seat_provisioner import (
+    ProvisionerConfig,
+    _ensure_docker_user_drop,
+    _seat_id_from_blue_name,
+    host_if_name,
+    run,
+    sweep_orphans,
+)
 
 
 def test_host_if_name_is_stable_across_interpreter_restarts():
@@ -37,19 +44,28 @@ def test_host_if_name_is_stable_across_interpreter_restarts():
     assert outputs == {host_if_name(seat_id)}
 
 
+def test_blue_seat_id_extraction_strips_terminal_prefix():
+    """seat-blue-a-<id> / seat-blue-b-<id> 都要還原回同一個 seat_id——terminal
+    只是一個字元加連字號，不是 seat_id 的一部分。"""
+    assert _seat_id_from_blue_name("seat-blue-a-abc-123") == "abc-123"
+    assert _seat_id_from_blue_name("seat-blue-b-abc-123") == "abc-123"
+
+
 class FakeAdmission:
     def __init__(self, pending_seats=None, active_ids=None):
-        self._pending = list(pending_seats or [])
-        self._active = set(active_ids or [])
+        self._pending = {"red": [], "blue": []}
+        for seat in pending_seats or []:
+            self._pending[seat["team"]].append(seat)
+        self._active = {"red": set(), "blue": set()}
+        for team, ids in (active_ids or {}).items():
+            self._active[team] = set(ids)
         self.marked_ready: list[tuple[str, list[dict]]] = []
 
     def pending(self, team):
-        assert team == "red"
-        return self._pending
+        return self._pending[team]
 
     def active_seat_ids(self, team):
-        assert team == "red"
-        return self._active
+        return self._active[team]
 
     def mark_ready(self, seat_id, endpoints):
         self.marked_ready.append((seat_id, endpoints))
@@ -60,9 +76,19 @@ def _config(**overrides):
     defaults = dict(
         admission_url="http://admission", admission_token="tok",
         poll_seconds=0, once=True, red_image="purplescope/red-attacker:latest",
+        blue_image="purplescope/blue-seat:latest",
     )
     defaults.update(overrides)
     return ProvisionerConfig(**defaults)
+
+
+def _noop(*_args, **_kwargs):
+    pass
+
+
+def _run(config, **kw):
+    kw.setdefault("ensure_isolation", _noop)
+    return run(config, **kw)
 
 
 def test_config_requires_url_and_token(monkeypatch):
@@ -82,15 +108,29 @@ def test_config_reads_env(monkeypatch):
     assert config.once is False
 
 
-def test_pending_seat_gets_built_and_marked_ready(monkeypatch):
+def test_pending_red_seat_gets_built_and_marked_ready(monkeypatch):
     monkeypatch.setattr("scripts.range.seat_provisioner.load_zones", lambda: {})
     monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client: 0)
     admission = FakeAdmission(pending_seats=[{"seat_id": "s1", "exercise_id": "EX", "team": "red", "kind": "shell"}])
     built = {"endpoints": [{"terminal": "main", "host": "10.167.30.11", "port": 7681}]}
 
-    run(_config(), client=admission, builder=lambda seat_id, **_: built)
+    _run(_config(), client=admission, red_builder=lambda seat_id, **_: built, blue_builder=lambda seat_id, **_: {})
 
     assert admission.marked_ready == [("s1", built["endpoints"])]
+
+
+def test_pending_blue_seat_gets_both_terminals_built_and_marked_ready(monkeypatch):
+    monkeypatch.setattr("scripts.range.seat_provisioner.load_zones", lambda: {})
+    monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client: 0)
+    admission = FakeAdmission(pending_seats=[{"seat_id": "b1", "exercise_id": "EX", "team": "blue", "kind": "shell"}])
+    built = {"endpoints": [
+        {"terminal": "a", "host": "10.167.60.12", "port": 7681},
+        {"terminal": "b", "host": "10.167.60.13", "port": 7681},
+    ]}
+
+    _run(_config(), client=admission, red_builder=lambda seat_id, **_: {}, blue_builder=lambda seat_id, **_: built)
+
+    assert admission.marked_ready == [("b1", built["endpoints"])]
 
 
 def test_builder_failure_is_skipped_not_fatal(monkeypatch):
@@ -102,7 +142,7 @@ def test_builder_failure_is_skipped_not_fatal(monkeypatch):
     def failing_builder(seat_id, **_):
         raise RuntimeError("docker daemon unreachable")
 
-    run(_config(), client=admission, builder=failing_builder)  # 不應該拋例外
+    _run(_config(), client=admission, red_builder=failing_builder)  # 不應該拋例外
 
     assert admission.marked_ready == []
 
@@ -115,7 +155,7 @@ def test_poll_failure_does_not_crash_the_loop(monkeypatch):
         def pending(self, team):
             raise ConnectionError("admission unreachable")
 
-    run(_config(), client=BrokenAdmission(), builder=lambda seat_id, **_: {"endpoints": []})
+    _run(_config(), client=BrokenAdmission(), red_builder=lambda seat_id, **_: {"endpoints": []})
     # 沒拋例外就是通過；once=True 讓迴圈跑一輪後正常返回。
 
 
@@ -124,12 +164,33 @@ def test_once_mode_does_not_sleep(monkeypatch):
     monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client: 0)
     calls = []
 
-    run(
+    _run(
         _config(once=True), client=FakeAdmission(),
-        builder=lambda seat_id, **_: {"endpoints": []}, sleep=lambda s: calls.append(s),
+        red_builder=lambda seat_id, **_: {"endpoints": []}, sleep=lambda s: calls.append(s),
     )
 
     assert calls == []
+
+
+def test_run_checks_isolation_for_both_vlans_at_startup(monkeypatch):
+    monkeypatch.setattr(
+        "scripts.range.seat_provisioner.load_zones",
+        lambda: {"RANGE_NET_PREFIX": "10.167", "Z_RED_VLAN": "30", "Z_BLUE_VLAN": "60"},
+    )
+    monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client: 0)
+    calls = []
+
+    run(
+        _config(), client=FakeAdmission(),
+        red_builder=lambda seat_id, **_: {"endpoints": []},
+        blue_builder=lambda seat_id, **_: {"endpoints": []},
+        ensure_isolation=lambda cidr, env: calls.append((cidr, env)),
+    )
+
+    assert calls == [
+        ("10.167.30.0/24", "ALLOW_RED_LATERAL"),
+        ("10.167.60.0/24", "ALLOW_BLUE_LATERAL"),
+    ]
 
 
 def test_sweep_orphans_only_removes_containers_not_in_active_set(monkeypatch):
@@ -141,12 +202,14 @@ def test_sweep_orphans_only_removes_containers_not_in_active_set(monkeypatch):
 
     def fake_run(args, **kw):
         calls.append(args)
-        if args[:2] == ["docker", "ps"]:
+        if args[:2] == ["docker", "ps"] and "seat-red-" in args:
             return _FakeCompleted("seat-red-still-active\nseat-red-long-gone\n")
+        if args[:2] == ["docker", "ps"] and "seat-blue-" in args:
+            return _FakeCompleted("")
         return _FakeCompleted("")
 
     monkeypatch.setattr("scripts.range.seat_provisioner.subprocess.run", fake_run)
-    admission = FakeAdmission(active_ids={"still-active"})
+    admission = FakeAdmission(active_ids={"red": {"still-active"}})
 
     removed = sweep_orphans(admission)
 
@@ -155,6 +218,53 @@ def test_sweep_orphans_only_removes_containers_not_in_active_set(monkeypatch):
     assert rm_calls == [["docker", "rm", "-f", "seat-red-long-gone"]]
 
 
+def test_sweep_orphans_handles_blue_pairs_independently_of_red(monkeypatch):
+    """藍隊一個 seat 兩台容器（a／b），兩台都要因為同一個 seat_id 不 active
+    而一起被清掉——不能清了 a 漏了 b。"""
+    calls: list[list[str]] = []
+
+    def fake_run(args, **kw):
+        calls.append(args)
+        if args[:2] == ["docker", "ps"] and "seat-red-" in args:
+            return _FakeCompleted("")
+        if args[:2] == ["docker", "ps"] and "seat-blue-" in args:
+            return _FakeCompleted("seat-blue-a-gone1\nseat-blue-b-gone1\nseat-blue-a-live1\nseat-blue-b-live1\n")
+        return _FakeCompleted("")
+
+    monkeypatch.setattr("scripts.range.seat_provisioner.subprocess.run", fake_run)
+    admission = FakeAdmission(active_ids={"blue": {"live1"}})
+
+    removed = sweep_orphans(admission)
+
+    assert removed == 2
+    removed_names = {c[-1] for c in calls if c[:2] == ["docker", "rm"]}
+    assert removed_names == {"seat-blue-a-gone1", "seat-blue-b-gone1"}
+
+
+def test_docker_user_drop_is_idempotent_and_skipped_when_lateral_allowed(monkeypatch):
+    calls: list[list[str]] = []
+
+    def fake_run(args, **kw):
+        calls.append(args)
+        if args[:2] == ["iptables", "-nL"]:
+            return _FakeCompleted("", returncode=0)
+        if args[:2] == ["iptables", "-C"]:
+            return _FakeCompleted("", returncode=1)  # 規則不存在，該插入
+        return _FakeCompleted("", returncode=0)
+
+    monkeypatch.setattr("scripts.range.seat_provisioner.subprocess.run", fake_run)
+
+    _ensure_docker_user_drop("10.167.60.0/24", "ALLOW_BLUE_LATERAL")
+    insert_calls = [c for c in calls if c[:2] == ["iptables", "-I"]]
+    assert len(insert_calls) == 1
+
+    calls.clear()
+    monkeypatch.setenv("ALLOW_BLUE_LATERAL", "1")
+    _ensure_docker_user_drop("10.167.60.0/24", "ALLOW_BLUE_LATERAL")
+    assert calls == []  # 開了 lateral，完全不碰 iptables
+
+
 class _FakeCompleted:
-    def __init__(self, stdout: str):
+    def __init__(self, stdout: str, returncode: int = 0):
         self.stdout = stdout
+        self.returncode = returncode

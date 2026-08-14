@@ -60,6 +60,7 @@ class TestInternalConsistency:
             ("EDGE_STUB_IP", "Z_EDGE_VLAN"),
             ("BLUE_STUB_IP", "Z_BLUE_VLAN"),
             ("BLUE_PEER_IP", "Z_BLUE_VLAN"),
+            ("BLUE_IP_FIRST", "Z_BLUE_VLAN"),
         ],
     )
     def test_host_sits_in_its_own_zone(self, zones, host_key, vlan_key):
