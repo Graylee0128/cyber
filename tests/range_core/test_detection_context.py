@@ -102,11 +102,18 @@ def test_two_sequential_exercises_emit_core_events_with_distinct_exercise_ids(
     assert second_core["exercise_id"] == second.exercise_id
 
 
-def test_delayed_alert_from_an_old_scenario_is_not_relabelled_to_the_new_one(
+def test_scenario_comes_from_the_running_exercise_not_the_rule_label(
     pg_connection,
     exercise_store,
     exercise_clock,
 ) -> None:
+    """rule 的 scenario_id label 不決定歸屬，PostgreSQL 的 running exercise 才決定。
+
+    一台 range 上多條規則同時掛著（`deploy/grafana/provisioning/alerting/rules.yaml`
+    有五個不同的 scenario_id），跑 A scenario 時紅隊照樣可能觸發為 B 寫的規則。
+    這種事件必須照常入庫並歸給當前這一場 —— 早期版本改成不符就丟棄，compose e2e
+    當場證明那會把真實的 brute force 攻擊整條吞掉。
+    """
     exercise_clock.current = datetime.now(timezone.utc) + timedelta(hours=1)
     events = CoreEventStore(pg_connection)
     records = AlertRecordStore(pg_connection)
@@ -118,7 +125,8 @@ def test_delayed_alert_from_an_old_scenario_is_not_relabelled_to_the_new_one(
     second = exercise_store.start(scenario("different-scenario"), roster)
     context = RunningExerciseLookup(pg_connection).require()
 
-    emitted = ingest_alert(
+    # ALERT 的 label 寫死 scenario_id=sqli-01，當前跑的卻是 different-scenario。
+    [event_id] = ingest_alert(
         ALERT,
         events=events,
         records=records,
@@ -129,8 +137,9 @@ def test_delayed_alert_from_an_old_scenario_is_not_relabelled_to_the_new_one(
 
     assert context.exercise_id == second.exercise_id
     assert context.scenario_id == "different-scenario"
-    assert emitted == []
-    assert events.count() == 0
+    core = events.by_id(event_id)[0]
+    assert core["scenario_id"] == "different-scenario"  # 不是 label 的 sqli-01
+    assert core["exercise_id"] == second.exercise_id
 
 
 def test_grafana_rules_do_not_claim_a_static_exercise_identity() -> None:

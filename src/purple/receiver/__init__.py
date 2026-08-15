@@ -64,14 +64,20 @@ def ingest_alert(
         if lifecycle is None:
             continue  # pending 等內部狀態不是遊戲語意
 
+        # label 的 scenario_id 與當前 running scenario 不符時只記錄、**不丟棄**。
+        # rule 的 scenario_id 是「這條規則為哪個 scenario 寫的」，不是「事件屬於
+        # 哪一場」——一台 range 上五條規則同時掛著（見 deploy/grafana 的 rules.yaml），
+        # 跑 sqli-01 時紅隊照樣可能觸發 bruteforce-01 的規則。丟掉等於把真實的
+        # 攻擊活動靜默吞掉。歸屬一律以 PostgreSQL 的 running exercise 為準，
+        # 見 build_core_event 的 scenario_id 參數。
         alert_scenario = alert.get("labels", {}).get("scenario_id")
         if alert_scenario != scenario_id:
-            log.warning(
-                "拒收延遲／串場 alert：label scenario=%r，running scenario=%r",
+            log.info(
+                "alert 的 rule scenario=%r 與 running scenario=%r 不同，"
+                "仍以 running scenario 歸屬",
                 alert_scenario,
                 scenario_id,
             )
-            continue
 
         event_id = _event_id_for(alert, fingerprints)
 
