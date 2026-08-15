@@ -171,8 +171,12 @@ jobs:
           PURPLE_APP_URL: http://localhost:8080
           PURPLE_ENGINE_URL: http://localhost:8001
           PURPLE_LOKI_URL: http://localhost:3100
-        # -v 逐條顯示測試名與 PASSED；-s 不吃掉 print，讓每階段 echo 即時可見
-        run: python -m pytest -v -s -m integration
+        # -v 逐條顯示測試名與 PASSED；-s 不吃掉 print，讓每階段 echo 即時可見。
+        # --durations=15：這個 job 的 ~460 秒幾乎全是掛鐘等待（輪詢 Loki、等
+        # Grafana 規則評估、CHAIN_TIMEOUT_S=90、sleep(45)）。要決定值不值得切成
+        # matrix 分片，得先知道那 460 秒是散在 17 條測試上，還是集中在少數幾條 ——
+        # 集中的話分片的地板就是最慢那一條，切了效益有限（#124）。
+        run: python -m pytest -v -s -m integration --durations=15
 
       - name: Dump stack logs on failure
         if: failure()
