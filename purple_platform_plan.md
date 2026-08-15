@@ -525,6 +525,10 @@ Step 0 的阻塞題已全部解除，P1 可開工。
 
 （本輪 2026-08-15 grilling 後暫無殘留；ui/README.md「已知缺口」4 項合併進 canonical work package [#126](https://github.com/Graylee0128/cyber/issues/126)（v2 已知缺口 triage），AI 輔助分支合併進 [#131](https://github.com/Graylee0128/cyber/issues/131)，Override/Inject 決定暫不開票）
 
+**2026-08-15 晚間更新**：#126 已由 PR #134 五項全數交付關閉，#131 已由 PR #136 交付關閉
+（子票 #132／#133 隨之關閉）。Q9 的 healthcheck 在實作時發現 compose 早在 2026-08-09 就有了，
+缺的只有 Instructor Console 那一半的可見性——issue 原文的陳述已在 PR #134 更正。
+
 ---
 
 # 附錄：來源文件

@@ -140,13 +140,20 @@ Range Core 只在 TCP peer 真的是 `RANGE_CORE_TRUSTED_EDGE_HOST` 解析出來
 Z-EDGE 必須維持零憑證（WS8 spec §5.3，`tests/deploy/test_edge_access.py` 有測試在管）。
 gateway 本來就依設計持有全部服務 token，這條路徑沒有讓任何主機多拿到一份秘密。
 
-### 2. 誰能載入教官畫面，目前只靠網段擋
+### 2. 誰能載入教官畫面 —— 已補第二層，但預設值仍全開（部分已修，2026-08-15）
 
-`UI_PRIVILEGED_CIDR` 是現在唯一擋得住「拿到網址就進得去 Instructor Console」的東西。
-Admission 的 session 只回答「這個 session 擁不擁有這台終端機」（`/admission/auth/ttyd/{terminal}`），
-沒有「這個 session 是不是教官」的端點，所以 nginx 的 `auth_request` 接不上去。
-compose 裡的預設值是 `0.0.0.0/0`（本機 demo 用），**正式環境必須收斂到 Z-MGMT 網段**。
-追蹤票：[#126](https://github.com/Graylee0128/cyber/issues/126)。
+原狀是 `UI_PRIVILEGED_CIDR` 為**唯一**擋得住「拿到網址就進得去 Instructor Console」的東西：
+Admission 當時只回答「這個 session 擁不擁有這台終端機」（`/admission/auth/ttyd/{terminal}`），
+沒有「這個 session 是不是教官」的端點，nginx 的 `auth_request` 接不上去。
+
+**2026-08-15 修復**（[#126](https://github.com/Graylee0128/cyber/issues/126) item 2）：重用既有的
+`ADMISSION_INSTRUCTOR_TOKEN`（不是新密鑰）加出 `/admission/auth/instructor`，nginx 對
+`^/(instructor|purple|event-control)/` 補上 `auth_request`，並新增登入頁 `ui/instructor-login/`。
+登入頁與 login／logout 端點刻意落在 `auth_request` 之外——被自己要求的 cookie 擋住就永遠登不進去。
+**CIDR 是補強不是取代**，兩層都在。
+
+**仍然沒解的**：compose 裡的 `UI_PRIVILEGED_CIDR` 預設值是 `0.0.0.0/0`（本機 demo 用），
+**正式環境必須收斂到 Z-MGMT 網段**。這是部署設定，不是程式碼——它會一直是 pre-flight 項目。
 
 ### 3. ~~`GET /api/scenarios` 會吐出攻擊鏈~~（已修，2026-08-15）
 
@@ -168,39 +175,32 @@ compose 裡的預設值是 `0.0.0.0/0`（本機 demo 用），**正式環境必�
 `scenarios/<id>/briefing.md` 是檔案，沒有任何 HTTP 出口。Player Portal 的 Mission 面板
 目前只顯示 scenario 的中繼資料（名稱、難度、時長、目標主機）。
 
-### 6. Evaluation API 目前對任何真 scenario 都會 500（**這個 PR 之前就存在，不是新引入的**）
+### 6. 未登記的 scenario 在 Evaluation API 上回 503（原文已過時，2026-08-15 重寫）
 
-寫 `test_ui_gateway.py` 時撞到的：`GET /api/exercises/{id}/evaluation`（既有端點）與本 PR
-新加的 `GET /api/exercises/{id}/battleboard`，只要 `exercise_id` 對應的是一個**真** scenario
-（不是驗證 pipeline 用的 fixture），一律 500。
+> **原本這條寫的是「對任何真 scenario 都會 500，因為 `config/scenario-sources.yaml` 刻意留空」。
+> 兩個前提現在都不成立**——寫下它的 PR #110 與回填清單的 PR #112（#47）只差 14 分鐘合併，
+> 兩件事在同一天各自往前走，這條就沒跟上。留下更正紀錄而不是默默改掉。
 
-原因在 `config/scenario-sources.yaml`：
+現況：
 
-```yaml
-# WS2 的真實起點是零個 scenario；這裡刻意留空，不得回填（spec §6.2）。
-scenarios: []
-```
+- `config/scenario-sources.yaml` 的 `scenarios:` **已經不是空的**，[#47](https://github.com/Graylee0128/cyber/issues/47)
+  （PR #112）登記了 `shopdb-credential-pivot`。**真 scenario 走得通。**
+- `purple/evaluation/api.py` 的 `_session()` **已經接住 `CatalogError`**，回 **503** 而不是未攔截的 500
+  ——呼叫端因此分得出「暫時算不出來」與「程式壞了」，也不洩漏 traceback。
 
-`EvaluationAssembler.build()` 會呼叫 `source_registry(scenario_id)`（production 預設是
-`purple.registry.production.registry_for_scenario`），那支函式只查這份清單的 `scenarios:`
-區塊——清單刻意留空，所以查詢無條件拋 `CatalogError`，而 `purple/evaluation/api.py` 的
-`_session()` 例外處理沒有接住 `CatalogError`（只接 `RegistryError`／`TechniqueRejected`／
-`psycopg.IntegrityError`），於是變成未攔截的 500。
+**還在的問題**：沒有登記在 `scenarios:` 區塊的 exercise（例如 `admission-e2e`、
+`p2-latency-baseline` 這類量測載具）打 `GET /api/exercises/{id}/evaluation` 或
+`.../battleboard` 會拿到 503，Purple Console 的涵蓋率表與 Battleboard 的攻防進度是空的，
+不是零資料。fixture（`sqli-01`／`bruteforce-01`／`falco-*`，見同一份 YAML 的 `fixtures:` 區塊）
+不是 scenario，`registry_for_scenario` 查不到它們——這是 [#43](https://github.com/Graylee0128/cyber/issues/43)
+刻意的區分，不是缺陷。
 
-這不是 UI 這批交付造成的——`get_evaluation` 端點在這個 PR 之前就有這個洞，本 PR 只是第一次
-真的經 gateway 打到它、才被看見。目前唯一能通過整條評分管線的是驗證 pipeline 用的 fixture
-（`sqli-01`／`bruteforce-01`／`falco-*`，見同一份 YAML 的 `fixtures:` 區塊），但 fixture 不是
-scenario，`registry_for_scenario` 也查不到它們。
+**真正的殘留設計債**是 `expected_sources` 有兩個真相來源：scenario 的 `metadata.yaml` 裡有一份，
+這份獨立清單裡也有一份，兩邊必須手動保持一致。統一它屬另一票。
 
-**這與 #47（第一個真 scenario 落地）直接相關**：`admission-e2e`、`p2-latency-baseline`（#90
-Phase 4 的量測載具）都還沒在這份清單登記，Purple Console 的涵蓋率表與 Battleboard 的攻防進度
-在它們身上會直接 500，不是空資料。#47 完工、或 #18／#47 把 `expected_sources` 的真相來源統一
-（scenario `metadata.yaml` 裡已經有這個欄位，跟這份獨立清單重複了）之前，這條路徑修不了，
-且修法屬另一票，不在本 PR 範圍。
+## 後端出口：判定邏輯有、部署裡沒有
 
-## 這次一併補的後端出口
-
-三個「判定邏輯早就寫好、但部署裡沒有出口」的縫：
+三個「判定邏輯早就寫好、但部署裡沒有出口」的縫，由 PR #110 一併補上：
 
 - `GET /api/techniques` —— technique 判讀限制（#26 的 acceptance criteria 要求常駐顯示，
   而那段文字只存在於 `config/techniques.yaml`）
