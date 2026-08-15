@@ -34,7 +34,7 @@ def wired(pg_connection):
     return (
         CoreEventStore(pg_connection),
         AlertRecordStore(pg_connection),
-        FingerprintIndex(pg_connection),
+        FingerprintIndex(pg_connection, "ex-current"),
     )
 
 
@@ -45,6 +45,7 @@ def _ingest(webhook, events, records, fps):
         records=records,
         fingerprints=fps,
         exercise_id="ex-current",
+        scenario_id="sqli-01",
     )
 
 

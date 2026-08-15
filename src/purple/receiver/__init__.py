@@ -34,6 +34,7 @@ def ingest_alert(
     response_queue: CommandQueue | None = None,
     fingerprints: Any = None,
     exercise_id: str,
+    scenario_id: str,
     auto_response: bool = False,
 ) -> list[str]:
     """把一個 Grafana webhook 轉成 Core Event，回傳鑄造出的 event_id 清單。
@@ -63,6 +64,15 @@ def ingest_alert(
         if lifecycle is None:
             continue  # pending 等內部狀態不是遊戲語意
 
+        alert_scenario = alert.get("labels", {}).get("scenario_id")
+        if alert_scenario != scenario_id:
+            log.warning(
+                "拒收延遲／串場 alert：label scenario=%r，running scenario=%r",
+                alert_scenario,
+                scenario_id,
+            )
+            continue
+
         event_id = _event_id_for(alert, fingerprints)
 
         # 先在記憶體裡建 Core Event（會驗白名單）。白名單外的 technique 在此被擋，
@@ -73,6 +83,7 @@ def ingest_alert(
                 event_id,
                 lifecycle,
                 exercise_id=exercise_id,
+                scenario_id=scenario_id,
             )
         except TechniqueRejected as exc:
             log.warning("拒收 alert：%s（rule=%s）", exc, alert.get("labels", {}).get("alertname"))

@@ -17,11 +17,15 @@ from purple.receiver.core import mint_event_id
 @dataclass
 class FingerprintIndex:
     conn: psycopg.Connection
+    exercise_id: str
 
     def event_id_for(self, fingerprint: str) -> str | None:
         row = self.conn.execute(
-            "SELECT event_id FROM alert_fingerprints WHERE fingerprint = %s",
-            (fingerprint,),
+            """
+            SELECT event_id FROM alert_fingerprints
+            WHERE exercise_id = %s AND fingerprint = %s
+            """,
+            (self.exercise_id, fingerprint),
         ).fetchone()
         return row[0] if row else None
 
@@ -32,9 +36,12 @@ class FingerprintIndex:
         """
         candidate = mint_event_id()
         self.conn.execute(
-            "INSERT INTO alert_fingerprints (fingerprint, event_id) VALUES (%s, %s) "
-            "ON CONFLICT (fingerprint) DO NOTHING",
-            (fingerprint, candidate),
+            """
+            INSERT INTO alert_fingerprints (exercise_id, fingerprint, event_id)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (exercise_id, fingerprint) DO NOTHING
+            """,
+            (self.exercise_id, fingerprint, candidate),
         )
         # 不論剛插入或早已存在，一律回讀真正生效的 event_id。
         existing = self.event_id_for(fingerprint)

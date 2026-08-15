@@ -57,6 +57,7 @@ def test_metric_alert_produces_core_event(stores):
         events=events,
         records=records,
         exercise_id="ex-current",
+        scenario_id="bruteforce-01",
     )
 
     core = wait_for_event(
@@ -78,6 +79,7 @@ def test_promql_stays_out_of_the_core_event(stores):
         events=events,
         records=records,
         exercise_id="ex-current",
+        scenario_id="bruteforce-01",
     )
 
     core = events.by_id(event_id)[0]

@@ -84,11 +84,45 @@ CREATE TABLE IF NOT EXISTS alert_records (
 
 -- 一個 Grafana 告警的 firing 與 resolved 帶同一個 fingerprint。把 fingerprint
 -- 對映到單一 event_id，resolved 才能和 firing 共用同一個 event_id（spec §2.2、票 05）。
+--
+-- 鍵**必須**含 exercise_id：Grafana 的 fingerprint 只由 rule 的 label 集合決定，
+-- 同一條規則在下一場演練會再次產生一模一樣的 fingerprint。全域鍵會讓第二場的
+-- firing 撈回第一場的 event_id，事件因此被歸屬到已經結束的場次，而且無聲無息。
 CREATE TABLE IF NOT EXISTS alert_fingerprints (
-    fingerprint text        PRIMARY KEY,
+    exercise_id text        NOT NULL,
+    fingerprint text        NOT NULL,
     event_id    text        NOT NULL,
-    created_at  timestamptz NOT NULL DEFAULT now()
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (exercise_id, fingerprint)
 );
+
+-- 既有資料庫的升級路徑：CREATE TABLE IF NOT EXISTS 不會替已存在的表補欄位或換主鍵。
+-- 舊資料列沒有場次可歸屬，而 fingerprint 對映本來就只是生命週期關聯的暫態
+-- （firing↔resolved 配對），硬塞給任意一場會製造假的跨場關聯，所以直接丟棄。
+ALTER TABLE alert_fingerprints
+    ADD COLUMN IF NOT EXISTS exercise_id text;
+DELETE FROM alert_fingerprints WHERE exercise_id IS NULL;
+ALTER TABLE alert_fingerprints
+    ALTER COLUMN exercise_id SET NOT NULL;
+DO $$
+DECLARE pk_columns text[];
+BEGIN
+    SELECT array_agg(att.attname ORDER BY key_position.ordinality)
+    INTO pk_columns
+    FROM pg_constraint con
+    CROSS JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS key_position(attnum, ordinality)
+    JOIN pg_attribute att
+      ON att.attrelid = con.conrelid AND att.attnum = key_position.attnum
+    WHERE con.conrelid = 'alert_fingerprints'::regclass
+      AND con.contype = 'p';
+    IF pk_columns IS DISTINCT FROM ARRAY['exercise_id', 'fingerprint'] THEN
+        ALTER TABLE alert_fingerprints DROP CONSTRAINT IF EXISTS alert_fingerprints_pkey;
+        ALTER TABLE alert_fingerprints
+            ADD CONSTRAINT alert_fingerprints_pkey
+            PRIMARY KEY (exercise_id, fingerprint);
+    END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS action_registries (
     exercise_id text        PRIMARY KEY,

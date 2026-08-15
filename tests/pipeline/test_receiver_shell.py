@@ -59,6 +59,7 @@ class TestIngest:
             adapter=adapter,
             response_queue=queue,
             exercise_id="ex-current",
+            scenario_id="sqli-01",
         )
         assert len(ids) == 1
         assert events.count() == 1
@@ -68,7 +69,9 @@ class TestIngest:
         events, records, adapter, queue = wired
         [event_id] = ingest_alert(
             FIRING, events=events, records=records, adapter=adapter,
-            response_queue=queue, exercise_id="ex-current",
+            response_queue=queue,
+            exercise_id="ex-current",
+            scenario_id="sqli-01",
         )
         assert records.exists(event_id)
         assert records.by_id(event_id)["backend"] == "loki"
@@ -77,7 +80,9 @@ class TestIngest:
         events, records, adapter, queue = wired
         [event_id] = ingest_alert(
             FIRING, events=events, records=records, adapter=adapter,
-            response_queue=queue, exercise_id="ex-current",
+            response_queue=queue,
+            exercise_id="ex-current",
+            scenario_id="sqli-01",
         )
         assert events.by_id(event_id)[0]["event_id"] == event_id
         assert records.by_id(event_id)["event_id"] == event_id
@@ -86,7 +91,9 @@ class TestIngest:
         events, records, adapter, queue = wired
         ingest_alert(
             FIRING, events=events, records=records, adapter=adapter,
-            response_queue=queue, exercise_id="ex-current",
+            response_queue=queue,
+            exercise_id="ex-current",
+            scenario_id="sqli-01",
         )
         assert len(adapter.delivered) == 1
         assert adapter.delivered[0]["scenario_id"] == "sqli-01"
@@ -103,6 +110,7 @@ class TestIngest:
             adapter=adapter,
             response_queue=queue,
             exercise_id="ex-current",
+            scenario_id="sqli-01",
             auto_response=True,
         )
         commands = queue.claim()
@@ -122,6 +130,7 @@ class TestIngest:
             adapter=adapter,
             response_queue=queue,
             exercise_id="ex-current",
+            scenario_id="sqli-01",
             auto_response=True,
         )
         [command] = queue.claim()
@@ -139,6 +148,7 @@ class TestIngest:
             adapter=adapter,
             response_queue=queue,
             exercise_id="ex-current",
+            scenario_id="sqli-01",
         )
         assert queue.claim() == []
         assert events.count() == 1  # 事件本身還是照常入庫，只是沒有自動封鎖
@@ -157,7 +167,7 @@ class TestIngest:
         ingest_alert 每次都會鑄新 id，反而測不出重送的情境。
         """
         events, records, adapter, queue = wired
-        fingerprints = FingerprintIndex(pg_connection)
+        fingerprints = FingerprintIndex(pg_connection, "ex-current")
         ingest_alert(
             FIRING,
             events=events,
@@ -166,6 +176,7 @@ class TestIngest:
             response_queue=queue,
             fingerprints=fingerprints,
             exercise_id="ex-current",
+            scenario_id="sqli-01",
             auto_response=True,
         )
         ingest_alert(
@@ -176,6 +187,7 @@ class TestIngest:
             response_queue=queue,
             fingerprints=fingerprints,
             exercise_id="ex-current",
+            scenario_id="sqli-01",
             auto_response=True,
         )
         commands = queue.claim()
@@ -185,7 +197,9 @@ class TestIngest:
         events, records, adapter, queue = wired
         ids = ingest_alert(
             PENDING, events=events, records=records, adapter=adapter,
-            response_queue=queue, exercise_id="ex-current",
+            response_queue=queue,
+            exercise_id="ex-current",
+            scenario_id="sqli-01",
         )
         assert ids == []
         assert events.count() == 0

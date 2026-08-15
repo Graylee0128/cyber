@@ -37,12 +37,20 @@ class TestTechniqueOutsideWhitelistRejected:
     def test_pure_core_raises(self):
         with pytest.raises(TechniqueRejected, match="T9999"):
             build_core_event(
-                _with_technique("T9999"), "evt-1", "firing", exercise_id="ex-current"
+                _with_technique("T9999"),
+                "evt-1",
+                "firing",
+                exercise_id="ex-current",
+                scenario_id="sqli-01",
             )
 
     def test_whitelisted_passes(self):
         core = build_core_event(
-            _with_technique("T1078"), "evt-1", "firing", exercise_id="ex-current"
+            _with_technique("T1078"),
+            "evt-1",
+            "firing",
+            exercise_id="ex-current",
+            scenario_id="sqli-01",
         )
         assert core["technique"] == "T1078"
 
@@ -50,7 +58,13 @@ class TestTechniqueOutsideWhitelistRejected:
 class TestRuleCannotOverrideVisibility:
     def test_label_visibility_is_ignored(self):
         # labels 想標 instructor，但 attack.detected 一律 public
-        core = build_core_event(BASE, "evt-1", "firing", exercise_id="ex-current")
+        core = build_core_event(
+            BASE,
+            "evt-1",
+            "firing",
+            exercise_id="ex-current",
+            scenario_id="sqli-01",
+        )
         assert core["visibility"] == "public"
 
     def test_every_spec_event_type_has_a_visibility(self):
@@ -61,7 +75,13 @@ class TestRuleCannotOverrideVisibility:
 
 class TestCoreEventContainsNoBackendFields:
     def test_no_backend_vocabulary(self):
-        core = build_core_event(BASE, "evt-1", "firing", exercise_id="ex-current")
+        core = build_core_event(
+            BASE,
+            "evt-1",
+            "firing",
+            exercise_id="ex-current",
+            scenario_id="sqli-01",
+        )
         blob = repr(core).lower()
         for word in ("loki", "logql", "promql", "backend"):
             assert word not in blob
@@ -89,6 +109,7 @@ class TestRejectionIsRecordedNotSilent:
                 webhook, events=events, records=records,
                 adapter=RecordingAdapter(), response_queue=InMemoryCommandQueue(),
                 exercise_id="ex-current",
+                scenario_id="sqli-01",
             )
 
         assert ids == []                    # 沒有 Core Event
@@ -105,7 +126,11 @@ class TestRejectionIsRecordedNotSilent:
         webhook = {"status": "firing", "alerts": [_with_technique("T9999")]}
 
         ingest_alert(
-            webhook, events=events, records=records, exercise_id="ex-current"
+            webhook,
+            events=events,
+            records=records,
+            exercise_id="ex-current",
+            scenario_id="sqli-01",
         )
         # 沒有 Core Event，也不該有孤兒 Alert Record
         assert (
