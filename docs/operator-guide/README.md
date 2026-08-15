@@ -246,9 +246,9 @@ sudo bash test.sh          # T4 會跑真環境全鏈：Red action → Falco →
 同理，「有 log 但沒有規則」是 **detection gap**（要補規則），跟「根本沒有 log」是兩件事。
 講評時分清楚。
 
-> ⚠️ **目前 Evaluation API 對任何真實 scenario 都會回 500**：
-> `config/scenario-sources.yaml` 刻意留空（`scenarios: []`），只有 fixture scenario 能跑。
-> 這是既有缺口，講評前請先確認本場 scenario 是否已註冊。
+> ⚠️ **沒有登記在 `config/scenario-sources.yaml` 的 scenario 會讓 Evaluation API 回 503**，
+> 涵蓋率表與下鑽是空的、不是零資料。目前登記的是 `shopdb-credential-pivot`；
+> `admission-e2e`、`p2-latency-baseline` 這類量測載具沒有登記。**講評前先確認本場 scenario 已註冊。**
 
 ## 11. Battleboard 投影
 
@@ -283,7 +283,7 @@ sudo bash test.sh          # T4 會跑真環境全鏈：Red action → Falco →
 | 藍隊「封鎖來源」顯示派送失敗 | Z-MGMT 的 response 佇列有問題。**該動作不會計分**，這是刻意的——別讓分數顯示一個沒發生的封鎖 |
 | SOC 沒有任何 alert | 依序確認：靶機活著 → Falco 有事件 → Alloy → Loki → Grafana Alerting。Grafana 是唯一 alert engine |
 | 遙測儀表板空白 | 預設 profile 的 `grafana` / `loki` 沒起 |
-| Purple Console 500 | scenario 未在 `config/scenario-sources.yaml` 註冊（既有缺口） |
+| Purple Console 回 503／涵蓋率表空白 | 本場 scenario 未在 `config/scenario-sources.yaml` 註冊 |
 | 教官控台開不了 | 確認瀏覽器 IP 在 `UI_PRIVILEGED_CIDR` 內，且已在 `/instructor-login/` 登入 |
 | 座位卡在 requested 狀態 | Event Control「清理逾時的領位請求」 |
 

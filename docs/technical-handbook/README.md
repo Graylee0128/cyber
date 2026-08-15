@@ -359,7 +359,7 @@ compose profile：**預設**（遙測棧）、`falco`、`admission-e2e`（Admiss
 | 3 | **`UI_PRIVILEGED_CIDR` 預設 `0.0.0.0/0`**，正式部署必須收斂到 Z-MGMT | `ui/README.md` 缺口 2、[#126](https://github.com/Graylee0128/cyber/issues/126) |
 | 4 | **Evaluation API 自己不驗證身分**，安全性依賴「只住 Z-MGMT 不對外」這個假設 | matrix §6 |
 | 5 | briefing 沒有 API——`scenarios/<id>/briefing.md` 沒有 HTTP 出口 | `ui/README.md` 缺口 5 |
-| 6 | Evaluation API 對真 scenario 回 500——`config/scenario-sources.yaml` 刻意留空 | `ui/README.md` 缺口 6 |
+| 6 | 未登記在 `config/scenario-sources.yaml` 的 scenario 在 Evaluation API 上回 503（已攔截，非未處理的 500）；`expected_sources` 有 scenario `metadata.yaml` 與該清單兩個真相來源要手動保持一致 | `ui/README.md` 缺口 6 |
 | 7 | 現場進場碼 UI 是純前端假資料，未接上真正的 HMAC 驗證 | `src/admission/templates/event_control.html` |
 | 8 | `join.html` 沒有任何 script，不會呼叫 claims API——是呈現用範本，不是可用表單 | 同上 |
 | 9 | 跨 profile Postgres 分裂 | `ui/README.md` |
