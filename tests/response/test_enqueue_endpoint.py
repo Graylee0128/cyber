@@ -95,6 +95,38 @@ class TestAuth:
         assert status == 202
 
 
+class TestErrorsDoNotLeakInternals:
+    """錯誤回應不得夾帶內部細節。
+
+    `/webhook` 與 `/response/report` 的 except 區段涵蓋了開資料庫連線 ——
+    psycopg 的連線錯誤訊息**帶著完整 DSN（含帳密）**，直接 `str(exc)` 回去
+    等於把資料庫密碼回給呼叫者。同
+    `tests/evidence/test_service.py::test_unexpected_error_is_500_without_leaking_details`。
+    """
+
+    def test_webhook_failure_does_not_echo_the_dsn(self, server, monkeypatch):
+        base_url, _ = server
+        monkeypatch.setenv(
+            "PURPLE_PG_DSN",
+            "postgresql://purple:super-secret-password@db.internal.invalid:5432/purple",
+        )
+
+        status, body = _post(f"{base_url}/webhook", {"alerts": []})
+
+        assert status == 500
+        assert "super-secret-password" not in json.dumps(body)
+        assert "db.internal.invalid" not in json.dumps(body)
+
+    def test_contract_violation_still_explains_itself(self, server):
+        """相對照：契約違規的訊息**要**回給呼叫者，否則對方修不動。"""
+        base_url, _ = server
+
+        status, body = _post(f"{base_url}/response/report", {"event_type": "attack.detected"})
+
+        assert status == 400
+        assert body["error"]
+
+
 class TestPayloadHandling:
     def test_missing_field_is_400(self, server):
         base_url, queue = server

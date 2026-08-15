@@ -84,6 +84,21 @@ Grafana `eval interval` = **10s**。
 
 同一個告警的 `firing` 與 `resolved` **共用同一個 `event_id`**，以 `lifecycle` 區分。
 
+配對用的 fingerprint 對映**以場次為作用域**（`alert_fingerprints` 的鍵是
+`(exercise_id, fingerprint)`）。Grafana 的 fingerprint 只由 rule 的 label 集合決定，
+同一條規則在下一場會再次產生一模一樣的值 —— 沒有場次作用域，第二場的 `firing`
+會撈回第一場鑄造的 `event_id`，新事件被靜默掛到已結束的場次上。
+
+`resolved` 是唯一的例外：它**跨場次**尋找自己的 `firing`。Grafana 的 resolved 常常
+晚到，演練已經結束、下一場已經開始是正常情形，不是異常。這種 `resolved`：
+
+- 沿用 `firing` 的 `event_id`（上面那條規則不因此鬆動）
+- **歸屬於 `firing` 那一場**：`exercise_id` 取自對映，不取當下正在跑的場次
+
+歸給當下這場會有兩個後果：舊場次的 `firing` 永遠沒有終點（`resolutions_by_event()`
+依 `exercise_id` 過濾，containment duration 靜默變成不可得），而新場次會多出一筆
+沒有 `firing` 的孤兒 `resolved`。
+
 ## 2.3 `technique`（ADR ⑤）
 
 - 來源：**Grafana alert rule 自帶的 `technique` label**

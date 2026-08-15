@@ -104,6 +104,96 @@ def test_two_sequential_exercises_emit_core_events_with_distinct_exercise_ids(
     assert second_core["exercise_id"] == second.exercise_id
 
 
+def _resolved_of(alert: dict) -> dict:
+    """同一個告警的 resolved：fingerprint 相同，status 換成 resolved。"""
+    [firing] = alert["alerts"]
+    return {"alerts": [{**firing, "status": "resolved", "endsAt": "2026-08-11T08:05:00+00:00"}]}
+
+
+def test_resolved_arriving_after_rollover_still_pairs_with_its_firing(
+    pg_connection,
+    exercise_store,
+    exercise_clock,
+) -> None:
+    """換場之後才到的 resolved 屬於 firing 那一場，不屬於當下這場（契約 §2.2）。
+
+    Grafana 的 resolved 常常晚到，演練已經結束、下一場已經開始是正常情形。
+    fingerprint 對映若只在當前場次裡找，這筆 resolved 會配不到 firing，
+    鑄一個新 event_id 掛在新場次上 —— 舊場次的 firing 永遠沒有終點，
+    `resolutions_by_event()` 依 exercise_id 過濾，含制時間靜默變成不可得。
+    """
+    exercise_clock.current = datetime.now(timezone.utc) + timedelta(hours=1)
+    events = CoreEventStore(pg_connection)
+    records = AlertRecordStore(pg_connection)
+    lookup = RunningExerciseLookup(pg_connection)
+    roster = (PlayerRegistration(player_id="red-alice", source_ip="10.167.30.11"),)
+
+    first = exercise_store.start(scenario(), roster)
+    first_exercise_id = lookup.require_id()
+    [firing_event_id] = ingest_alert(
+        ALERT,
+        events=events,
+        records=records,
+        fingerprints=FingerprintIndex(pg_connection, first_exercise_id),
+        exercise_id=first_exercise_id,
+    )
+
+    exercise_clock.advance(timedelta(minutes=30))
+    second = exercise_store.start(scenario(), roster)
+    second_exercise_id = lookup.require_id()
+    [resolved_event_id] = ingest_alert(
+        _resolved_of(ALERT),
+        events=events,
+        records=records,
+        fingerprints=FingerprintIndex(pg_connection, second_exercise_id),
+        exercise_id=second_exercise_id,
+    )
+
+    # §2.2：firing 與 resolved 共用同一個 event_id。
+    assert resolved_event_id == firing_event_id
+
+    # 而且歸在 firing 的那一場 —— 不是當下正在跑的第二場。
+    resolved_core = [e for e in events.by_id(resolved_event_id) if e["lifecycle"] == "resolved"]
+    assert len(resolved_core) == 1
+    assert resolved_core[0]["exercise_id"] == first.exercise_id
+    assert resolved_core[0]["exercise_id"] != second.exercise_id
+
+    # 第一場查得到自己的終點；第二場不該把別場的 resolved 當成自己的。
+    assert firing_event_id in events.resolutions_by_event(first.exercise_id)
+    assert events.resolutions_by_event(second.exercise_id) == {}
+
+
+def test_resolved_within_the_same_exercise_still_pairs(
+    pg_connection,
+    exercise_store,
+    exercise_clock,
+) -> None:
+    """跨場次的回退不能弄壞常態：同一場內的 resolved 照樣配到同一個 event_id。"""
+    exercise_clock.current = datetime.now(timezone.utc) + timedelta(hours=1)
+    events = CoreEventStore(pg_connection)
+    records = AlertRecordStore(pg_connection)
+    lookup = RunningExerciseLookup(pg_connection)
+    roster = (PlayerRegistration(player_id="red-alice", source_ip="10.167.30.11"),)
+
+    exercise = exercise_store.start(scenario(), roster)
+    exercise_id = lookup.require_id()
+    index = FingerprintIndex(pg_connection, exercise_id)
+
+    [firing_event_id] = ingest_alert(
+        ALERT, events=events, records=records, fingerprints=index, exercise_id=exercise_id
+    )
+    [resolved_event_id] = ingest_alert(
+        _resolved_of(ALERT),
+        events=events,
+        records=records,
+        fingerprints=index,
+        exercise_id=exercise_id,
+    )
+
+    assert resolved_event_id == firing_event_id
+    assert firing_event_id in events.resolutions_by_event(exercise.exercise_id)
+
+
 def test_grafana_rules_do_not_claim_a_static_exercise_identity() -> None:
     rules = (
         Path(__file__).resolve().parents[2]
