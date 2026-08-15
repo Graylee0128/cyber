@@ -9,7 +9,7 @@
 | Z-RED | 30 | 10.167.30.0/24 | 六台 kali（各自 IP） |
 | Z-APP | 40 | 10.167.40.0/24 | Range Core / Product UI（WS5） |
 | Z-EDGE | 50 | 10.167.50.0/24 | TLS ingress / ttyd proxy（WS8） |
-| Z-BLUE | 60 | 10.167.60.0/24 | Blue seat runtime（由 #62 交付；本票僅用 stub 驗 policy） |
+| Z-BLUE | 60 | 10.167.60.0/24 | Blue seat runtime（#62 已交付：`seat_provisioner.py` 每座建 a／b 兩台；本檔的 netns 僅用 stub 驗 policy） |
 
 ## Network Topology v0.3（#20）
 
@@ -20,7 +20,9 @@
   對 MGMT／TARGET 維持契約 5 deny all。
 - RED seat 同 VLAN 預設以 OVS protected ports 隔離；Docker seat path 同步寫入
   `DOCKER-USER` CIDR DROP。只有明確設定 `ALLOW_RED_LATERAL=1` 才開放收尾期互打。
-- APP／EDGE／BLUE netns 是 policy stub，不代表 WS5／WS7／#62 runtime 已完成。
+- APP／EDGE／BLUE netns 是 policy stub，不代表 WS5／WS7 runtime 已完成。
+  （#62 的 seat runtime 本身已交付，見 `seat_provisioner.py`；這裡的 netns 是另一回事，
+  純粹是驗防火牆規則用的假端點。）
 
 ## 切片（單主機巢狀，選型：混合 VM+容器 + Open vSwitch）
 
