@@ -89,6 +89,10 @@ class ExerciseReport:
     #: 哪些時段有 raw 覆蓋（§4.2）—— retention 過期時標明範圍，而不是靜默顯示空白。
     raw_coverage_windows: tuple[str, ...]
     recommendations: tuple[str, ...]
+    #: #131／#132：AI 生成的敘事摘要，純呈現層——不是新的判斷來源，只是把上面
+    #: 這些已經凍結的數字唸成一段話。預設 None：舊呼叫端不受影響，Ollama 不可用
+    #: 時報告照樣產出，只是沒有這段（見 purple.report.narrative）。
+    narrative: str | None = None
 
     def as_dict(self) -> dict[str, object]:
         report = {
@@ -110,6 +114,7 @@ class ExerciseReport:
             "unknown": {"count": self.unknown.count, "reasons": list(self.unknown.reasons)},
             "raw_coverage_windows": list(self.raw_coverage_windows),
             "recommendations": list(self.recommendations),
+            "narrative": self.narrative,
         }
         _reject_detection_rate(report)
         return report
@@ -139,6 +144,7 @@ def build_exercise_report(
     retention_window: RetentionWindow,
     event_timestamps: Iterable[datetime] = (),
     recommendations: tuple[str, ...] = (),
+    narrative: str | None = None,
 ) -> ExerciseReport:
     """從 Evaluation API 的 `metrics` 快照組出報告 —— 數字複製進來，不重算。
 
@@ -149,6 +155,12 @@ def build_exercise_report(
     `retention_window` 與報告引用到的 `event_timestamps`，過期判定由
     `raw_coverage_windows_for` 自動算出，不必倚賴呼叫端手填、也不會靜默
     留空。
+
+    `narrative`（#131／#132）刻意維持這個函式本身無 I/O：呼叫端要先組出報告、
+    用 `.as_dict()` 餵給 `purple.report.narrative.generate_narrative()`（那裡才會
+    真的打 Ollama），再把結果傳回這裡，或用 `dataclasses.replace()` 事後貼上去。
+    不在這裡直接呼叫 AI，是不想讓「組報告」這個純函數背上一次網路呼叫的延遲與
+    失敗模式。
     """
     if "alert_volume" not in metrics:
         raise ReportContractError("metrics 缺 alert_volume —— 告警總量必須與 coverage 並列")
@@ -169,4 +181,5 @@ def build_exercise_report(
         unknown=UnknownSummary(count=unknown_count, reasons=tuple(unknown_reasons)),
         raw_coverage_windows=raw_coverage_windows_for(retention_window, event_timestamps),
         recommendations=tuple(recommendations),
+        narrative=narrative,
     )

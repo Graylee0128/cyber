@@ -164,3 +164,26 @@ def test_raw_coverage_window_is_computed_not_caller_supplied():
 def test_no_referenced_events_yields_no_windows():
     d = _report(event_timestamps=()).as_dict()
     assert d["raw_coverage_windows"] == []
+
+
+# ── #131／#132：narrative 是選配欄位，預設不影響既有呼叫端 ──────────────────
+def test_narrative_defaults_to_none():
+    """舊呼叫端沒傳 narrative，報告照樣產出，數字欄位一個不少。"""
+    d = _report().as_dict()
+    assert d["narrative"] is None
+    assert d["blue"]["alert_volume"] == 4120  # narrative 沒有的時候，其餘欄位不受影響
+
+
+def test_narrative_is_carried_through_when_given():
+    d = _report(narrative="紅隊今天打得不錯。").as_dict()
+    assert d["narrative"] == "紅隊今天打得不錯。"
+
+
+def test_narrative_never_overrides_numeric_fields():
+    """narrative 只是外加的一段字串，不管內容是什麼都不該動到既有數字。"""
+    without = _report().as_dict()
+    with_narrative = _report(narrative="任意文字，含 coverage 100% 這種字樣也一樣").as_dict()
+
+    without.pop("narrative")
+    with_narrative.pop("narrative")
+    assert without == with_narrative
