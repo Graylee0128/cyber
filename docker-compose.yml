@@ -95,6 +95,12 @@ services:
       PURPLE_RESPONSE_URL: http://admission-receiver:8000
       RANGE_CORE_TOKEN_INSTRUCTOR: e2e-instructor-token
       RANGE_CORE_TOKEN_BLUE: e2e-blue-token
+      # #126 item 4：唯一可以代 Player Portal 宣告來源 IP 的呼叫者 —— Product UI
+      # 的 gateway（服務 token 本來就注入在那裡）。**不是** Z-EDGE：那一台必須
+      # 維持零憑證（WS8 spec §5.3，被打下時不該連帶交出任何 token），而代宣告
+      # 來源 IP 需要同時握有 Range Core 的服務 token。
+      # 沒設這個變數時沒有任何位址可信，`X-Seat-Source-Ip` 一律被忽略（fail closed）。
+      RANGE_CORE_TRUSTED_EDGE_HOST: ui
       # Product UI 的另外兩個 gateway 身分（#75）。沒配到的身分沒有合法 token，
       # 該 gateway 的每個請求都會 403 —— fail closed，不是預設放行。
       RANGE_CORE_TOKEN_RED: e2e-red-token

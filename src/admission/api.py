@@ -310,6 +310,26 @@ def create_app(
             raise HTTPException(status_code=403, detail="session does not own this terminal")
         return Response(status_code=204, headers={"X-Ttyd-Upstream": upstream})
 
+    @application.get("/admission/auth/seat", status_code=204)
+    def auth_seat(request: Request, svc: AdmissionService = Depends(service)) -> Response:
+        """Product UI gateway 的 `auth_request` 目標，用於名冊歸屬（#126 item 4）。
+
+        跟 `/admission/auth/ttyd/{terminal}` 同一個角色：回答「這個 session 對
+        應到哪台機器」。差別是那條回 ttyd 的 upstream 位址（要拿去 proxy_pass），
+        這條回名冊上的來源 IP（要拿去當 Range Core 的 `X-Seat-Source-Ip`）。
+        呼叫者是 Product UI 的 gateway 而非 Z-EDGE：代宣告來源 IP 需要同時握有
+        Range Core 的服務 token，而 Z-EDGE 必須維持零憑證（WS8 spec §5.3）。
+
+        藍隊 session 也回 204，只是不帶標頭——藍隊不做個人計分，沒有名冊歸屬，
+        但仍然是合法的 session，不該被擋在遊戲 API 之外（例如讀 `/api/score`）。
+        """
+        token = request.cookies.get(SESSION_COOKIE)
+        if svc.resolve_session(token) is None:
+            raise HTTPException(status_code=403, detail="active seat session required")
+        source_ip = svc.seat_source_ip(token)
+        headers = {"X-Seat-Source-Ip": source_ip} if source_ip else {}
+        return Response(status_code=204, headers=headers)
+
     @application.put("/admission/{exercise_id}/pool-config", status_code=204)
     def pool_config(exercise_id: str, body: PoolRequest, _actor: str = Depends(instructor), c=Depends(provide_conn)) -> Response:
         try:

@@ -167,6 +167,88 @@ class TestSubmissions:
 
         assert resp.status_code == 403
 
+
+class TestSeatSourceIpHeaderIsOnlyTrustedFromTheEdge:
+    """#126 item 4：Portal 經反向代理進來時，來源 IP 由 Z-EDGE 代為宣告。
+
+    這一組要證的是那個信任**沒有**擴張成「相信任何送這個標頭的人」——
+    forge 這個標頭的前提是先成為 Z-EDGE 本身。
+    """
+
+    def test_header_from_an_untrusted_peer_is_ignored_entirely(
+        self, exercise_store, pg_connection, monkeypatch
+    ):
+        """紅隊玩家直連 Range Core、冒用隊友的座位 IP —— 標頭必須無效。
+
+        沒有這條防線，`red-bob` 只要送一個標頭就能用 `red-alice` 的身分交
+        flag，而個人計分正是靠這個鍵區分他們的。
+        """
+        monkeypatch.setenv("RANGE_CORE_TRUSTED_EDGE_HOST", "edge.example")
+        app = make_app(exercise_store, pg_connection)
+        start(app)
+
+        # peer 是 BOB 自己那台 kali，不是 edge —— 標頭被忽略，落回 peer 位址。
+        resp = TestClient(app, client=BOB, headers={**AUTH, "X-Seat-Source-Ip": "10.167.30.11"}).post(
+            "/api/submissions", json={"objective_id": "capture_flag", "flag": FLAG}
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["player_id"] == "red-bob"
+
+    def test_header_from_the_trusted_edge_resolves_the_seated_player(
+        self, exercise_store, pg_connection, monkeypatch
+    ):
+        """peer 真的是 Z-EDGE 時才採信 —— 這正是 Portal 經 gateway 進來的情形。"""
+        edge = ("10.167.50.9", 45678)
+        monkeypatch.setenv("RANGE_CORE_TRUSTED_EDGE_HOST", "edge.example")
+        monkeypatch.setattr(
+            "range_core.api._resolve_host", lambda host: {"10.167.50.9"}
+        )
+        app = make_app(exercise_store, pg_connection)
+        start(app)
+
+        resp = TestClient(app, client=edge, headers={**AUTH, "X-Seat-Source-Ip": "10.167.30.11"}).post(
+            "/api/submissions", json={"objective_id": "capture_flag", "flag": FLAG}
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["player_id"] == "red-alice"
+
+    def test_edge_without_the_header_still_falls_back_to_the_peer_address(
+        self, exercise_store, pg_connection, monkeypatch
+    ):
+        """藍隊座位沒有名冊 IP，Z-EDGE 因此不設標頭 —— 不得因為缺標頭就當成
+        可以冒用，而是照常看 peer（於是 403，因為 edge 不在名冊上）。"""
+        edge = ("10.167.50.9", 45678)
+        monkeypatch.setenv("RANGE_CORE_TRUSTED_EDGE_HOST", "edge.example")
+        monkeypatch.setattr(
+            "range_core.api._resolve_host", lambda host: {"10.167.50.9"}
+        )
+        app = make_app(exercise_store, pg_connection)
+        start(app)
+
+        resp = TestClient(app, client=edge, headers=AUTH).post(
+            "/api/submissions", json={"objective_id": "capture_flag", "flag": FLAG}
+        )
+
+        assert resp.status_code == 403
+
+    def test_unset_trusted_edge_host_trusts_nobody(
+        self, exercise_store, pg_connection, monkeypatch
+    ):
+        """沒設定可信 edge 時 fail closed —— 部署忘了配，結果是「標頭無效」，
+        不是「任何人都能宣告來源 IP」。"""
+        monkeypatch.delenv("RANGE_CORE_TRUSTED_EDGE_HOST", raising=False)
+        app = make_app(exercise_store, pg_connection)
+        start(app)
+
+        resp = TestClient(app, client=BOB, headers={**AUTH, "X-Seat-Source-Ip": "10.167.30.11"}).post(
+            "/api/submissions", json={"objective_id": "capture_flag", "flag": FLAG}
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["player_id"] == "red-bob"
+
     def test_missing_flag_file_returns_503_and_writes_nothing(
         self, exercise_store, pg_connection, tmp_path
     ):

@@ -121,17 +121,22 @@ workstream 的契約都不需要，等真的有教官在演練中要求改分的
 
 這些是**真的沒做**，不是沒寫完。放在這裡是為了它們不會被畫面的完整度掩蓋掉。
 
-### 1. 來源 IP 歸屬與反向代理相衝
+### 1. ~~來源 IP 歸屬與反向代理相衝~~（已修，2026-08-15）
 
 `POST /api/submissions` 與 `POST /api/hints` 用 TCP peer address 當名冊的鍵，且**刻意不信任**
 `X-Forwarded-For`（`range_core/api.py` 的 `_source_ip`：信了就等於讓一個紅隊玩家能用別人的
 身分提交 flag）。經 gateway 進來的請求，Range Core 看到的是 nginx 的位址，所以會回
 403 `source IP is not on the exercise roster`。
 
-畫面照實顯示這個錯誤，不假裝成功。真正的解法是部署拓樸的決定（Portal 要從玩家自己的座位
-服務出去，或 Range Core 要坐在 Kali 直連得到的位置）—— `_source_ip` 的 docstring 自己也記著
-「deployment topology is not yet decided」。**2026-08-15 v2 grilling 拍板：走前者**（Portal
-從座位服務出去，理由見 [#126](https://github.com/Graylee0128/cyber/issues/126)）。
+**2026-08-15 修復**（[#126](https://github.com/Graylee0128/cyber/issues/126) item 4）：解法不是
+「開始相信某個標頭」，而是只信任**一個**呼叫者。gateway 對這兩條端點先 `auth_request` 問
+Admission 的 `/admission/auth/seat`「這個 session 坐哪台機器」，把答案放進 `X-Seat-Source-Ip`；
+Range Core 只在 TCP peer 真的是 `RANGE_CORE_TRUSTED_EDGE_HOST` 解析出來的位址時才採信該標頭，
+其餘一律看 peer。紅隊玩家直連 Range Core 自己塞標頭沒有用——他的 peer 是自己那台 kali。
+
+為什麼由 gateway 而不是 Z-EDGE 做：代宣告來源 IP 需要握有 Range Core 的服務 token，而
+Z-EDGE 必須維持零憑證（WS8 spec §5.3，`tests/deploy/test_edge_access.py` 有測試在管）。
+gateway 本來就依設計持有全部服務 token，這條路徑沒有讓任何主機多拿到一份秘密。
 
 ### 2. 誰能載入教官畫面，目前只靠網段擋
 

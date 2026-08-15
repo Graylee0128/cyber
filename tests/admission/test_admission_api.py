@@ -233,6 +233,53 @@ def test_prestart_blue_slots_are_capacity_not_provisioned_endpoints(pg_connectio
     assert rows == [("free", []), ("free", [])]
 
 
+# ── #126 item 4：Z-EDGE 代 Player Portal 查座位的來源 IP ────────────────────
+
+
+def test_auth_seat_returns_the_roster_source_ip_for_a_red_session(pg_connection):
+    """Z-EDGE 拿這條的答案去設 X-Seat-Source-Ip，Range Core 才知道是哪個玩家。
+    值必須跟領位時交給 Range Core 的 source_ip 是同一個（endpoints[0].host）。"""
+    PoolConfigStore(pg_connection).set_caps("EX", 1, 0)
+    c = client(pg_connection)
+    seat = claim(c).json()["seat_id"]
+    c.post(
+        f"/admission/seats/{seat}/ready",
+        json={"endpoints": [{"terminal": "main", "host": "10.167.30.11", "port": 7681}]},
+        headers={"Authorization": "Bearer svc-token"},
+    )
+
+    response = c.get("/admission/auth/seat")
+    assert response.status_code == 204
+    assert response.headers["X-Seat-Source-Ip"] == "10.167.30.11"
+
+
+def test_auth_seat_without_a_session_is_refused(pg_connection):
+    c = client(pg_connection)
+    assert c.get("/admission/auth/seat").status_code == 403
+
+
+def test_auth_seat_allows_blue_sessions_but_sends_no_source_ip(pg_connection):
+    """藍隊不做個人計分（WS8 spec §6.5.1），沒有名冊歸屬——但仍是合法 session，
+    不該被擋在遊戲 API 之外。沒有標頭時 Range Core 退回看 TCP peer。"""
+    PoolConfigStore(pg_connection).set_caps_and_prepare_blue("EX", 0, 1)
+    c = client(pg_connection)
+    seat = claim(c, team="blue").json()["seat_id"]
+    c.post(
+        f"/admission/seats/{seat}/ready",
+        json={
+            "endpoints": [
+                {"terminal": "a", "host": "10.167.60.11", "port": 7681},
+                {"terminal": "b", "host": "10.167.60.12", "port": 7681},
+            ]
+        },
+        headers={"Authorization": "Bearer svc-token"},
+    )
+
+    response = c.get("/admission/auth/seat")
+    assert response.status_code == 204
+    assert "X-Seat-Source-Ip" not in response.headers
+
+
 # ── #126 item 2：教官瀏覽器 session（不是伺服器對伺服器的 Bearer）───────────
 
 
