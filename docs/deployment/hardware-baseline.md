@@ -145,36 +145,42 @@ AI 輔助（#131）：Low profile 那輪測試環境**不存在**（`.88` 的 ma
 
 **踩到的第 4 個坑（流程性，非 bug）**：`pool-config/lock` 的語意跟直覺相反——**上鎖後藍隊自助 claim 會被擋**（`request_blue_seat` 檢查 `locked_at IS NOT NULL` 就直接拒絕）。正確順序是先讓藍隊 claim 完，鎖只是用來凍結名冊、不是開放 claim 的信號。第一次測試順序搞反，卡出一個沒有任何取消機制的 `prepared` 殭屍 exercise（呼應 `#143` 討論時就發現的「沒有取消預備」缺口），只能直接動 DB 清掉重來。
 
-**S2 結果**（Candidate Minimum 6C/12G，30 Red + 20 Blue，共 70 個動態 seat 容器 + 6 台固定紅隊容器 + target VM + 17 個 compose service）：
+**S2 結果**（三個 profile 都跑了 30 Red + 20 Blue，共 70 個動態 seat 容器 + 6 台固定紅隊容器 + target VM + 17 個 compose service，同一套流程重複套用）：
 
-| 指標 | 數值 | 備註 |
-|---|---|---|
-| 動態 seat 容器建置成功率 | 70/70（100%） | 30 紅（各 1 台）+ 20 藍（各 2 台 a/b） |
-| RAM（compose 17 服務 + 70 seat 容器，cgroup 準確量測） | ≈705 MiB | 目標 VM 這輪未重新綁定 cgroup partition（見下方限制），另計 |
-| RAM（target VM，`/proc/PID/status` 直讀） | ≈1.13 GiB | 與其他 profile 一致（golden image 開機後的穩態值） |
-| **RAM 合計（可信估計）** | **≈1.83 GiB** | 705 MiB + 1.13 GiB；6 台固定紅隊容器（`attach-red.sh`）不在任何 cgroup 量測範圍內，估計數十 MB 等級 |
-| 佔 Candidate Minimum 配額 | **≈15%／12 GiB** | 大量餘裕 |
-| Swap / OOM / CPU throttling | 全 0 | ✓ |
-| CPU（累積 usage_usec，約 15 分鐘含建置過程） | 196.13s CPU-time | 平均 ≈22%／6 vCPU |
-| Disk footprint | Δ≈427 MB（70 個輕量容器的可寫層，image 已快取） | 輕量 |
-| Health checks | 17/17 compose service `Up`，全 `healthy` | ✓ |
-| 功能性 smoke | 動態建立的紅隊 seat 容器打 target VM，`404`（有回應） | 通 ✓ |
+| 指標 | Low (4C/8G) | Candidate Minimum (6C/12G) | Recommended (8C/16G) |
+|---|---|---|---|
+| 動態 seat 容器建置成功率 | 70/70（100%，一次到位，無重試） | 70/70（100%，含 3 個 bug 修復前的除錯過程） | 70/70（100%，一次到位，無重試） |
+| RAM（compose 17 服務 + 70 seat 容器，cgroup 準確量測） | ≈668 MiB | ≈705 MiB | ≈660 MiB |
+| RAM（target VM，`/proc/PID/status` 直讀） | ≈1.12 GiB | ≈1.13 GiB | ≈1.13 GiB |
+| **RAM 合計（可信估計）** | **≈1.79 GiB** | **≈1.83 GiB** | **≈1.79 GiB** |
+| 佔配額 | **≈22.4%／8 GiB** | **≈15%／12 GiB** | **≈11.4%／16 GiB** |
+| Swap / OOM | 全 0 | 全 0 | 全 0 |
+| **CPU throttling** | **`nr_throttled=1`，139ms** | 0 | 0 |
+| CPU（累積 usage_usec） | 21.47s | 196.13s（含除錯來回） | 20.26s |
+| Health checks | 17/17 healthy | 17/17 healthy | 17/17 healthy |
+| 功能性 smoke | `404`（通） | `404`（通） | `404`（通） |
 
-**S2 Candidate Minimum 結論**：**通過**——即使把 30+20 典型人數的動態座位全部灌進去，RAM 用量也只到 12GiB 配額的 15%，遠低於 acceptance threshold 的 20% headroom 門檻（反過來說是還有 85% 沒用到）。這代表 Candidate Minimum(6C/12G) 對「典型演練規模」而言可能訂得**過於寬鬆**，不是卡在資源邊緣。
+（三個 profile 用的是同一份修好的程式碼，Low／Recommended 兩輪都是乾淨一次跑完，沒有重跑除錯——Candidate 的 CPU 時間偏高是因為那輪連同三個 bug 的除錯過程都算進去了，不是 Candidate 本身比較重。）
 
-**已知量測限制**：這輪 target VM 沒有重新走「destroy → 修 partition → redefine → restart」那套精確歸戶流程（S1 各 profile 有做，S2 為了先驗證流程本身能不能走通而省略），改用 `/proc/PID/status` 的 `VmRSS` 直讀相加——數字量級可信，但沒有像 S1 那樣通過 cgroup 硬性配額驗證（也就是說沒有實測到「VM + 70 seat 容器同時被 12GiB 硬上限夾住會怎樣」，只知道理論總量遠低於上限）。6 台固定紅隊容器同樣不在任何量測範圍內（S1/S2 一致的已知缺口）。
+**唯一的壓力訊號出現在 Low(4C/8G)**：70 個容器短時間內集中建置時，`cpu.stat` 記到一次 `nr_throttled`（139ms，1 個 period）——Candidate／Recommended 兩個 profile 完全沒有這個訊號。雖然短暫（不構成「長時間 saturation」），但這是三個 profile 裡唯一觸碰到 CPU 邊界的一次，跟 RAM 那條「Candidate 都還有 85% 沒用到」的寬鬆結論不衝突：**CPU 瞬時峰值先於 RAM 觸底**，值得在 Recommendation 裡列入考量。
 
-**Low(4C/8G)、Recommended(8C/16G) 的 S2 尚未執行**——方法已驗證可重複，下一輪可直接比照 Candidate 的流程套用（含這次修好的三個 provisioner bug 與 claim 順序坑）。
+**已知量測限制**：三輪的 target VM 都沒有重新走「destroy → 修 partition → redefine → restart」那套精確歸戶流程（S1 各 profile 有做，S2 為了先驗證流程本身能不能走通而省略），改用 `/proc/PID/status` 的 `VmRSS` 直讀相加——數字量級可信，但沒有像 S1 那樣通過 cgroup 硬性配額驗證。6 台固定紅隊容器同樣不在任何量測範圍內（S1/S2 一致的已知缺口，估計數十 MB 等級）。
 
 ## 6. Recommendation
 
-**仍待補一部分，但已有實測依據**：Candidate Minimum(6C/12G) 在 S2 典型負載下只用了 15%，顯示這個 profile 對典型演練規模而言餘裕過大，**下限候選可能可以比 6C/12G 更低**——但 Low(4C/8G) 的 S2 這輪沒測，不能直接下結論說 4C/8G 就夠。真正的 Candidate Minimum 判定，建議下一輪把 S2 也跑一次 Low profile，用「S2 在哪個 profile 開始出現 headroom<20%」反推真正的下限，而不是繼續用 Candidate 這個中間值。Recommended(8C/16G) 維持作為建議規格候選（S1 91% headroom，S2 未測但可預期同樣寬裕）。
+**三個 profile 的 S2 都做完了，可以拍板初步結論**：
+
+- **Recommended(8C/16G)**：RAM 11.4%、CPU 無 throttling——維持作為建議規格，餘裕充足。
+- **Candidate Minimum(6C/12G)**：RAM 15%、CPU 無 throttling——通過，餘裕依然大。
+- **Low(4C/8G)**：RAM 22.4%（仍遠高於 20% headroom 門檻，通過），但**唯一出現 CPU throttling**（雖短暫）——這是三個 profile 裡第一個、也是唯一一個摸到硬體邊界的訊號。
+
+**初步建議**：4C/8G 可以當 Candidate Minimum 的候選下限（S2 典型負載下 RAM／CPU 都還在驗收門檻內），但那次短暫 throttling 代表這已經接近「開始有感」的規模，不建議再往下探（例如 2C 或更低）。6C/12G 對「典型演練規模」而言確實偏寬鬆，可以考慮把正式 Minimum 定在 4C/8G、Recommended 維持 8C/16G，中間的 Candidate Minimum(6C/12G) 這個測試用的中繼點本身不必然要成為最終文件裡的正式規格。**最終定案建議還是需要人確認**——這裡是三輪實測給出的資料，不是自動拍板。
 
 ## 7. Validated Envelope
 
-**已驗證**：1 host（裸機，非巢狀 VM）+ 1 target VM（Falco/Alloy/app 烤進 golden image）+ 6 台固定紅隊容器 + 完整 L1 觀測棧（含 Ollama），在 Low(4C/8G)／Candidate Minimum(6C/12G)／Recommended(8C/16G) 三個 cgroup 圈禁 profile 下的 Platform 狀態（S1）。**S2 典型演練負載（30 Red + 20 Blue，70 個動態 seat 容器）已在 Candidate Minimum(6C/12G) 上端到端驗證通過**，含真實 HTTP 建立演練流程（非模擬）、真實 seat provisioner 建置、真實網路連通性 smoke。
+**已驗證**：1 host（裸機，非巢狀 VM）+ 1 target VM（Falco/Alloy/app 烤進 golden image）+ 6 台固定紅隊容器 + 完整 L1 觀測棧（含 Ollama），在 Low(4C/8G)／Candidate Minimum(6C/12G)／Recommended(8C/16G) 三個 cgroup 圈禁 profile 下的 Platform 狀態（S1）**與** S2 典型演練負載狀態（30 Red + 20 Blue，70 個動態 seat 容器）**皆已端到端驗證通過**，含真實 HTTP 建立演練流程（非模擬）、真實 seat provisioner 建置、真實網路連通性 smoke。
 
-**未驗證**：volumetric DDoS、heavy PCAP、malware detonation、Low/Recommended 兩個 profile 的 S2、multi-host 部署、S2 狀態下 target VM 的精確 cgroup 歸戶（見 5.4 量測限制）。
+**未驗證**：volumetric DDoS、heavy PCAP、malware detonation、multi-host 部署、S2 狀態下 target VM 的精確 cgroup 歸戶（見 5.4 量測限制）、超過 30+20 人的更大規模演練負載。
 
 ## 8. Revalidation Triggers
 
@@ -191,7 +197,7 @@ AI 輔助（#131）：Low profile 那輪測試環境**不存在**（`.88` 的 ma
 - [x] `#62` Seat Provisioner 接線修復並端到端驗證（另一顆 commit，同一個 PR）
 - [x] `#62` seat_provisioner.py 三個真 bug 修復：blue-seat image 沒人 build、Dockerfile COPY 路徑錯 context、`cs0` peer 名孤兒擋住全部座位
 - [x] `#143` 項目 1（prepare 沒有合法呼叫者）修好後（另一個 PR #145），S2 blocker 解除
-- [x] Candidate Minimum(6C/12G) profile：S2（30 Red + 20 Blue，70 個動態 seat 容器，100% 建置成功，headroom 仍有 ~85%）
-- [ ] Low(4C/8G)、Recommended(8C/16G) 兩個 profile 的 S2（方法已驗證可重複套用）
-- [x] 第 6 節 Recommendation 已有初步依據（Candidate 過於寬鬆），但正式下限判定待 Low profile 的 S2 補齊
-- [x] `.88` 每輪測試後都已還原乾淨（git checkout 復原 `docker-compose.yml`、slice 單元已移除、容器/VM/network 全部 teardown）
+- [x] 三個 profile 的 S2 全部完成（30 Red + 20 Blue，70 個動態 seat 容器，三輪皆 100% 建置成功）
+- [x] 抓到唯一的壓力訊號：Low(4C/8G) 出現一次短暫 CPU throttling（139ms），Candidate／Recommended 皆無
+- [x] 第 6 節 Recommendation 已拍板初步建議（Low 4C/8G 可當下限候選、Recommended 8C/16G 維持），待人確認定案
+- [x] `.88` 每輪測試後都已還原乾淨（git checkout 復原 `docker-compose.yml`、slice 單元已移除、容器/VM/network 全部 teardown，含 `docker compose down -v` 清掉累積的測試資料）
