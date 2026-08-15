@@ -27,11 +27,13 @@ from purple.evidence import (
     FakeBackend,
     UnknownCaller,
     extract_token,
+    handle_copilot_summary,
     handle_evidence,
     load_service_tokens,
     render_bundle,
     resolve_identity,
 )
+from purple.evidence import service as service_module
 from purple.store.alerts import AlertRecordStore
 from purple.store.events import CoreEventStore
 
@@ -244,6 +246,85 @@ class TestTokenNeverLeaked:
                 "evt-1", "blue-secret", _StubResolver(error=RuntimeError("boom")), TOKEN_MAP
             )
         assert "blue-secret" not in caplog.text
+
+
+class TestCopilotSummary:
+    """`handle_copilot_summary`（#133）—— instructor-only，其餘身分一律 403。
+
+    這條端點存不存在本身就敏感（洩漏「教官在看哪些玩家」），所以不是
+    「非教官看到較少欄位」，是「非教官整條路都不通」——跟 `handle_evidence`
+    的 clearance 投影邏輯刻意不同，這裡用 monkeypatch 換掉
+    `service.generate_copilot_summary` 驗證委派，不需要真的打 Ollama。
+    """
+
+    TOKENS = {
+        "red-secret": "red",
+        "blue-secret": "blue",
+        "purple-secret": "purple",
+        "instructor-secret": "instructor",
+    }
+
+    def test_missing_token_is_400(self):
+        status, body = handle_copilot_summary({"player_statuses": []}, None, self.TOKENS)
+        assert status == 400
+        assert "Authorization" in body["error"]
+
+    def test_unknown_token_is_403(self):
+        status, _ = handle_copilot_summary(
+            {"player_statuses": []}, "not-a-real-token", self.TOKENS
+        )
+        assert status == 403
+
+    @pytest.mark.parametrize("token", ["red-secret", "blue-secret", "purple-secret"])
+    def test_non_instructor_identities_are_403(self, token):
+        """#133 驗收：只給教官用——連 purple 都不行，不是分級遮蔽，是整條路擋掉。"""
+        status, _ = handle_copilot_summary({"player_statuses": []}, token, self.TOKENS)
+        assert status == 403
+
+    def test_missing_player_statuses_is_400(self):
+        status, body = handle_copilot_summary({}, "instructor-secret", self.TOKENS)
+        assert status == 400
+        assert "player_statuses" in body["error"]
+
+    def test_player_statuses_not_a_list_is_400(self):
+        status, _ = handle_copilot_summary(
+            {"player_statuses": "not a list"}, "instructor-secret", self.TOKENS
+        )
+        assert status == 400
+
+    def test_instructor_gets_200_with_summary(self, monkeypatch):
+        monkeypatch.setattr(service_module, "generate_copilot_summary", lambda statuses: "摘要")
+
+        status, body = handle_copilot_summary(
+            {"player_statuses": [{"player_id": "blue-01"}]}, "instructor-secret", self.TOKENS
+        )
+
+        assert status == 200
+        assert body["summary"] == "摘要"
+
+    def test_ollama_unavailable_is_still_200_with_none_summary(self, monkeypatch):
+        """#133 驗收：AI 服務不可用時，教官畫面照舊可用——不是 500，是 200 + summary=None。"""
+        monkeypatch.setattr(service_module, "generate_copilot_summary", lambda statuses: None)
+
+        status, body = handle_copilot_summary(
+            {"player_statuses": [{"player_id": "blue-01"}]}, "instructor-secret", self.TOKENS
+        )
+
+        assert status == 200
+        assert body["summary"] is None
+
+    def test_player_statuses_are_passed_through_verbatim(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(
+            service_module,
+            "generate_copilot_summary",
+            lambda statuses: captured.setdefault("statuses", statuses) or "x",
+        )
+        statuses = [{"player_id": "blue-01", "alert_count": 3}]
+
+        handle_copilot_summary({"player_statuses": statuses}, "instructor-secret", self.TOKENS)
+
+        assert captured["statuses"] == statuses
 
 
 # --- 對真 PG + FakeBackend 的整合（非全棧）--------------------------------

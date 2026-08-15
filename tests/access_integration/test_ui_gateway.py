@@ -182,6 +182,27 @@ def test_evaluation_api_has_a_deployment_exit():
     assert by_id["T1005"]["note"], "T1005 的判讀限制不該是空的"
 
 
+def test_copilot_summary_route_only_exists_for_instructor():
+    """#133：SOC Copilot 這條路徑本身只在 instructor 前綴下存在。
+
+    不是「其他身分打了會 403」——是其他前綴**沒有這條路由**（nginx 沒有對應
+    location，直接落到靜態檔案處理變 404），跟 evidence／eval 那種「路由都在，
+    靠 clearance 分級」的模式刻意不同：這條端點存不存在本身就敏感（洩漏
+    「教官在看哪些玩家」），所以連 blue／purple 前綴都不該摸到它。
+
+    instructor 前綴打得通，回應要有 `summary` key（AI 服務可能沒起，值可能
+    是 null——這條只驗路由跟回應形狀，不驗 AI 真的有算出東西，那件事已經在
+    2026-08-15 的手動 VM smoke test 驗過）。
+    """
+    status, body = _post("/gw/instructor/copilot/summary", {"player_statuses": []})
+    assert status == 200, body
+    assert "summary" in body
+
+    for identity in ("blue", "purple", "red"):
+        status, _ = _post(f"/gw/{identity}/copilot/summary", {"player_statuses": []})
+        assert status == 404, f"{identity} 前綴不該有這條路由，卻回了 {status}"
+
+
 def test_battleboard_projection_never_leaks_the_real_technique():
     """公開層前綴拿到的投影裡沒有任何 MITRE 編號。
 
