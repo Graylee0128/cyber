@@ -1,6 +1,7 @@
 # Product UI
 
-平台的六個對人畫面。零依賴靜態頁（無 build step、無 npm），由 nginx 服務並代理後端。
+平台的七個對人畫面（Player Portal 紅藍各一檔）。零依賴靜態頁（無 build step、無 npm），
+由 nginx 服務並代理後端。
 
 | 畫面 | 目錄 | Audience | gateway 身分 |
 |---|---|---|---|
@@ -12,42 +13,16 @@
 | Instructor Console | `instructor/` | Instructor | `instructor` |
 | Event Control | `event-control/` | 會議中控 | `instructor` → Admission |
 
-## 技術選型：為什麼是零依賴靜態頁
+**誰能看什麼、能做什麼、由什麼強制**：見
+[Role × UI × Permission Matrix](../docs/architecture/role-ui-permission-matrix.md)。
+那份文件也記錄了 matrix 逐格填「由什麼強制」時發現、而下方已知缺口清單沒有涵蓋的兩個缺口。
 
-`purple-console-ui/spec.md` Q4 與 `product-ui/spec.md` 的前端技術選型此前都是空白。定為
-**選項 A（零依賴靜態 HTML/CSS/JS）**，理由三條：
+**技術選型（為什麼是零依賴靜態頁）與權限模型（token 不進瀏覽器、一個頁面只能有一個身分）**
+已遷入 [Technical Handbook §5 UI Architecture](../docs/technical-handbook/README.md#5-ui-architecture)
+與 [§6 Identity / Authorization](../docs/technical-handbook/README.md#6-identity--authorization)。
+權限邊界的實體仍是 [`deploy/ui/default.conf.template`](../deploy/ui/default.conf.template)。
 
-1. 六份視覺提案本來就是零依賴單檔，沿用等於不作廢已經跟組員對過的設計
-2. 這是一個純 Python repo，加一套 Node toolchain 要同時進 CI、進 image、進真 range 主機，
-   而這六個畫面是讀多寫少的表格與清單，不需要為此付那個代價
-3. Z-EDGE 已經有 nginx。靜態 bundle 直接掛 volume 就能服務，沒有建置產物要管
-
-改用框架不是不行，但要等到有一個「靜態頁做不到」的具體需求，而不是預先假設。
-
-## 權限模型：token 不進瀏覽器
-
-Range Core、Evidence API、Admission 的呼叫者身分都由**部署時注入的服務 token** 換出
-（`disclosure.identity`）。那個保證 —— 呼叫者無法自報身分 —— 只在 token 不在呼叫者手上時
-才成立。前端持有 token 等於當場作廢：紅隊玩家打開 devtools 就能拿 instructor token 去
-`POST /api/exercises/reset`，把整場演練清掉。
-
-所以：
-
-```
-瀏覽器  ──不帶 Authorization──▶  nginx  ──貼上該前綴的 token──▶  後端
-        /gw/blue/core/api/score              Bearer <blue token>
-```
-
-前綴決定身分，身分決定 clearance，clearance 決定後端遮掉哪些欄位。**遮蔽發生在後端組裝
-回應時**，不是前端渲染時 —— 前端遮是假的，devtools 打開就看到。token 表在
-[`deploy/ui/default.conf.template`](../deploy/ui/default.conf.template)，那個檔案就是這層邊界本身。
-
-同樣的機制也管 Battleboard 的延遲揭露：`revealed` 參數由前綴強制寫死，公開前綴永遠 `false`。
-
-**推論：一個頁面只能有一個身分。** 紅藍玩家視角因此是兩個檔案（`player/index.html` 與
-`player/blue.html`），不是同一頁的兩個分頁 —— 分頁式的做法要讓一頁同時持有 red 與 blue
-兩個 gateway，而 red 的 clearance 是 0、blue 是 1，等於給紅隊玩家一個「切一下就升級
-可見範圍」的按鈕。切換身分＝換頁。
+本檔保留的是**實作導覽**：怎麼跑起來、完成度對照、已知缺口。
 
 ## 跑起來
 
