@@ -26,7 +26,12 @@ RUN apt-get update \
 RUN useradd -m -s /bin/bash blue
 
 # sudo allowlist：内容與「為什麼」見同目錄的 sudoers.d/blue。
-COPY deploy/blue-seat/sudoers.d/blue /etc/sudoers.d/blue
+# 路徑相對於本檔所在目錄（build context = deploy/blue-seat/，跟
+# deploy/red-attacker/ 同一個慣例，見 attach-red.sh／seat_provisioner.py
+# 的呼叫方式）——寫成 repo-root 相對路徑會在唯一真的呼叫路徑下 COPY 失敗
+# （build context 從來不是 repo 根目錄），這是實測抓到的真缺口：這顆 image
+# 在這次修復前從沒被任何腳本成功 build 過。
+COPY sudoers.d/blue /etc/sudoers.d/blue
 RUN chmod 0440 /etc/sudoers.d/blue && visudo -c
 
 USER blue
