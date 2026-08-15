@@ -102,6 +102,14 @@ def test_the_prefix_decides_the_identity_not_the_caller():
     assert status == 403, body
 
 
+def test_grafana_health_passthrough_has_no_identity_gate():
+    """#126：Grafana 是唯一 alert engine，掛了偵測全停不會有信號。這條只補
+    可見性，不補告警管線——Instructor Console 直接 fetch 這條顯示狀態燈，
+    所以它必須對任何呼叫者都開放（沒有 gateway 前綴，不需要身分）。"""
+    status, _ = _get("/health/grafana")
+    assert status == 200
+
+
 def test_instructor_prefix_reaches_instructor_only_endpoints():
     """反面：同一條端點經 instructor 前綴就過得了 clearance 這一關。
 

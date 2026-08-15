@@ -54,6 +54,14 @@
       <button id="btn-latency">計算並保存延遲摘要</button>
     </div>
     <div id="ops-result"></div>
+    <div class="section-label">遙測後端</div>
+    <div class="dot" id="grafana-status">
+      <span class="dot-live" id="grafana-live"></span>Grafana（唯一 alert engine）
+    </div>
+    <div class="note">
+      這裡只補可見性，不補告警管線：掛了會在這裡變紅，不會另外推播——現場由教官盯著，
+      不是 on-call 場景（#126 決策）。
+    </div>
     <div class="section-label">Admission 告警</div>
     <div id="admission-alerts"></div>
   </div>

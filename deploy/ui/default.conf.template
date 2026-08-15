@@ -141,4 +141,13 @@ server {
         access_log off;
         return 200 "ok\n";
     }
+
+    # Instructor Console 的 Grafana 可見性補償（#126）：Grafana 是唯一 alert
+    # engine，掛了偵測全停不會有信號。這裡不做告警管線，只補一個沒有身分限制
+    # 的 liveness passthrough——`/api/health` 不含敏感資料，跟上面 `/healthz`
+    # 自我檢查同一等級，Instructor Console 直接 fetch 顯示狀態燈。
+    location = /health/grafana {
+        access_log off;
+        proxy_pass http://$grafana/api/health;
+    }
 }
