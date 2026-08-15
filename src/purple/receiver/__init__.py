@@ -63,7 +63,7 @@ def ingest_alert(
         if lifecycle is None:
             continue  # pending 等內部狀態不是遊戲語意
 
-        event_id = _event_id_for(alert, fingerprints)
+        event_id, attributed_to = _event_id_for(alert, lifecycle, fingerprints, exercise_id)
 
         # 先在記憶體裡建 Core Event（會驗白名單）。白名單外的 technique 在此被擋，
         # 記錄後跳過 —— 不得靜默通過，也不會留下孤兒 Alert Record。
@@ -72,7 +72,7 @@ def ingest_alert(
                 alert,
                 event_id,
                 lifecycle,
-                exercise_id=exercise_id,
+                exercise_id=attributed_to,
             )
         except TechniqueRejected as exc:
             log.warning("拒收 alert：%s（rule=%s）", exc, alert.get("labels", {}).get("alertname"))
@@ -105,9 +105,27 @@ def ingest_alert(
     return emitted
 
 
-def _event_id_for(alert: dict[str, Any], fingerprints: Any) -> str:
-    """有 fingerprint index 且 alert 帶 fingerprint 時，firing／resolved 共用同一 id。"""
+def _event_id_for(
+    alert: dict[str, Any],
+    lifecycle: str,
+    fingerprints: Any,
+    exercise_id: str,
+) -> tuple[str, str]:
+    """回傳 `(event_id, 這筆事件該歸給哪一場)`。
+
+    有 fingerprint index 且 alert 帶 fingerprint 時，firing／resolved 共用同一個
+    event_id（契約 §2.2）。`resolved` 額外跨場次找 firing：換場之後才到的 resolved
+    屬於 firing 那一場，歸給當下這場會讓舊場次的 firing 永遠沒有終點。
+    """
     fp = alert.get("fingerprint")
-    if fingerprints is not None and fp:
-        return fingerprints.assign(fp)
-    return mint_event_id()
+    if fingerprints is None or not fp:
+        return mint_event_id(), exercise_id
+
+    if lifecycle == "resolved":
+        match = fingerprints.pair_with_firing(fp)
+        if match is not None:
+            return match.event_id, match.exercise_id
+        # 配不到 firing 的 resolved（例如 receiver 在 firing 當下沒收到）：
+        # 照舊在當前場次鑄造並記住，後續重送才配得回來。
+
+    return fingerprints.assign(fp), exercise_id

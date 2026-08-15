@@ -12,9 +12,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 import psycopg
+
+log = logging.getLogger("purple.store.db")
 
 #: 本機與 CI 都用這個。CI 由 service container 提供，本機由 docker compose。
 DEFAULT_DSN = "postgresql://purple:purple@localhost:5432/purple"
@@ -96,34 +99,6 @@ CREATE TABLE IF NOT EXISTS alert_fingerprints (
     created_at  timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (exercise_id, fingerprint)
 );
-
--- 既有資料庫的升級路徑：CREATE TABLE IF NOT EXISTS 不會替已存在的表補欄位或換主鍵。
--- 舊資料列沒有場次可歸屬，而 fingerprint 對映本來就只是 firing↔resolved 的暫態
--- 關聯，硬塞給任意一場會製造假的跨場關聯，所以直接丟棄而不是猜。
-ALTER TABLE alert_fingerprints
-    ADD COLUMN IF NOT EXISTS exercise_id text;
-DELETE FROM alert_fingerprints WHERE exercise_id IS NULL;
-ALTER TABLE alert_fingerprints
-    ALTER COLUMN exercise_id SET NOT NULL;
-DO $$
-DECLARE pk_columns text[];
-BEGIN
-    SELECT array_agg(att.attname ORDER BY key_position.ordinality)
-    INTO pk_columns
-    FROM pg_constraint con
-    CROSS JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS key_position(attnum, ordinality)
-    JOIN pg_attribute att
-      ON att.attrelid = con.conrelid AND att.attnum = key_position.attnum
-    WHERE con.conrelid = 'alert_fingerprints'::regclass
-      AND con.contype = 'p';
-    IF pk_columns IS DISTINCT FROM ARRAY['exercise_id', 'fingerprint'] THEN
-        ALTER TABLE alert_fingerprints DROP CONSTRAINT IF EXISTS alert_fingerprints_pkey;
-        ALTER TABLE alert_fingerprints
-            ADD CONSTRAINT alert_fingerprints_pkey
-            PRIMARY KEY (exercise_id, fingerprint);
-    END IF;
-END
-$$;
 
 CREATE TABLE IF NOT EXISTS action_registries (
     exercise_id text        PRIMARY KEY,
@@ -241,6 +216,100 @@ FOR EACH ROW EXECUTE FUNCTION reject_frozen_action_registry_header_mutation();
 """
 
 
+#: 既有資料庫的升級路徑，與 `SCHEMA` 分開。
+#:
+#: `SCHEMA` 回答「現在該長什麼樣」，`MIGRATIONS` 回答「舊的怎麼變成現在這樣」——
+#: 兩件事混在同一段 SQL 裡，表格宣告會被遷移邏輯切斷，而且讀的人分不出哪幾行
+#: 是常態、哪幾行是過渡。兩者都必須可重複執行（每次 `ensure_schema` 都會跑）。
+MIGRATIONS = """
+DO $$
+DECLARE
+    pk_name    text;
+    pk_columns text[];
+    stale_idx  text;
+    stale_con  text;
+    backfilled bigint;
+    orphaned   bigint;
+BEGIN
+    -- alert_fingerprints 的鍵從 (fingerprint) 換成 (exercise_id, fingerprint)。
+    -- CREATE TABLE IF NOT EXISTS 不會替已存在的表補欄位或換主鍵，所以要手動補。
+    ALTER TABLE alert_fingerprints ADD COLUMN IF NOT EXISTS exercise_id text;
+
+    -- 舊資料列的場次**不是無從得知**，只是還沒抄過來：alert_fingerprints.event_id
+    -- 指向 core_events，而 core_events.exercise_id 是 NOT NULL。所以回填，不丟棄 ——
+    -- 丟棄會讓升級當下正在進行的 firing 永遠等不到它的 resolved 配對（契約 §2.2），
+    -- 而且無聲無息。ADR 0003 對 revocation 的處理也是保留紀錄而非刪除。
+    UPDATE alert_fingerprints fp
+       SET exercise_id = ce.exercise_id
+      FROM core_events ce
+     WHERE fp.exercise_id IS NULL
+       AND ce.event_id = fp.event_id;
+    GET DIAGNOSTICS backfilled = ROW_COUNT;
+
+    -- 只有回填不到的才刪：event_id 在 core_events 裡沒有對應（事件已被清空）。
+    -- 這種列配不到任何東西了，但刪掉仍必須留下痕跡，不得靜默。
+    DELETE FROM alert_fingerprints WHERE exercise_id IS NULL;
+    GET DIAGNOSTICS orphaned = ROW_COUNT;
+
+    IF backfilled > 0 OR orphaned > 0 THEN
+        RAISE NOTICE
+            'alert_fingerprints 升級：回填 % 列；丟棄 % 列（event_id 在 core_events 中已無對應）',
+            backfilled, orphaned;
+    END IF;
+
+    ALTER TABLE alert_fingerprints ALTER COLUMN exercise_id SET NOT NULL;
+
+    -- 主鍵名稱用查的，不用猜的：`alert_fingerprints_pkey` 只是 PG 的預設命名，
+    -- 手動建過或還原過的資料庫可能叫別的名字，硬寫的 DROP CONSTRAINT 會靜默跳過。
+    -- attname 是 `name` 型別，array_agg 出來是 name[]。跟 text[] 沒有 `=` 運算子，
+    -- 所以一律先轉 text 再比 —— 不轉會在執行期噴 operator does not exist。
+    SELECT con.conname, array_agg(att.attname::text ORDER BY key_position.ordinality)
+      INTO pk_name, pk_columns
+      FROM pg_constraint con
+      CROSS JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS key_position(attnum, ordinality)
+      JOIN pg_attribute att
+        ON att.attrelid = con.conrelid AND att.attnum = key_position.attnum
+     WHERE con.conrelid = 'alert_fingerprints'::regclass
+       AND con.contype = 'p'
+     GROUP BY con.conname;
+
+    IF pk_columns IS DISTINCT FROM ARRAY['exercise_id', 'fingerprint'] THEN
+        IF pk_name IS NOT NULL THEN
+            EXECUTE format('ALTER TABLE alert_fingerprints DROP CONSTRAINT %I', pk_name);
+        END IF;
+
+        -- 只建在 fingerprint 單欄上的舊唯一索引也要拿掉。換了主鍵卻留著它，
+        -- 第二場演練的同一個 fingerprint 會撞上這個索引 —— 正是這次要修掉的
+        -- 跨場次衝突，只是換成從索引層爆出來。
+        FOR stale_idx, stale_con IN
+            SELECT cls.relname::text, con.conname::text
+              FROM pg_index idx
+              JOIN pg_class cls ON cls.oid = idx.indexrelid
+              LEFT JOIN pg_constraint con ON con.conindid = idx.indexrelid
+             WHERE idx.indrelid = 'alert_fingerprints'::regclass
+               AND idx.indisunique
+               AND (SELECT array_agg(att.attname::text ORDER BY att.attnum)
+                      FROM pg_attribute att
+                     WHERE att.attrelid = idx.indrelid
+                       AND att.attnum = ANY (idx.indkey)) = ARRAY['fingerprint']
+        LOOP
+            -- 由 constraint 撐著的索引不能直接 DROP INDEX（PG 會擋），要拆 constraint。
+            IF stale_con IS NOT NULL THEN
+                EXECUTE format('ALTER TABLE alert_fingerprints DROP CONSTRAINT %I', stale_con);
+            ELSE
+                EXECUTE format('DROP INDEX %I', stale_idx);
+            END IF;
+            RAISE NOTICE 'alert_fingerprints 升級：移除只涵蓋 fingerprint 的舊唯一索引 %', stale_idx;
+        END LOOP;
+
+        ALTER TABLE alert_fingerprints
+            ADD CONSTRAINT alert_fingerprints_pkey PRIMARY KEY (exercise_id, fingerprint);
+    END IF;
+END
+$$;
+"""
+
+
 def dsn() -> str:
     return os.environ.get("PURPLE_PG_DSN", DEFAULT_DSN)
 
@@ -253,14 +322,24 @@ def connect(url: str | None = None, connect_timeout: int = CONNECT_TIMEOUT_S) ->
 SCHEMA_LOCK_KEY = 0x50555250  # "PURP"
 
 
+def _log_pg_notice(diagnostic: psycopg.errors.Diagnostic) -> None:
+    log.info("PostgreSQL %s：%s", diagnostic.severity, diagnostic.message_primary)
+
+
 def ensure_schema(conn: psycopg.Connection) -> None:
     # `CREATE TABLE IF NOT EXISTS` 在並發下**不是原子的**：兩個建立者會同時通過
     # 「不存在」檢查、同時建立，撞上 pg_type 的唯一鍵（UniqueViolation）。
     # receiver / evaluation-engine / 測試會同時建 schema，用 advisory lock 序列化。
     conn.execute("SELECT pg_advisory_lock(%s)", (SCHEMA_LOCK_KEY,))
+    # PG 的 NOTICE 預設既不進伺服器 log（log_min_messages=warning）也不進應用程式
+    # 的 log —— psycopg 收到就丟掉。遷移動到資料（回填／丟棄）時必須留下痕跡，
+    # 所以在這裡把 NOTICE 接到 Python logging 上。
+    conn.add_notice_handler(_log_pg_notice)
     try:
         conn.execute(SCHEMA)
+        conn.execute(MIGRATIONS)
     finally:
+        conn.remove_notice_handler(_log_pg_notice)
         conn.execute("SELECT pg_advisory_unlock(%s)", (SCHEMA_LOCK_KEY,))
 
 
