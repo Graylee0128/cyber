@@ -177,7 +177,13 @@ def _attach_container_to_vlan(
     subprocess.run(["mkdir", "-p", "/var/run/netns"], check=True)
     subprocess.run(["ln", "-sf", f"/proc/{pid}/ns/net", netns_link], check=True)
 
+    # `cs0` 是寫死的字面值（跨所有 seat 共用同一個 peer 名），不像 host_if 是
+    # 依 seat_id 算出來的——實測抓到：只要有一次失敗發生在這個 veth pair 建好、
+    # peer 端搬進 netns（下面的 `ip link set cs0 netns`）之前，"cs0" 就會孤兒
+    # 留在 host 的預設 netns，擋住**之後所有** seat（不分紅藍）的建置，因為
+    # 大家都在搶同一個名字。跟 host_if 一樣先無條件清一次再建，冪等。
     subprocess.run(["ip", "link", "del", host_if], capture_output=True, check=False)
+    subprocess.run(["ip", "link", "del", "cs0"], capture_output=True, check=False)
     subprocess.run(["ip", "link", "add", host_if, "type", "veth", "peer", "name", "cs0"], check=True)
     subprocess.run(["ovs-vsctl", "--if-exists", "del-port", bridge, host_if], check=True)
     subprocess.run(["ovs-vsctl", "add-port", bridge, host_if, f"tag={vlan}"], check=True)
