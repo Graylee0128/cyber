@@ -17,7 +17,20 @@
 | OS | Ubuntu 22.04 / 24.04 | 下文套件名以此為準 |
 | kernel BTF | `/sys/kernel/btf/vmlinux` 存在 | Falco 走 modern eBPF，免 kernel module（Slice 2b / #9） |
 | **kernel 版本** | **≤ 6.8** | **硬前提**，見下 |
-| 資源（建議） | ≥ 8 核 / ≥ 16G RAM / ≥ 100G 磁碟 | 六區 + 六 kali + 觀測棧（G3 的 50+ 規模另見 #78 承載 spike） |
+| 資源（建議） | ≥ 8 核 / ≥ 16G RAM / ≥ 100G 磁碟 | 六區 + 六 kali + 觀測棧（G3 的 50+ 規模實測見下方 #78 結果） |
+
+> **#78 承載 spike 實測（2026-08-14）**：**6 核 / 10Gi RAM**（明顯低於上表建議值）的機器，
+> 用真的 `kalilinux/kali-rolling` 實測從 6 台紅隊容器一路推到 **230 台**才開始吃緊（compose
+> 觀測棧＋golden 靶機 VM 同時在跑）。spec §4.3 估的 G3 目標規模是 70 台（紅隊 30＋藍隊
+> 40），**3 倍以上餘裕**。
+>
+> **第一個瓶頸是 RAM，不是 OVS port 或 Z-RED 的 `/24` 位址空間**——這兩個全程都還有大把
+> 空間（244 台的位址上限反而還沒撞到，RAM 先見底）。RAM 消耗隨容器數線性成長
+> （~15–25MB/容器），230 台時已用掉約 7.2Gi。容器啟動到網路掛載完成穩定在 **~0.5 秒/台**，
+> 但這只是網路掛載時間，不是完整 seat 服務就緒（見 [WS8 spec §4.4](../../.scratch/ws8-event-control/spec.md)
+> 的 `T` 值下限）。符合上表建議規格（≥8 核／≥16G）的正式主機，餘裕應該更寬裕。
+>
+> 完整數據與方法見 [#78](https://github.com/Graylee0128/cyber/issues/78)。
 
 > **為什麼 kernel 必須 ≤ 6.8**（#65 決策 20）：Z-BLUE 走容器，而容器不能各自跑 Falco
 > （需 host kernel 存取＋privileged，且玩家有 shell 就碰得到）。所以遙測只能是
