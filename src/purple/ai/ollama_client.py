@@ -8,6 +8,14 @@ Instructor 摘要刷新一次），沒有需要非同步／連線池的規模。
 講的是同一件事：AI 輔助是加分項，不是任何計分／證據路徑的必要條件（#132／#133
 的驗收明講「AI 服務不可用時，既有功能照樣運作」）。呼叫端只要檢查 `None` 就知道
 要不要顯示那段內容，不需要 try/except 包住呼叫。
+
+**`timeout_s` 沒有一個對所有呼叫端都合理的預設值**——2026-08-15 在無 GPU 的
+VM（6 vCPU）上實測，qwen2.5:3b 對一段中等長度的 prompt 跑超過 120 秒才回應。
+這個預設值（見 `DEFAULT_TIMEOUT_S`）刻意抓寬，適合「演練結束後才生成一次」
+的場景（#132 Exercise Report）；但即時互動的呼叫端（#133 Instructor Copilot，
+教官畫面每次刷新都可能觸發一次）**必須自己傳一個短很多的 `timeout_s`**，
+不能用預設值——不然一次逾時就會讓整個畫面刷新卡住兩分鐘，即使最終呼叫端會
+拿到 `None` 優雅降級，使用者體感上也是「畫面卡住」，不是「AI 沒有摘要」。
 """
 
 from __future__ import annotations
@@ -25,7 +33,9 @@ BASE_URL_ENV = "OLLAMA_BASE_URL"
 MODEL_ENV = "OLLAMA_MODEL"
 DEFAULT_BASE_URL = "http://ollama:11434"
 DEFAULT_MODEL = "qwen2.5:3b"
-DEFAULT_TIMEOUT_S = 30.0
+#: 抓寬給「離峰生成一次」的場景（見 module docstring）；即時互動場景要自己
+#: 傳更短的 timeout_s，不要沿用這個預設值。
+DEFAULT_TIMEOUT_S = 90.0
 
 
 def generate(
