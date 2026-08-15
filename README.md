@@ -94,7 +94,10 @@ blockers」＝現行依賴 ＋「Preserved sub-tickets」＝歷史證據兩段�
 同日稍晚，**#65 decision gate 第二輪 grilling 十題全數拍板並關票**（詳見
 [WS8 spec §10.1](./.scratch/ws8-event-control/spec.md)）。**目前沒有任何 human gate 擋著。**
 
-Canonical open set（3 張，2026-08-15 晚間）：**#69／#137／#138**。
+Canonical open set（2 張，2026-08-15 晚間）：**#69／#137**。
+（[#138](https://github.com/Graylee0128/cyber/issues/138) Role × UI × Permission Matrix
+＋三層文件體系已由 PR #139 交付關閉 —— 這正是 #69 票內描述的時序悖論：
+同步票自己必然遺留差一個，因為它得在自己 merge 之前寫下開放集合。）
 （v2 grilling 當日收斂出的 [#126](https://github.com/Graylee0128/cyber/issues/126)
 與 [#131](https://github.com/Graylee0128/cyber/issues/131) 已分別由 PR #134／#136 交付關閉，
 子票 #127–#130／#132／#133 隨之關閉；新開的三張見下方表格。）
@@ -147,11 +150,10 @@ Canonical open set（3 張，2026-08-15 晚間）：**#69／#137／#138**。
 - 視覺提案（**已被上面取代**，保留為設計依據；全是零依賴單檔 mock、資料寫死）→ [中控畫面](./.scratch/ws8-event-control/demo.html)｜[Purple Console](./.scratch/purple-console-ui/demo.html)｜[Battleboard](./.scratch/battleboard-ui/demo.html)｜[Player Portal](./.scratch/product-ui/player-portal.html)｜[Blue SOC](./.scratch/product-ui/blue-soc.html)｜[Instructor Console](./.scratch/product-ui/instructor-console.html)
 - 所有票 → [GitHub Issues](https://github.com/Graylee0128/cyber/issues)
 
-| 目前 open（3 張） | 說明 |
+| 目前 open（2 張） | 說明 |
 |---|---|
 | [#69](https://github.com/Graylee0128/cyber/issues/69) Docs maintenance | canonical set 漂移同步、票關閉後的 stale 清理。**常駐 anchor，不因單次清理而關閉** —— 它同時是 `pr-contract.yml` 給純文件 PR 的唯一合法 target，關掉它之後每張文件 PR 都會被 metadata check 擋下 |
 | [#137](https://github.com/Graylee0128/cyber/issues/137) WS6 Deployment Baseline | 把 [#78](https://github.com/Graylee0128/cyber/issues/78) 的承載證據收斂成正式的 **Minimum／Recommended 硬體規格**與 validated envelope。**不是重跑 benchmark**：#78 已回答「單機最多撐多少」，本票回答「正式部署最低要給多少、典型演練下有多少 headroom」。3 profile × 3 workload state，產出 `docs/deployment/hardware-baseline.md` |
-| [#138](https://github.com/Graylee0128/cyber/issues/138) Role × UI × Permission Matrix ＋ 三層文件 | 五類角色 × 七個 UI surface 的可見性與能力矩陣（含**由什麼強制**欄），據以產出 Participant／Operator／Technical Handbook 三份文件並把 docs 結構去單體化 |
 
 > ⚠️ 自動 enqueue 已由 [#48](https://github.com/Graylee0128/cyber/issues/48) 降級為「待處置建議」。
 > T4 的封鎖鏈若靠自動 enqueue 驅動會無聲變綠 —— 現行路徑是藍隊動作經 Range Core
