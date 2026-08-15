@@ -98,20 +98,34 @@ function renderEvents(events) {
   }
 }
 
+// 藍隊一段兩台，各一個 ttyd（WS8 spec §5.4／§6.1，決策 22）：
+// 對外主機 a＝DMZ、內部主機 b＝flag。授權靠 session cookie＋這個固定代號
+// （admission/service.py 的 validate_endpoints 把 blue 鎖死成 {"a","b"}），
+// 不是每台機器各發一組密鑰，所以這裡照代號給人看得懂的標籤即可。
+const TERMINAL_LABELS = {
+  a: "對外主機 a（DMZ）",
+  b: "內部主機 b（Flag）",
+};
+
 function renderTerminal() {
   const host = clear($("#terminal-host"));
-  const terminal = new URLSearchParams(location.search).get("terminal");
-  if (!terminal) {
+  const terminals = new URLSearchParams(location.search).getAll("terminal");
+  if (terminals.length === 0) {
     host.append(el("div", { class: "empty", text:
-      "未指定終端機。這一頁的網址要帶 ?terminal=<座位的終端機代號>，"
+      "未指定終端機。這一頁的網址要帶 ?terminal=a&terminal=b（一段兩台，各一個 ttyd），"
       + "代號由 Admission 在領位時發給你。" }));
     return;
   }
-  host.append(el("iframe", {
-    class: "terminal-frame",
-    src: `/terminal/${encodeURIComponent(terminal)}`,
-    title: "seat terminal",
-  }));
+  for (const terminal of terminals) {
+    host.append(el("div", { class: "terminal-block" }, [
+      el("div", { class: "terminal-label", text: TERMINAL_LABELS[terminal] ?? terminal }),
+      el("iframe", {
+        class: "terminal-frame",
+        src: `/terminal/${encodeURIComponent(terminal)}`,
+        title: `seat terminal (${terminal})`,
+      }),
+    ]));
+  }
 }
 
 setInterval(() => {
