@@ -87,8 +87,12 @@ class WebhookHandler(BaseHTTPRequestHandler):
             return
 
         # 每個請求開一條連線：Grafana webhook 量低，簡單優先於連線池。
-        conn = connect()
+        # `connect()` 必須在 try **裡面**：放外面時，PG 連不上會讓例外直接穿過
+        # do_POST，Grafana 收到的是「連線被切斷、完全沒有回應」而不是 500，
+        # 錯誤也不會進 log。
+        conn = None
         try:
+            conn = connect()
             # fingerprint index 必須綁在這一場上，見 FingerprintIndex 的 docstring。
             exercise_id = RunningExerciseLookup(conn).require_id()
             emitted = ingest_alert(
@@ -109,7 +113,8 @@ class WebhookHandler(BaseHTTPRequestHandler):
             self._respond(500, {"error": "ingest failed"})
             return
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
         self._respond(200, {"emitted": emitted})
 
