@@ -14,6 +14,7 @@ from purple.battleboard.sanitize import (
     project_instructor_event,
     project_public_event,
 )
+from purple.console.drilldown import telemetry_mark
 from purple.evaluation.action_registry import (
     ActionRegistryStore,
     RegisteredAction,
@@ -79,6 +80,20 @@ def render_evaluation(service: EvaluationService) -> dict[str, Any]:
                 "gap": result.gap,
                 "reason": result.reason,
                 "event_ids": list(result.event_ids),
+                # #126：畫面二的 Telemetry 欄——每個來源個別的 ✅／❌／—／⏳，
+                # 不是引擎已經算好的聚合缺口分類（那個在 `gap` 裡）。
+                # `telemetry_mark` 是 purple.console.drilldown 既有的純函數，
+                # 這裡是它第一個真的接上的呼叫端。
+                "telemetry": [
+                    {
+                        "source_id": mark.source_id,
+                        "state": mark.state.value,
+                        "mark": telemetry_mark(
+                            mark.state, event_present=mark.event_present
+                        ).value,
+                    }
+                    for mark in result.source_marks
+                ],
             }
             for result in service.evaluate()
         ],

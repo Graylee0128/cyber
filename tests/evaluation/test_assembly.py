@@ -217,6 +217,11 @@ class TestGapClassificationUsesRealTelemetry:
         ).build("ex-1").evaluate()[0]
         assert result.state is ActionState.MISS
         assert result.gap == "detection_gap"
+        # #126：per-source marks 走同一次組裝（FakeBackend 不依 query.source
+        # 過濾，兩個 expected source 拿到同一批行，marker 命中 → 都是 present）。
+        marks = {mark.source_id: mark for mark in result.source_marks}
+        assert set(marks) == {"falco", "alloy"}
+        assert all(mark.event_present for mark in marks.values())
 
     def test_marker_absent_from_raw_telemetry_is_a_visibility_gap(self):
         result = assemble(
@@ -224,6 +229,9 @@ class TestGapClassificationUsesRealTelemetry:
             executions={"a-miss": execution("a-miss", "-- purple:other action:a-miss")},
         ).build("ex-1").evaluate()[0]
         assert result.gap == "visibility_gap"
+        marks = {mark.source_id: mark for mark in result.source_marks}
+        assert set(marks) == {"falco", "alloy"}
+        assert not any(mark.event_present for mark in marks.values())
 
     def test_stale_source_during_the_window_is_unknown_not_a_gap(self):
         stale = lambda scenario_id: registry_for(  # noqa: E731

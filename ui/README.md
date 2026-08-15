@@ -100,7 +100,7 @@ Incident △ —— 後端沒有 incident 聚合模型，佇列的單位是 even
 
 **Purple Console**
 
-畫面一 ✅／畫面二 △（見缺口 4）／Exercise Report ✅ 即時預覽（持久化快照屬 #28，是另一份東西）。
+畫面一 ✅／畫面二 ✅（逐來源 Telemetry 欄，#126）／Exercise Report ✅ 即時預覽（持久化快照屬 #28，是另一份東西）。
 
 **Instructor Console**
 
@@ -141,21 +141,20 @@ Admission 的 session 只回答「這個 session 擁不擁有這台終端機」�
 compose 裡的預設值是 `0.0.0.0/0`（本機 demo 用），**正式環境必須收斂到 Z-MGMT 網段**。
 追蹤票：[#126](https://github.com/Graylee0128/cyber/issues/126)。
 
-### 3. `GET /api/scenarios` 會吐出攻擊鏈
+### 3. ~~`GET /api/scenarios` 會吐出攻擊鏈~~（已修，2026-08-15）
 
 那條端點回的是完整 scenario 扣掉 hint 文字 —— `attack_chain`（每一步的 MITRE technique
-與描述）仍在回應裡。WS2 spec §4.2 明訂 briefing 不給攻擊鏈，Battleboard 甚至為此把技法
-匿名化成 `Attack #N`，但紅隊直接打這條端點就全拿到了。
+與描述）曾留在回應裡，紅隊直接打這條端點就繞過 Battleboard 的匿名化拿到完整解答。
+**2026-08-15 v2 grilling 拍板：最高優先修**，已在 `range_core/api.py` 的 `list_scenarios()`
+比照 hint 文字補投影移除，補了 mutation-proof 測試（[#126](https://github.com/Graylee0128/cyber/issues/126)）。
 
-Player Portal 不渲染它，可是前端不渲染不等於沒外洩。這要在後端補投影，屬 WS5／#82 的範圍。
-**2026-08-15 v2 grilling 拍板：最高優先修**，追蹤票：[#126](https://github.com/Graylee0128/cyber/issues/126)。
+### 4. ~~逐來源的 Telemetry 欄沒有出口~~（已修，2026-08-15）
 
-### 4. 逐來源的 Telemetry 欄沒有出口
-
-`purple/console/drilldown.py` 的 ✅／❌／—／⏳ 判定邏輯是完整的，但 Evaluation API 只吐引擎
-算好的缺口分類，不吐每個來源的個別標記。Purple Console 畫面二因此顯示缺口分類（那正是
-Telemetry 欄要回答的問題），並在畫面上標明少了哪一層，而不是留白。
-**2026-08-15 v2 grilling 拍板：排 backlog**，追蹤票：[#126](https://github.com/Graylee0128/cyber/issues/126)。
+`purple/console/drilldown.py` 的 ✅／❌／—／⏳ 判定邏輯本來完整但從未被接線。
+**2026-08-15 v2 grilling 拍板：排 backlog**，已接上 `assembly.py`（`_telemetry_detail` 同一次
+查詢順帶記錄每來源有沒有命中）／`evaluator.py`（`ActionResult.source_marks`）／
+`evaluation/api.py`（`GET .../evaluation` 的每筆 action 附 `telemetry` 陣列，呼叫既有的
+`telemetry_mark()`），Purple Console 畫面二直接渲染（[#126](https://github.com/Graylee0128/cyber/issues/126)）。
 
 ### 5. briefing 沒有 API
 

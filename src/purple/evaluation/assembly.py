@@ -101,12 +101,14 @@ class EvaluationAssembler:
         detections: Sequence[dict[str, Any]],
     ) -> ActionEvidence:
         event_ids = tuple(dict.fromkeys(event["event_id"] for event in detections))
+        refs, by_source = self._telemetry_detail(execution, expected_sources)
         return ActionEvidence(
             action_id=execution.action_id,
             executed_at=execution.executed_at,
             window_end=execution.window_end,
             expected_sources=expected_sources,
-            telemetry_refs=self._telemetry_refs(execution, expected_sources),
+            telemetry_refs=refs,
+            telemetry_by_source=by_source,
             detection_event_ids=event_ids,
             corroborating_sources=self._sources_behind(event_ids),
             # 「已確認」＝ 這個動作至少有一筆 firing 的偵測事件落地，而不只是
@@ -129,10 +131,14 @@ class EvaluationAssembler:
             found.append(telemetry_source(record.get("labels") or {}))
         return tuple(found)
 
-    def _telemetry_refs(
+    def _telemetry_detail(
         self, execution: ActionExecution, expected_sources: tuple[str, ...]
-    ) -> tuple[str, ...]:
-        """動作時間窗內、屬於這個動作的 raw 遙測行。
+    ) -> tuple[tuple[str, ...], tuple[tuple[str, bool], ...]]:
+        """動作時間窗內、屬於這個動作的 raw 遙測行，**以及**每個來源個別
+        有沒有命中（#126：Purple Console 畫面二的 Telemetry 欄輸入）。
+
+        兩者是同一次 per-source 查詢的副產品，不為了第二個回傳值多打一次
+        遙測後端 —— 那會讓 raw 遙測的呼叫量無故加倍。
 
         歸屬判準是 marker 字串，不是時間窗本身：兩個時間重疊的動作若只用窗過濾
         會互相偷對方的遙測，於是「看得到卻沒偵測到」和「根本沒看到」的分界線
@@ -142,6 +148,7 @@ class EvaluationAssembler:
         不能悄悄變成「這個動作沒有 raw 遙測」。
         """
         refs: list[str] = []
+        by_source: list[tuple[str, bool]] = []
         for source in expected_sources:
             lines = self.telemetry.fetch_context(
                 EvidenceQuery(
@@ -150,9 +157,7 @@ class EvaluationAssembler:
                     end=execution.window_end,
                 )
             )
-            refs.extend(
-                f"{line.source}@{line.timestamp.isoformat()}"
-                for line in lines
-                if execution.marker in line.line
-            )
-        return tuple(refs)
+            matched = [line for line in lines if execution.marker in line.line]
+            refs.extend(f"{line.source}@{line.timestamp.isoformat()}" for line in matched)
+            by_source.append((source, bool(matched)))
+        return tuple(refs), tuple(by_source)
