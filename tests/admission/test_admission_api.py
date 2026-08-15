@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from admission.api import AdmissionSettings, create_app
+from admission.api import INSTRUCTOR_SESSION_COOKIE, AdmissionSettings, create_app
 from admission.credentials import onsite_code
 from admission.store.pool import PoolConfigStore
 from admission.store.seats import SeatStore
@@ -18,7 +18,7 @@ def client(pg_connection, *, timeout=10):
     return TestClient(create_app(conn=pg_connection, publisher=RangeFake(), settings=AdmissionSettings(
         onsite_secret="site-secret", instructor_tokens={"svc-token": "teacher"},
         request_timeout_seconds=timeout, session_ttl_seconds=3600,
-        remote_link_ttl_seconds=600,
+        remote_link_ttl_seconds=600, instructor_session_ttl_seconds=3600,
     )), base_url="https://testserver")
 
 
@@ -231,3 +231,48 @@ def test_prestart_blue_slots_are_capacity_not_provisioned_endpoints(pg_connectio
         "SELECT state,endpoints FROM seat WHERE exercise_id='EX' AND team='blue'"
     ).fetchall()
     assert rows == [("free", []), ("free", [])]
+
+
+# ── #126 item 2：教官瀏覽器 session（不是伺服器對伺服器的 Bearer）───────────
+
+
+def test_instructor_login_wrong_credential_is_rejected(pg_connection):
+    c = client(pg_connection)
+    response = c.post("/admission/instructor/login", json={"token": "not-the-real-token"})
+    assert response.status_code == 403
+    assert INSTRUCTOR_SESSION_COOKIE not in response.cookies
+
+
+def test_instructor_login_grants_a_cookie_that_auth_request_accepts(pg_connection):
+    c = client(pg_connection)
+    # 沒登入前，auth_request 端點回 403 —— nginx 會據此擋下靜態頁與 gateway 呼叫。
+    assert c.get("/admission/auth/instructor").status_code == 403
+
+    login = c.post("/admission/instructor/login", json={"token": "svc-token"})
+    assert login.status_code == 204
+    assert INSTRUCTOR_SESSION_COOKIE in login.cookies
+
+    authed = c.get("/admission/auth/instructor")
+    assert authed.status_code == 204
+    assert authed.headers["X-Instructor-Actor"] == "teacher"
+
+
+def test_instructor_logout_revokes_the_session(pg_connection):
+    c = client(pg_connection)
+    assert c.post("/admission/instructor/login", json={"token": "svc-token"}).status_code == 204
+    assert c.get("/admission/auth/instructor").status_code == 204
+
+    assert c.post("/admission/instructor/logout").status_code == 204
+    assert c.get("/admission/auth/instructor").status_code == 403
+
+
+def test_instructor_session_is_a_second_presentation_of_the_same_credential_not_a_new_one(pg_connection):
+    """#126 item 2 的設計核心：不引入新密鑰，`instructor_tokens` 裡任何一組
+    token 都能拿來登入，跟既有 `instructor()` dependency 驗的是同一份表。"""
+    c = client(pg_connection)
+    login = c.post("/admission/instructor/login", json={"token": "svc-token"})
+    assert login.status_code == 204
+
+    # 同一份憑證表也能走既有的 Authorization Bearer 路徑（伺服器對伺服器）。
+    headers = {"Authorization": "Bearer svc-token"}
+    assert c.get("/admission/alerts", headers=headers).status_code == 200

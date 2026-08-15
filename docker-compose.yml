@@ -52,6 +52,10 @@ services:
       ADMISSION_INSTRUCTOR_TOKEN: e2e-service-token
       ADMISSION_INSTRUCTOR_ACTOR: e2e-instructor
       ADMISSION_SESSION_TTL_SECONDS: "3600"
+      # 教官瀏覽器 session（#126 item 2）——同一份 ADMISSION_INSTRUCTOR_TOKEN，
+      # 只是多一種出示方式；12 小時涵蓋一整個活動日，跟上面玩家座位的 TTL
+      # 分開調，互不連動。
+      ADMISSION_INSTRUCTOR_SESSION_TTL_SECONDS: "43200"
       # 中控畫面（#76）的兩個動作：簽發一次性邀請連結、清理逾時的領位請求。
       # 這兩個變數沒配到時端點回 503 而不是壞掉 —— 但畫面上的按鈕就是死的。
       ADMISSION_REMOTE_LINK_TTL_SECONDS: "1800"

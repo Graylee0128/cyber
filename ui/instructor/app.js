@@ -279,6 +279,18 @@ async function checkGrafanaHealth() {
   }
 }
 
+/* ---------- 登出（#126）---------- */
+
+$("#btn-logout").addEventListener("click", async () => {
+  try {
+    await api.admission("/instructor/logout", { method: "POST" });
+  } catch (error) {
+    // session 可能本來就過期了——清 cookie、轉頁這件事仍要做到。
+    console.error("logout failed", error);
+  }
+  location.href = "../instructor-login/";
+});
+
 renderRaw();
 poll(8, refresh);
 poll(10, checkGrafanaHealth);
