@@ -6,10 +6,12 @@ on:
   pull_request:
   workflow_dispatch:
 
-# 連推三次只跑最後一次，前兩次直接取消。master 不取消 —— 那裡每個 commit 的
-# 結果都要留存，才知道是哪一個把主線弄紅的。
+# PR：連推三次只跑最後一次，前兩次直接取消。
+# master：每個 commit 自己一個群組（群組名帶 sha）。只寫 ref 的話，群組相同
+# 又不取消＝後面的 commit 排隊等前一個，回饋更慢；而 master 上每個 commit 的
+# 結果都要留存，才知道是哪一個把主線弄紅的，所以也不能取消。
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'push' && github.sha || 'pr' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
