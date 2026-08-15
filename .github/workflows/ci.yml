@@ -6,6 +6,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# 連推三次只跑最後一次，前兩次直接取消。master 不取消 —— 那裡每個 commit 的
+# 結果都要留存，才知道是哪一個把主線弄紅的。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Shell 是這個專案的一等公民（deploy.sh / test.sh / scripts/range/* / bake.sh 都是），
   # 但過去只靠 `bash -n` 把關 —— 那只驗語法，驗不了語意。
