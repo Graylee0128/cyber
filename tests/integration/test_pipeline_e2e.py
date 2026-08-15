@@ -11,6 +11,8 @@ event_id 的 alert 真的 resolved 才收尾——否則會把還在 firing 的�
 下實測過：沒清乾淨會讓 test_sqli_alert_resolves_after_attack_stops 在同一次
 full-suite 執行裡失敗，單獨跑卻是乾淨的）。
 
+那個「等自己的 alert 退場」有唯一一個例外，條件很嚴：見 `protect_following_tests`。
+
 每條測試會 echo 出每個階段與觀察到的事件欄位（workflow 用 -v -s 顯示），
 方便逐條在 CI log 對照。
 """
@@ -63,6 +65,28 @@ def events(pg_connection):
     return CoreEventStore(pg_connection)
 
 
+#: 執行環境宣告「這個 compose 棧用完就丟」（CI 的分片跑完就 `down -v`）。
+#: 預設 false —— 本機的棧會跨多次 pytest 呼叫存活，不能假設它可拋。
+DISPOSABLE_STACK = os.environ.get("PURPLE_E2E_DISPOSABLE_STACK") == "1"
+
+
+@pytest.fixture
+def protect_following_tests(request) -> bool:
+    """跑完要不要等自己的 alert 退場（約 100 秒）。
+
+    那個等待不驗任何東西，只是把 firing 狀態清乾淨，讓**後面**的測試拿到乾淨的
+    60s 偵測視窗（見模組 docstring 的真環境實測）。兩個條件同時成立才略過：
+
+    1. 這個 session 只收到一條測試 —— 沒有後續測試要保護
+    2. 執行環境宣告這個棧是用完即丟的
+
+    第 2 條不能由測試自己推論，這是重點。本機的 compose 棧會**跨多次 pytest
+    呼叫**存活：只看第 1 條的話，單獨跑一條慢測試會留下 firing 狀態，污染的是
+    你**下一次**手動執行 —— 而且無聲無息，症狀會出現在另一條測試上。
+    """
+    return not (DISPOSABLE_STACK and len(request.session.items) == 1)
+
+
 def _normal_login(username: str = "alice") -> None:
     """打一次正常登入。app 對登入失敗回 401 —— urlopen 會把 4xx 當例外拋，
     這裡吞掉：請求送達就算數（與 inject_sqli 對 4xx 的處理一致）。"""
@@ -96,7 +120,7 @@ def test_normal_login_does_not_trigger_sqli_detection(events):
     _ok("25s 內沒有 sqli-01 事件 —— 規則不是永遠開火")
 
 
-def test_real_sqli_becomes_a_core_event(events):
+def test_real_sqli_becomes_a_core_event(events, protect_following_tests):
     """happy path：真 SQLi 走完 log 管線 → attack.detected Core Event。"""
     print("\n=== [happy path] 真 SQLi → Core Event（log 路徑）===", flush=True)
     mark = events.now()
@@ -123,15 +147,18 @@ def test_real_sqli_becomes_a_core_event(events):
     assert "evidence_ref" not in core and "loki" not in repr(core).lower()
     _ok("無 evidence_ref、全文無 loki 字樣")
 
-    _step("等這次攻擊的 alert 自然 resolve，避免留下 firing 狀態污染後續測試的 60s 偵測視窗")
-    wait_for_event(
-        fetch=lambda: events.since(mark),
-        match=lambda e: e["event_id"] == core["event_id"] and e["lifecycle"] == "resolved",
-        what="本測試自己的 sqli-01 alert resolved（測試隔離用）",
-        timeout_s=RESOLVE_TIMEOUT_S,
-        poll_s=3.0,
-    )
-    _ok("alert 已 resolve，偵測視窗乾淨")
+    if protect_following_tests:
+        _step("等這次攻擊的 alert 自然 resolve，避免留下 firing 狀態污染後續測試的 60s 偵測視窗")
+        wait_for_event(
+            fetch=lambda: events.since(mark),
+            match=lambda e: e["event_id"] == core["event_id"] and e["lifecycle"] == "resolved",
+            what="本測試自己的 sqli-01 alert resolved（測試隔離用）",
+            timeout_s=RESOLVE_TIMEOUT_S,
+            poll_s=3.0,
+        )
+        _ok("alert 已 resolve，偵測視窗乾淨")
+    else:
+        _ok("本 session 只有這一條測試且棧用完即丟 —— 略過 alert 退場等待")
 
 
 def test_bruteforce_metric_becomes_a_core_event(events):
@@ -156,7 +183,7 @@ def test_bruteforce_metric_becomes_a_core_event(events):
     _ok("technique = T1110（走 metric 路徑，非 log）")
 
 
-def test_evidence_api_returns_context_from_real_loki(events):
+def test_evidence_api_returns_context_from_real_loki(events, protect_following_tests):
     """Evaluation Engine v0：SQLi → Core Event → 呼叫 Evidence API 取回上下文窗。
 
     證明 Z-MGMT 唯一缺席的軟體住戶到位，且 resolver 真的對真 Loki 取證
@@ -209,16 +236,19 @@ def test_evidence_api_returns_context_from_real_loki(events):
     )
     _ok(f"欄位級遮蔽成立：rule={body['rule']}，無 technique")
 
-    _step("等這次攻擊的 alert 自然 resolve，避免留下 firing 狀態污染後面的 lifecycle 測試")
-    wait_for_event(
-        fetch=lambda: events.since(mark),
-        match=lambda e: e["event_id"] == event_id and e["lifecycle"] == "resolved",
-        what="本測試自己的 sqli-01 alert resolved（測試隔離用；緊接在後的 "
-        "test_sqli_alert_resolves_after_attack_stops 需要乾淨的 60s 偵測視窗）",
-        timeout_s=RESOLVE_TIMEOUT_S,
-        poll_s=3.0,
-    )
-    _ok("alert 已 resolve，偵測視窗乾淨")
+    if protect_following_tests:
+        _step("等這次攻擊的 alert 自然 resolve，避免留下 firing 狀態污染後面的 lifecycle 測試")
+        wait_for_event(
+            fetch=lambda: events.since(mark),
+            match=lambda e: e["event_id"] == event_id and e["lifecycle"] == "resolved",
+            what="本測試自己的 sqli-01 alert resolved（測試隔離用；緊接在後的 "
+            "test_sqli_alert_resolves_after_attack_stops 需要乾淨的 60s 偵測視窗）",
+            timeout_s=RESOLVE_TIMEOUT_S,
+            poll_s=3.0,
+        )
+        _ok("alert 已 resolve，偵測視窗乾淨")
+    else:
+        _ok("本 session 只有這一條測試且棧用完即丟 —— 略過 alert 退場等待")
 
 
 def test_sqli_alert_resolves_after_attack_stops(events):

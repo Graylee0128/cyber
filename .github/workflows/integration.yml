@@ -203,6 +203,11 @@ jobs:
           PURPLE_APP_URL: http://localhost:8080
           PURPLE_ENGINE_URL: http://localhost:8001
           PURPLE_LOKI_URL: http://localhost:3100
+          # 這個棧跑完就 `down -v`（見下方 Tear down）。單測試分片因此可以略過
+          # 「等自己的 alert 退場」那 ~100 秒 —— 沒有後續測試要保護。
+          # 這件事只有執行環境知道：本機的棧會跨多次 pytest 呼叫存活，所以預設
+          # 是不略過。見 test_pipeline_e2e.py 的 protect_following_tests。
+          PURPLE_E2E_DISPOSABLE_STACK: "1"
         # -v 逐條顯示測試名與 PASSED；-s 不吃掉 print，讓每階段 echo 即時可見。
         # --durations 留著：分片比例日後會漂，要能看得出來該重新分。
         run: python -m pytest -v -s -m integration -k "${{ matrix.select }}" --durations=15
