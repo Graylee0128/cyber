@@ -79,6 +79,27 @@ def test_ready_rejects_poison_host_and_blue_requires_two_terminals(pg_connection
     assert c.post(f"/admission/seats/{seat}/ready", headers=h, json={"endpoints": wrong_port}).status_code == 422
 
 
+def test_pending_and_active_require_instructor_token_and_reflect_seat_state(pg_connection):
+    PoolConfigStore(pg_connection).set_caps("EX", 2, 0)
+    c = client(pg_connection)
+    waiting_seat = claim(c).json()["seat_id"]
+    other = TestClient(c.app, base_url="https://testserver")
+    ready_seat = claim(other).json()["seat_id"]
+    headers = {"Authorization": "Bearer svc-token"}
+    endpoint = [{"terminal": "main", "host": "10.167.30.11", "port": 7681}]
+    c.post(f"/admission/seats/{ready_seat}/ready", headers=headers, json={"endpoints": endpoint})
+
+    assert c.get("/admission/seats/pending?team=red").status_code == 401
+
+    pending = c.get("/admission/seats/pending?team=red", headers=headers)
+    assert pending.status_code == 200
+    assert [s["seat_id"] for s in pending.json()] == [waiting_seat]
+
+    active = c.get("/admission/seats/active?team=red", headers=headers)
+    assert active.status_code == 200
+    assert set(active.json()) == {waiting_seat, ready_seat}
+
+
 def test_unset_production_timeout_is_not_invented(monkeypatch):
     monkeypatch.delenv("ADMISSION_REQUEST_TIMEOUT_SECONDS", raising=False)
     monkeypatch.delenv("ADMISSION_SESSION_TTL_SECONDS", raising=False)

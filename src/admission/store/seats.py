@@ -217,6 +217,38 @@ class SeatStore:
         self.conn.execute("SELECT seat_id FROM seat WHERE seat_id=%s FOR UPDATE", (seat_id,))
         return self.get(seat_id)
 
+    def list_requested(self, team: str | None = None) -> list[dict[str, Any]]:
+        """#62：provisioner 輪詢用——列出所有還在等建置的座位。
+
+        跨 exercise（provisioner 是 host 級服務，不綁單一場次）。只回建置需要的
+        欄位，不含 endpoints/player_id 這些跟「要不要幫它建容器」無關的狀態——
+        provisioner 不該因為多看了不需要的欄位而長出額外的判斷分支。
+        """
+        query = "SELECT seat_id, exercise_id, team, kind FROM seat WHERE state = 'requested'"
+        params: tuple[Any, ...] = ()
+        if team is not None:
+            query += " AND team = %s"
+            params = (team,)
+        query += " ORDER BY requested_at"
+        rows = self.conn.execute(query, params).fetchall()
+        return [
+            {"seat_id": r[0], "exercise_id": r[1], "team": r[2], "kind": r[3]}
+            for r in rows
+        ]
+
+    def list_active(self, team: str | None = None) -> list[str]:
+        """#62：provisioner 孤兒回收用——列出「還算數」的座位 id（requested／
+        ready／claimed，尚未 released／failed）。跟 `list_requested` 分開是刻意
+        的：孤兒判定要問的是「這個容器還有沒有對應的座位」，不是「這個座位
+        還要不要建」，兩者答案不一樣——已經 `ready` 的座位不需要建，但拆掉它
+        的容器仍然是誤刪一個正在用的座位。"""
+        query = "SELECT seat_id FROM seat WHERE state IN ('requested','ready','claimed')"
+        params: tuple[Any, ...] = ()
+        if team is not None:
+            query += " AND team = %s"
+            params = (team,)
+        return [r[0] for r in self.conn.execute(query, params).fetchall()]
+
     def pool_snapshot(self, exercise_id: str, team: str) -> dict[str, int]:
         """座位池總覽用（中控 UI §1.3 第一區塊）：各 state 各幾張。"""
         rows = self.conn.execute(
