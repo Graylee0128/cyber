@@ -35,7 +35,7 @@
 | Kernel | 6.0.0-28-generic（Ubuntu 24.04.4 LTS） |
 | KVM | `/dev/kvm` 存在，nested=1（未使用，見下） |
 | Docker | Cgroup Driver: systemd, Cgroup Version: 2 |
-| Cyber commit SHA | `78db5cc47a000f05d4aa01ef60ec602eedf398e3`（master） |
+| Cyber commit SHA | Low profile：`78db5cc`（master）；Candidate/Recommended：`9508ab6`（`issue-137-hardware-baseline`，含 `#131` PR #136 merge 後的 master + 本票自己的 `#62` seat provisioner 接線修復） |
 | 日期 | 2026-08-15 |
 
 ### 硬體 profile 模擬方法（重要）
@@ -59,7 +59,9 @@
 
 `deploy.sh` 自動選 `FALCO_MODE=vm`（host kernel 6.0 高於 HOST-SETUP.md 的 ≤6.8 前提，容器模式不可用）——Falco/Alloy/app 已烤進 target golden VM，**不是**另外一台獨立的 Falco VM。本輪實測只有一台 target VM（2048 MiB / 2 vCPU，`build-vm-target.sh` 寫死值，不隨 profile 調整——這是平台架構的固定成本，非彈性配額）。
 
-AI 輔助（#131）在本次測試環境**不存在**——`.88` 的 master 尚未 merge PR #136，deploy.sh 沒有 Ollama 相關段落，本輪報告不涵蓋 AI 輔助的資源占用。
+AI 輔助（#131）：Low profile 那輪測試環境**不存在**（`.88` 的 master 當時尚未 merge PR #136）。Candidate/Recommended 兩輪已切到含 PR #136 的 commit，`deploy.sh` 會自動拉 Ollama + `qwen2.5:3b`（磁碟空間夠，AI_ENABLED=1），因此這兩輪的 S1 數據**包含** Ollama container。
+
+**已知量測限制**：`attach-red.sh` 建的 6 台紅隊容器是 `docker run` 直接起（不是 compose service），不吃得到 compose 的 `cgroup_parent` 設定，因此**不計入**下面各 profile 的 slice 總量——三個 profile 對這點的處理方式一致（都漏），彼此可比較，但每個 profile 的絕對數字都會比實際略低一點（缺 6 台輕量容器的份量，估計數十 MB 等級，不影響結論）。
 
 ## 5. Results
 
@@ -87,29 +89,69 @@ AI 輔助（#131）在本次測試環境**不存在**——`.88` 的 master 尚�
 
 **S1 Platform 在 Low(4C/8G) profile 下結論**：輕鬆通過，RAM 用量遠低於配額（82% headroom），無 swap、無 OOM、無 CPU throttling。這代表 **Platform 開銷本身很小**——4C/8G 對「只跑平台、沒有演練負載」綽綽有餘。真正會逼近 Low profile 上限的是 S2（見下）。
 
-### 5.2 Candidate Minimum（6C/12G）、Recommended（8C/16G）
+### 5.2 Candidate Minimum（6C/12G）—— 已完成 S0 / S1
 
-**尚未執行**——本輪先以 Low profile 驗證方法論（cgroup slice + VM partition 的雙重圈禁）走得通，確認可重複後再依序跑另外兩個 profile 的 S0/S1。
+| State | 內容 | 結果 |
+|---|---|---|
+| **S0 Idle** | slice 建立，Cyber 未部署 | `memory.current=0`；`memory.max=12884901888`（12GiB 準確）；`cpu.max=600000 100000`（600% 準確） |
+| **S1 Platform** | 完整 L1 compose（9 個 service，含 Ollama）+ L2 range（target VM + 6 台紅隊容器） | 見下表 |
 
-### 5.3 S2 Typical Exercise（三個 profile 皆未執行）——**blocked**
+| 指標 | 數值 | 佔配額 |
+|---|---|---|
+| RAM 總用量 | ≈3362 MiB ≈ 3.28 GiB | 27.4%／12 GiB |
+| ——其中 target VM 單獨 | ≈1066 MiB | 51%／VM 自身 2GiB 配額，與 Low profile 一致 |
+| ——其中 9 個 docker 容器合計（含 Ollama） | ≈2293 MiB | 見下方 Ollama 註記 |
+| Swap 使用 | 0 bytes | 不依賴 swap ✓ |
+| CPU（累積 usage_usec，約 9 分鐘運行） | 68.72s CPU-time | 平均 ≈13%／6 vCPU，無 throttling |
+| Memory pressure 事件 | 全 0 | 無壓力 ✓ |
+| Disk footprint | 52,595,832 → 58,041,488 KB，Δ≈5.3 GB | 主要是 Ollama image + `qwen2.5:3b` 模型檔（首次拉取） |
+| Health checks | 9/9 `Up`，定義 healthcheck 的全 `healthy` | 全通 ✓ |
+| Target VM 功能性 smoke | `404`（有回應） | 通 ✓ |
 
-`scripts/range/seat_provisioner.py`（[#62](https://github.com/Graylee0128/cyber/issues/62)）雖然 issue 已 closed、腳本存在，但**沒有被接進 `docker-compose.yml`**——沒有對應 service，不會隨 `docker compose up` 自動啟動，「座位卡 `requested` 出不去」（與先前 `.88` 完整頁面測試抓到的缺口一致）。
+**Ollama 記憶體量測波動（重要方法論註記）**：這輪 deploy.sh 執行過程中跑了 `ollama pull qwen2.5:3b`，容器記憶體用量（≈2.29GiB）明顯高於 Recommended profile那輪同樣有 Ollama 但未觸發模型載入的量測（≈0.4GiB，見 5.3）。研判是 Ollama 在 pull／健康檢查過程中曾把模型權重載進記憶體做驗證，之後未必會自動釋放。**這代表 Ollama 的實際 RAM 佔用高度依賴「模型是否曾被載入推論」，idle server-only 與「模型常駐記憶體」兩種狀態差距可達 ~2GiB**——這點對 `#131` 自己的資源估算也有參考價值，但不在本票修正範圍內，僅此記錄。
 
-本票 Authoritative blockers 明文要求 S2「不能用近似值頂替，否則 Recommendation 章節的數字會繼承 #78 已知的『非完整 production seat workload』落差」，因此**不採用手動模擬 seat 的替代方案**。等 Gray 那邊把 seat provisioner 接線修好後再補測。
+### 5.3 Recommended（8C/16G）—— 已完成 S0 / S1
+
+| State | 內容 | 結果 |
+|---|---|---|
+| **S0 Idle** | slice 建立，Cyber 未部署 | `memory.current=0`；`memory.max=17179869184`（16GiB 準確）；`cpu.max=800000 100000`（800% 準確） |
+| **S1 Platform** | 完整 L1 compose（9 個 service，含 Ollama）+ L2 range（target VM + 6 台紅隊容器） | 見下表 |
+
+| 指標 | 數值 | 佔配額 |
+|---|---|---|
+| RAM 總用量 | ≈1459 MiB ≈ 1.42 GiB | 8.9%／16 GiB |
+| ——其中 target VM 單獨 | ≈1062 MiB | 與另外兩個 profile 一致 |
+| ——其中 9 個 docker 容器合計（含 Ollama，**未載入模型**） | ≈397 MiB | 見上方 Ollama 註記——這輪 Ollama 是 idle 狀態 |
+| Swap 使用 | 0 bytes | 不依賴 swap ✓ |
+| CPU（累積 usage_usec，約 4 分鐘運行） | 29.21s CPU-time | 平均 ≈12%／8 vCPU，無 throttling |
+| Memory pressure 事件 | 全 0 | 無壓力 ✓ |
+| Disk footprint | 58,041,488 → 58,092,984 KB，Δ≈52 MB（image 已快取，僅 VM overlay/flag） | 輕量 |
+| Health checks | 9/9 `Up`，定義 healthcheck 的全 `healthy` | 全通 ✓ |
+| Target VM 功能性 smoke | `404`（有回應） | 通 ✓ |
+
+### 三個 profile 的 S1 Platform 小結
+
+三個 profile 在 Platform 狀態（不含演練負載）下**全部輕鬆通過**，headroom 都在 70%+ 以上（Low 82%、Candidate 73%、Recommended 91%）。CPU 三輪皆無 throttling，記憶體三輪皆無 pressure/OOM/swap。**代表平台常駐開銷本身很小，連 Low(4C/8G) 都綽綽有餘**——三個 profile 在 S1 這一層事實上難以區分優劣，真正會拉開差距、決定 Candidate Minimum 能不能定案的是 S2（見下）。
+
+### 5.4 S2 Typical Exercise（三個 profile 皆未執行）
+
+`scripts/range/seat_provisioner.py`（[#62](https://github.com/Graylee0128/cyber/issues/62)）原本雖然程式碼與測試都已交付，但**沒有被任何腳本啟動**——導致座位卡在 `requested` 出不去。**本票這輪已經修好這個接線**（`scripts/range/seat-provisioner-daemon.sh`，見同一個 PR 的另一顆 commit），並在 `.88` 上端到端驗證過：真實建立一顆 pending seat、provisioner 3 秒內撿到、建出真容器、接上 VLAN30 拿到真 IP。
+
+但 S2 本身**這輪仍未執行**——用真的 30 Red + 20 Blue seat 跑一輪需要先讓一場 exercise 走完整的「建立 → prepare → 領位」流程，而 [#143](https://github.com/Graylee0128/cyber/issues/143) 項目 1 指出這條路徑目前**沒有合法呼叫者**（`prepare` 端點只認 `admission` 服務身分，但沒有任何呼叫端會用這個身分打它），也就是說即使 provisioner 已經能動，S2 要做的「開一場正式演練、動態灌入典型人數」這件事本身還卡著另一個尚待解的缺口。留給下一輪或等 `#143` 項目 1 解決後再測。
 
 ## 6. Recommendation
 
-**待補**——S2 未完成前不拍板 Minimum/Recommended 正式規格。目前唯一可確定的：S1（平台本身，不含演練負載）在 4C/8G 已有大量餘裕，代表最終瓶頸會落在 seat 規模化，而非平台常駐開銷，與 #78「第一個瓶頸是 RAM，非 CPU」的結論方向一致。
+**待補**——S2 未完成前不拍板 Minimum/Recommended 正式規格。目前可確定的：S1（平台本身，不含演練負載）在三個 profile 下都有大量餘裕（Low 82%、Candidate 73%、Recommended 91%），代表最終瓶頸會落在 seat 規模化，而非平台常駐開銷，與 #78「第一個瓶頸是 RAM，非 CPU」的結論方向一致。**傾向**：Low(4C/8G) 作為 Candidate Minimum 的下限候選看起來過於寬鬆（S1 才用 18%），真正的下限判定必須等 S2 數據，不能用 S1 的餘裕反推。
 
 ## 7. Validated Envelope
 
-**已驗證**：1 host（裸機，非巢狀 VM）+ 1 target VM（Falco/Alloy/app 烤進 golden image）+ 6 台固定紅隊容器 + 完整 L1 觀測棧，在 Low(4C/8G) cgroup 圈禁下的 Platform 狀態（S1）。
+**已驗證**：1 host（裸機，非巢狀 VM）+ 1 target VM（Falco/Alloy/app 烤進 golden image）+ 6 台固定紅隊容器 + 完整 L1 觀測棧（含 Ollama），在 Low(4C/8G)／Candidate Minimum(6C/12G)／Recommended(8C/16G) 三個 cgroup 圈禁 profile 下的 Platform 狀態（S1）。`#62` seat provisioner 接線本身端到端驗證過（見 5.4），但未在完整 S2 演練負載下測過。
 
-**未驗證**：volumetric DDoS、heavy PCAP、malware detonation、S2 典型演練負載（動態 Red/Blue seat）、Candidate Minimum(6C/12G)／Recommended(8C/16G) 兩個 profile、multi-host 部署。
+**未驗證**：volumetric DDoS、heavy PCAP、malware detonation、S2 典型演練負載（三個 profile 皆未執行，卡在 #143 項目 1 的 exercise 建立流程缺口）、multi-host 部署。
 
 ## 8. Revalidation Triggers
 
-需要重跑本 baseline 的情況：participant envelope 提高、新增重量級 service、加入 IDS/PCAP、加入 DDoS scenario、target VM 數量增加、container→VM 架構改變、single-node→multi-host、telemetry volume 模型重大改變、seat provisioner（#62）接線方式改變（會直接影響 S2 的量測方法）。
+需要重跑本 baseline 的情況：participant envelope 提高、新增重量級 service、加入 IDS/PCAP、加入 DDoS scenario、target VM 數量增加、container→VM 架構改變、single-node→multi-host、telemetry volume 模型重大改變、Ollama 模型換版或常駐推論策略改變（見 5.2 的記憶體波動註記）。
 
 ---
 
@@ -117,8 +159,9 @@ AI 輔助（#131）在本次測試環境**不存在**——`.88` 的 master 尚�
 
 - [x] 方法論設計並驗證可行（cgroup slice + VM domain partition 雙重圈禁，單層虛擬化，不失真）
 - [x] Low(4C/8G) profile：S0 + S1
-- [ ] Low(4C/8G) profile：S2（blocked，等 #62 seat provisioner 接線）
-- [ ] Candidate Minimum(6C/12G)：S0 + S1（方法已驗證，可直接套用）
-- [ ] Recommended(8C/16G)：S0 + S1
+- [x] Candidate Minimum(6C/12G) profile：S0 + S1
+- [x] Recommended(8C/16G) profile：S0 + S1
+- [x] `#62` Seat Provisioner 接線修復並端到端驗證（另一顆 commit，同一個 PR）
+- [ ] 三個 profile 的 S2（現在 provisioner 能動了，但卡在 #143 項目 1：exercise 建立流程沒有合法呼叫者，見 5.4）
 - [ ] 第 6 節 Recommendation 待全部 S2 數據到齊才能拍板
-- [x] `.88` 已還原乾淨（git checkout 復原 `docker-compose.yml`、slice 單元已移除、容器/VM/network 全部 teardown）
+- [x] `.88` 每輪測試後都已還原乾淨（git checkout 復原 `docker-compose.yml`、slice 單元已移除、容器/VM/network 全部 teardown）
