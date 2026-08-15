@@ -207,8 +207,19 @@ response-agent 的 registry streams 是 transport/control-plane heartbeat，不�
 
 ## 文件入口
 
+**先看 [docs/README.md](./docs/README.md) 導覽頁**——它說明四類文件（Participant Guide／
+Operator Guide／Technical Handbook／Spec）的界線，以及新文件該放哪。
+
+| 我是誰 | 看哪份 |
+|---|---|
+| 紅藍隊玩家 | [Participant Guide](./docs/participant-guide/README.md) |
+| Instructor／Purple／現場工作人員 | [Operator Guide](./docs/operator-guide/README.md) |
+| 開發與維運工程師 | [Technical Handbook](./docs/technical-handbook/README.md) |
+| 想知道誰能看什麼 | [Role × UI × Permission Matrix](./docs/architecture/role-ui-permission-matrix.md) |
+
 | 檔案 | 內容 |
 |---|---|
+| [docs/README.md](./docs/README.md) | 文件導覽：四類文件的界線與索引 |
 | [資安攻防平台_系統架構設計文件_v0.1.md](./資安攻防平台_系統架構設計文件_v0.1.md) | 系統架構設計（SA），單一真相來源 |
 | [purple_platform_plan.md](./purple_platform_plan.md) | 紫隊 P1／P2 工作規劃、計分模型、缺口分類 |
 | [docs/adr/](./docs/adr/) | 架構決策紀錄，含 trade-off 與被放棄的選項 |
