@@ -188,6 +188,7 @@ async function loadAdmissionAlerts() {
     const alerts = await api.admission("/alerts");
     if (alerts.length === 0) {
       renderEmpty(host, "無告警。");
+      loadCopilotSummary([]);
       return;
     }
     for (const alert of alerts) {
@@ -196,8 +197,34 @@ async function loadAdmissionAlerts() {
         el("span", { text: alert.reason }),
       ]));
     }
+    loadCopilotSummary(alerts);
   } catch (error) {
     renderEmpty(host, `讀不到 Admission 告警：${humanize(error)}`);
+  }
+}
+
+/* ---------- SOC Copilot（#133）----------
+ * 純呈現層：把上面已經拿到的 Admission 告警唸成一段話，不另外查任何資料、
+ * 不寫回任何欄位。AI 沒起或逾時時 summary 是 null，畫面就留空——這是正常
+ * 回應，不是錯誤，所以不進 banner、不算進 catch。 */
+async function loadCopilotSummary(alerts) {
+  const host = clear($("#copilot-summary"));
+  const playerStatuses = alerts.map((alert) => ({
+    player_id: alert.seat_id,
+    current_action: alert.reason,
+  }));
+  try {
+    const { summary } = await api.copilotSummary(playerStatuses);
+    if (!summary) {
+      renderEmpty(host, "（AI 摘要目前無法產生，不影響其餘功能）");
+      return;
+    }
+    host.append(el("div", { class: "note", text: summary }));
+  } catch (error) {
+    // 這條路徑只有教官前綴才有；打不到通常代表部署沒接上 evaluation-engine，
+    // 跟 Admission 告警本身讀不讀得到是兩件事，所以獨立 renderEmpty，不丟進
+    // 主要的 refresh() catch 攪亂其餘畫面的錯誤訊息。
+    renderEmpty(host, "（SOC Copilot 暫不可用，不影響其餘功能）");
   }
 }
 

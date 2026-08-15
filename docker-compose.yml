@@ -425,6 +425,30 @@ services:
       timeout: 3s
       retries: 20
 
+  # #131：AI 輔助基礎設施，本機執行、不打外部 API。落點 Z-MGMT，跟 Grafana/Loki
+  # 同側。用 `ai` profile（比照 falco 的開關方式，見 deploy.sh）——AI 是加分項，
+  # 一個 profile 開關就能讓整段在拉不到 image／裝置資源不夠的機器上乾淨跳過，
+  # 不會拖垮 `--wait` 卡住整個部署。
+  #
+  # healthcheck 只驗「server 有回應」（`ollama list` 成功），不等模型真的拉完——
+  # 模型檔（~2GB）拉取交給 deploy.sh 在 compose up 之後另外做、且刻意 best-effort
+  # （失敗只印警告，不阻斷部署）。健康檢查若連模型都要求，`--wait-timeout` 在
+  # 慢連線上會整支腳本卡死，等於讓一顆選配服務綁架必要的部署路徑。
+  ollama:
+    image: ollama/ollama:0.3.14
+    profiles: ["ai"]
+    networks:
+      - z-mgmt
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollamadata:/root/.ollama   # 模型檔落這裡，不烤進 image；容器重建不用重拉
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
   # WS4-P2 的 Evaluation API（`purple.evaluation.api`）—— Action Registry、
   # 四態判定、latency 摘要、Battleboard sanitized 投影、technique 判讀限制。
   #
@@ -523,3 +547,4 @@ volumes:
   applogs:
   falcologs:   # Falco 寫事件 JSON、Alloy 讀（票 #9）
   lokidata:    # Loki 資料，retention 與磁碟量測用（票 #12）
+  ollamadata:  # Ollama 模型檔（票 #131），落 volume 不烤進 image

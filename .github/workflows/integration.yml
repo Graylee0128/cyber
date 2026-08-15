@@ -103,12 +103,17 @@ jobs:
             -v "$PWD/deploy/edge/nginx.conf:/etc/nginx/nginx.conf:ro" \
             nginx:1.27-alpine nginx -t
 
+      # `evaluation-engine` 跑的是 Evidence API（名字看起來像 evaluation-api，
+      # 其實是另一支，見 ui/README.md）。#133 的 SOC Copilot 端點住在它身上，
+      # 而 gateway 的 `UI_EVIDENCE_UPSTREAM` 一直指著它 —— 在此之前這條 upstream
+      # 從來沒有測試打過，所以少起這個服務不會有人發現，直到 copilot 的 e2e
+      # 撞上 502。它連帶拉起 postgres 與 loki（自己的 depends_on）。
       - name: Bring up the narrow access plane
         run: >-
           docker compose --profile admission-e2e up -d --build --wait --wait-timeout 240
           admission-edge admission-range-core admission-receiver
           admission-red-terminal admission-blue-terminal
-          admission evaluation-api ui
+          admission evaluation-api evaluation-engine ui
 
       - name: Show access-plane services
         if: always()

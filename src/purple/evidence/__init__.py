@@ -26,6 +26,7 @@ from purple.evidence.resolver import (
 )
 from purple.evidence.service import (
     extract_token,
+    handle_copilot_summary,
     handle_evidence,
     load_service_tokens,
     render_bundle,
@@ -49,6 +50,7 @@ __all__ = [
     "clearance",
     "extract_token",
     "filter_by_visibility",
+    "handle_copilot_summary",
     "handle_evidence",
     "load_service_tokens",
     "render_bundle",

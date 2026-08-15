@@ -105,6 +105,18 @@ export class Gateway {
   /** Evidence API（Z-MGMT）。回傳的欄位已依 clearance 遮蔽過。 */
   evidence(eventId) { return request(`${this.base}/evidence/${encodeURIComponent(eventId)}`); }
 
+  /** SOC Copilot 摘要（#133，Z-MGMT）。只有 instructor gateway 有這條路由——
+   *  其他身分打這個方法會直接 404（nginx 沒有對應 location，不是 403），
+   *  呼叫端不用另外判斷身分，反正非 instructor 前綴的 Gateway 根本打不到。
+   *  AI 服務沒起或逾時時，`summary` 會是 null，不是例外——呼叫端該把它當
+   *  正常回應處理，不要包 try/catch 特殊處理。 */
+  copilotSummary(playerStatuses) {
+    return request(`${this.base}/copilot/summary`, {
+      method: "POST",
+      body: { player_statuses: playerStatuses },
+    });
+  }
+
   /** Admission（僅 instructor gateway 有這條）。 */
   admission(path, options) { return request(`${this.base}/admission${path}`, options); }
 

@@ -169,6 +169,20 @@ server {
         proxy_pass http://$evidence/evidence/$evidence_path;
     }
 
+    # ---------- SOC Copilot（#133，只有 instructor 有這條）----------
+    #
+    # 只給教官用，同一個 evidence upstream 上的 `/copilot/summary`，用同一把
+    # instructor token（後端 handle_copilot_summary 自己再檢查一次身分是不是
+    # instructor，這裡的 regex 只擋 URL 層級——兩層都要擋，任何一層漏了都
+    # 還有另一層兜底，見 purple/evidence/service.py 的 docstring）。刻意不放
+    # 進上面 blue|purple|instructor 那條 evidence 規則裡，因為這條路徑存不
+    # 存在本身就敏感（#133 驗收：不經過任何會被 Blue SOC／Player Portal
+    # 讀到的路徑）。
+    location = /gw/instructor/copilot/summary {
+        proxy_set_header Authorization "Bearer ${PURPLE_EVIDENCE_TOKEN_INSTRUCTOR}";
+        proxy_pass http://$evidence/copilot/summary;
+    }
+
     # ---------- Admission（只有 instructor 有這條）----------
 
     # 登入／登出本身不受 auth_request 保護——登入端點要是被自己發的 cookie

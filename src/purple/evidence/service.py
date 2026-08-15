@@ -36,6 +36,7 @@ from disclosure.detection_rules import load_rule_titles
 from disclosure.fields import FIELD_MASKING
 
 from purple.evidence.backends import BackendUnavailable, LokiBackend
+from purple.evidence.copilot import generate_copilot_summary
 from purple.evidence.resolver import (
     Caller,
     EvidenceBundle,
@@ -154,6 +155,36 @@ def handle_evidence(
     )
 
 
+def handle_copilot_summary(
+    body: dict[str, Any],
+    token: str | None,
+    token_map: Mapping[str, str],
+) -> tuple[int, dict[str, Any]]:
+    """`POST /copilot/summary`（#133）—— 只給教官用，其餘身分一律 403。
+
+    跟 `handle_evidence` 同一種狀態對應原則：沒帶 token → 400；查無身分或
+    身分不是 instructor → 403（fail loud，不是「非教官就看不到某些欄位」，
+    是「非教官整條路都不通」——這條端點的存在本身，比它回什麼內容更敏感，
+    洩漏「教官在看哪些玩家」這件事本身就違反 #133 的角色邊界）。
+
+    `player_statuses` 是呼叫端已經準備好的快照，這裡不查任何資料庫——AI 摘要
+    生成本身可能逾時，逾時只讓這次回應少一段摘要，不影響其餘端點。
+    """
+    if not token:
+        return 400, {"error": f"missing {TOKEN_HEADER} bearer token"}
+
+    identity = resolve_identity(token, token_map)
+    if identity != "instructor":
+        return 403, {"error": "copilot summary is instructor-only"}
+
+    player_statuses = body.get("player_statuses")
+    if not isinstance(player_statuses, list):
+        return 400, {"error": "missing or invalid player_statuses (must be a list)"}
+
+    summary = generate_copilot_summary(player_statuses)
+    return 200, {"summary": summary}
+
+
 class EvidenceHandler(BaseHTTPRequestHandler):
     resolver: Any = None  # 由 main() 注入
     token_map: Mapping[str, str] = {}  # 由 main() 注入：token → identity
@@ -179,6 +210,27 @@ class EvidenceHandler(BaseHTTPRequestHandler):
         status, body = handle_evidence(
             event_id, token, self.resolver, self.token_map, self.labels
         )
+        self._respond(status, body)
+
+    def do_POST(self) -> None:
+        path = urlparse(self.path).path
+        if path != "/copilot/summary":
+            self._respond(404, {"error": "not found"})
+            return
+
+        length = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            request_body = json.loads(raw or b"{}")
+        except json.JSONDecodeError:
+            self._respond(400, {"error": "invalid JSON body"})
+            return
+        if not isinstance(request_body, dict):
+            self._respond(400, {"error": "body must be a JSON object"})
+            return
+
+        token = extract_token(self.headers)
+        status, body = handle_copilot_summary(request_body, token, self.token_map)
         self._respond(status, body)
 
     def _respond(self, code: int, body: dict) -> None:

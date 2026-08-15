@@ -104,7 +104,9 @@ Incident △ —— 後端沒有 incident 聚合模型，佇列的單位是 even
 
 **Instructor Console**
 
-生命週期 ✅／即時真實攻防狀態 ✅／Raw Event ✅／維運動作 ✅。
+生命週期 ✅／即時真實攻防狀態 ✅／Raw Event ✅／維運動作 ✅／SOC Copilot ✅（#133，
+把 Admission 告警唸成一段 AI 摘要，純呈現層，不寫回任何計分／證據欄位；AI 服務
+沒起或逾時時這裡空著，其餘功能不受影響）。
 **Override Score 與 Inject Event `✗`** —— 後端完全沒有這兩條端點（全部路由清點過，沒有
 override／inject 路徑），所以做不了。spec Q3 已定案「要留稽核、與 #55 統一管道」，
 但那是對還不存在的功能所做的決策。**2026-08-15 v2 grilling 拍板：暫不開票**，目前 8 個
