@@ -5,7 +5,8 @@
 >
 > 玩家請看 [Participant Guide](../participant-guide/README.md)；
 > 系統怎麼運作請看 [Technical Handbook](../technical-handbook/README.md)；
-> 誰能看什麼請看 [Role × UI × Permission Matrix](../architecture/role-ui-permission-matrix.md)。
+> 誰能看什麼請看 [Role × UI × Permission Matrix](../architecture/role-ui-permission-matrix.md)；
+> 常見問題見 [FAQ](../FAQ.md)。
 
 ## 1. Pre-flight Checklist
 

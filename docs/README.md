@@ -5,6 +5,7 @@ documentation monolith。
 
 | 類型 | 回答的問題 | 位置 | 讀者 |
 |---|---|---|---|
+| **FAQ** | 大家最常問什麼、現在正確答案是什麼 | [`FAQ.md`](./FAQ.md) | 新玩家、Instructor、內部測試、新工程師 |
 | **Participant Guide** | 玩家怎麼參加 | [`participant-guide/`](./participant-guide/README.md) | 紅藍隊玩家 |
 | **Operator Guide** | 工作人員怎麼把它跑起來、辦完一場活動 | [`operator-guide/`](./operator-guide/README.md) | Instructor、Purple、現場工作人員 |
 | **Technical Handbook** | 整套系統現在怎麼運作 | [`technical-handbook/`](./technical-handbook/README.md) | 開發與維運工程師 |
@@ -21,6 +22,11 @@ documentation monolith。
 同一段話只能有一個家。要在別處提到它，**放連結，不要複製**——複製就是下一次 drift 的來源。
 
 ## 索引
+
+### FAQ
+
+- [FAQ.md](./FAQ.md) — 角色、UI、Scenario、計分、部署對象等常見問題，每題標
+  Current／Planned／Future
 
 ### Guides
 
