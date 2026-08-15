@@ -8,12 +8,21 @@ source "$DIR/zones.env"
 RED_CIDR="$RANGE_NET_PREFIX.$Z_RED_VLAN.0/24"
 
 pkill -f "scripts/range/stub_listener.py" 2>/dev/null || true
+pkill -f "scripts/range/seat_provisioner.py" 2>/dev/null || true
+rm -f /tmp/range-seat-provisioner.pid
 
 # Slice 4：先清紅隊容器（含其 netns 符號連結）。
 if command -v docker >/dev/null 2>&1; then
   for i in 1 2 3 4 5 6; do
     docker rm -f "range-red$i" 2>/dev/null || true
     rm -f "/var/run/netns/range-red$i" 2>/dev/null || true
+  done
+  # Seat Provisioner（#62）動態建的座位容器——跟上面 range-red* 是不同命名
+  # 空間（seat_provisioner.py 的 sweep_orphans() 特意不碰 range-red*），
+  # provisioner 已被 pkill，這裡不會有 admission API 可查，直接全清。
+  for name in $(docker ps -a --filter "name=seat-red-" --filter "name=seat-blue-" --format "{{.Names}}" 2>/dev/null); do
+    docker rm -f "$name" 2>/dev/null || true
+    rm -f "/var/run/netns/$name" 2>/dev/null || true
   done
 fi
 # Loki / receiver 掛在 VLAN10 的 veth（attach-mgmt）。容器本身不動。

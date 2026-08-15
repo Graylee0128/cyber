@@ -73,6 +73,12 @@ if [ "$WITH_FALCO" = 1 ]; then
   fi
 fi
 
+# Seat Provisioner Agent（#62 補接線）：host 側常駐，把 admission 的
+# requested 座位建成真容器。跟上面 attach-mgmt 一樣是 best-effort——
+# admission 沒起就跳過，不擋 range-up。
+echo "▶ 啟動 Seat Provisioner Agent（host 側常駐，輪詢 admission 待建座位）"
+bash "$DIR/seat-provisioner-daemon.sh" start
+
 echo "▶▶ Range up 完成。驗收：sudo bash $DIR/verify-range.sh"
 echo "   靶機 VLAN$Z_TARGET_VLAN: $TARGET_IP | 紅隊 VLAN$Z_RED_VLAN: $RED_IP_FIRST 起 $RED_COUNT 台"
 echo "   MGMT VLAN$Z_MGMT_VLAN: $MGMT_STUB_IP(stub) / $MGMT_LOKI_IP(Loki) / $MGMT_RECEIVER_IP(receiver)"
