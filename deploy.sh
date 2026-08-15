@@ -16,6 +16,9 @@
 #   container  舊方案：Falco 跑 compose 容器（吃 host kernel）
 #   vm         新方案：Falco 跑 golden 靶機 VM(kernel 6.8)，繞開 host kernel 限制
 # 覆寫：FALCO_MODE=container|vm bash deploy.sh
+#
+# AI 輔助（#131，Ollama + qwen2.5:3b）：磁碟空間夠（模型檔約 2GB）就自動開，
+# 不夠或模型拉取失敗只印警告、不阻斷部署——選配加分項，不是硬依賴。
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -141,6 +144,18 @@ if [ "$CAN_RANGE" = 0 ]; then
   STACK_ONLY=1
 fi
 
+# AI 輔助（#131）：Ollama 是選配的 L1 附屬服務，跟 falco 一樣用 compose profile
+# 開關（見下方 COMPOSE_ARGS）。硬性前提只有磁碟空間（模型檔 qwen2.5:3b 約 2GB，
+# 加上 image 本身留 4GB 緩衝）——沒有就跳過整段並說明原因，不阻斷部署，比照
+# L2 的 CAN_RANGE 分層邏輯。
+AI_ENABLED=1
+AI_MIN_FREE_KB=$((4 * 1024 * 1024))
+AI_FREE_KB="$(df -Pk "$REPO" 2>/dev/null | awk 'NR==2 {print $4}')"
+if [ -z "$AI_FREE_KB" ] || [ "$AI_FREE_KB" -lt "$AI_MIN_FREE_KB" ]; then
+  echo "⚠ 磁碟空間不足 4GB（AI 模型檔約 2GB）—— AI 輔助段落本次跳過，不阻斷部署"
+  AI_ENABLED=0
+fi
+
 if [ "$RESET" = 1 ]; then
   echo "▶ [reset] 拆除舊 range 與舊 compose"
   bash "$RANGE/teardown-range.sh" || true
@@ -157,14 +172,33 @@ if [ "$FALCO_MODE" = "container" ]; then
 else
   echo "   Falco 不走容器（host kernel 不支援）；改由 range 的 golden 靶機 VM 承載"
 fi
+if [ "$AI_ENABLED" = 1 ]; then
+  echo "   AI 輔助走容器（--profile ai）"
+  COMPOSE_ARGS+=(--profile ai)
+fi
 docker compose -f "$REPO/docker-compose.yml" "${COMPOSE_ARGS[@]}" \
   up -d --build --wait --wait-timeout 240
 docker compose -f "$REPO/docker-compose.yml" "${COMPOSE_ARGS[@]}" ps
+
+# AI 模型檔拉取——刻意放在 compose up「之後」、刻意 best-effort。healthcheck
+# 只驗 server 有回應，不等模型拉完，就是為了不讓這步卡進 --wait-timeout；
+# 這裡再失敗一次也只印警告，`generate()`（src/purple/ai/ollama_client.py）
+# 呼叫時模型不存在會直接拿到錯誤回應，該函式已設計成回 None 而不是拋例外，
+# 敘事生成／SOC Copilot 兩個下游功能因此照樣「沒有 AI 就沒有那段，其餘不受影響」。
+if [ "$AI_ENABLED" = 1 ]; then
+  echo
+  echo "▶ AI 模型檔（qwen2.5:3b，約 2GB）—— 拉取中，失敗不擋部署"
+  if ! docker compose -f "$REPO/docker-compose.yml" --profile ai exec -T ollama \
+      ollama pull qwen2.5:3b; then
+    echo "⚠ AI 模型拉取失敗（無網路／registry 擋掉）—— AI 輔助功能本次不可用，其餘部署不受影響"
+  fi
+fi
 
 if [ "$STACK_ONLY" = 1 ]; then
   echo
   echo "✅ 部署完成（僅觀測平面）。測試：bash test.sh"
   echo "   Grafana http://localhost:3000 (admin/admin) | Loki :3100 | Evidence API :8001"
+  [ "$AI_ENABLED" = 1 ] && echo "   Ollama :11434（AI 輔助，模型拉取失敗則功能自動停用，不影響其餘服務）"
   exit 0
 fi
 
@@ -181,6 +215,7 @@ bash "$RANGE/range-up.sh" "${UP_ARGS[@]}"
 echo
 echo "✅ 部署完成。測試：sudo bash test.sh"
 echo "   Grafana http://localhost:3000 (admin/admin) | Loki :3100 | Evidence API :8001"
+[ "$AI_ENABLED" = 1 ] && echo "   Ollama :11434（AI 輔助，模型拉取失敗則功能自動停用，不影響其餘服務）"
 # shellcheck source=scripts/range/zones.env
 source "$RANGE/zones.env"
 echo "   靶機 VM $TARGET_IP | 紅隊 $RED_IP_FIRST 起 $RED_COUNT 台 | MGMT $MGMT_STUB_IP / Loki $MGMT_LOKI_IP"
