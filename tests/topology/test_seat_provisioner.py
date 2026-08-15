@@ -200,7 +200,17 @@ def test_once_mode_does_not_sleep(monkeypatch):
     assert calls == []
 
 
-def test_run_checks_isolation_for_both_vlans_at_startup(monkeypatch):
+def test_run_installs_docker_user_drop_for_red_only(monkeypatch):
+    """DOCKER-USER 那條是整段 CIDR 的 src+dst DROP，沒有 per-pair 例外——只對
+    紅隊成立（seat 之間本來就沒有合法互通）。藍隊同 seat 的 a↔b 必須通
+    （WS8 spec §6.1，PR #118 交付的 `_allow_seat_pair` 白名單），對 Z-BLUE 下
+    整段 DROP 會直接違反規格。
+
+    今天那條規則對藍隊是無作用的（br-range 是 OVS bridge，同段流量走 L2 不進
+    FORWARD/DOCKER-USER，#62 T3 在 VM 上驗過 a↔b 通），所以這個測試釘的是
+    **陷阱不要留著**：一旦 br_netfilter 被載入、或藍隊改掛 docker bridge
+    network，那條死規則就會醒過來把同 seat 橫向移動無聲切斷。
+    """
     monkeypatch.setattr("scripts.range.seat_provisioner.load_zones", lambda: _ZONES)
     monkeypatch.setattr("scripts.range.seat_provisioner.sweep_orphans", lambda client, **kw: 0)
     calls = []
@@ -213,10 +223,8 @@ def test_run_checks_isolation_for_both_vlans_at_startup(monkeypatch):
         ensure_blue_flow_isolation=_noop,
     )
 
-    assert calls == [
-        ("10.167.30.0/24", "ALLOW_RED_LATERAL"),
-        ("10.167.60.0/24", "ALLOW_BLUE_LATERAL"),
-    ]
+    assert calls == [("10.167.30.0/24", "ALLOW_RED_LATERAL")]
+    assert all("10.167.60." not in cidr for cidr, _ in calls), "藍隊不該有整段 CIDR DROP"
 
 
 def test_run_checks_blue_flow_isolation_at_startup(monkeypatch):
@@ -296,18 +304,19 @@ def test_docker_user_drop_is_idempotent_and_skipped_when_lateral_allowed(monkeyp
 
     monkeypatch.setattr("scripts.range.seat_provisioner.subprocess.run", fake_run)
 
-    _ensure_docker_user_drop("10.167.60.0/24", "ALLOW_BLUE_LATERAL")
+    _ensure_docker_user_drop("10.167.30.0/24", "ALLOW_RED_LATERAL")
     insert_calls = [c for c in calls if c[:2] == ["iptables", "-I"]]
     assert len(insert_calls) == 1
 
     calls.clear()
-    monkeypatch.setenv("ALLOW_BLUE_LATERAL", "1")
-    _ensure_docker_user_drop("10.167.60.0/24", "ALLOW_BLUE_LATERAL")
+    monkeypatch.setenv("ALLOW_RED_LATERAL", "1")
+    _ensure_docker_user_drop("10.167.30.0/24", "ALLOW_RED_LATERAL")
     assert calls == []  # 開了 lateral，完全不碰 iptables
 
 
 def test_blue_default_deny_flow_uses_the_blue_cidr(monkeypatch):
     calls: list[list[str]] = []
+    monkeypatch.delenv("ALLOW_BLUE_LATERAL", raising=False)
     monkeypatch.setattr(
         "scripts.range.seat_provisioner.subprocess.run",
         lambda args, **kw: (calls.append(args), _FakeCompleted(""))[1],
@@ -318,6 +327,26 @@ def test_blue_default_deny_flow_uses_the_blue_cidr(monkeypatch):
     assert len(calls) == 1
     assert calls[0][:3] == ["ovs-ofctl", "add-flow", "br-range"]
     assert "nw_src=10.167.60.0/24,nw_dst=10.167.60.0/24,actions=drop" in calls[0][3]
+
+
+def test_blue_lateral_override_removes_the_default_deny_flow(monkeypatch):
+    """`ALLOW_BLUE_LATERAL=1`（zones.env 收尾期開關）只能在 flow 這一層兌現——
+    藍隊沒有 DOCKER-USER 第二層。flow 活在 bridge 上、跨 provisioner 重啟不會
+    自己消失，所以開啟時光「不裝」不夠，還要刪掉上一輪留下的那條；`--strict`
+    保證只刪同 match＋同 priority 的預設 deny，不掃掉 per-pair 白名單。"""
+    calls: list[list[str]] = []
+    monkeypatch.setenv("ALLOW_BLUE_LATERAL", "1")
+    monkeypatch.setattr(
+        "scripts.range.seat_provisioner.subprocess.run",
+        lambda args, **kw: (calls.append(args), _FakeCompleted(""))[1],
+    )
+
+    _ensure_blue_seat_pair_isolation("br-range", "10.167.60.0/24")
+
+    assert len(calls) == 1
+    assert calls[0][:4] == ["ovs-ofctl", "--strict", "del-flows", "br-range"]
+    assert "actions=" not in calls[0][4]  # del-flows 只給 match，不給 actions
+    assert not any(c[:2] == ["ovs-ofctl", "add-flow"] for c in calls)
 
 
 def test_allow_seat_pair_opens_both_directions(monkeypatch):

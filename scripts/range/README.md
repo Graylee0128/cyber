@@ -20,6 +20,10 @@
   對 MGMT／TARGET 維持契約 5 deny all。
 - RED seat 同 VLAN 預設以 OVS protected ports 隔離；Docker seat path 同步寫入
   `DOCKER-USER` CIDR DROP。只有明確設定 `ALLOW_RED_LATERAL=1` 才開放收尾期互打。
+- BLUE seat 隔離**只有一層**：`br-range` 上的 OVS flow 白名單（預設整段 deny，
+  同 seat 的 a↔b 由 `_allow_seat_pair()` 個別放行）。刻意不寫 `DOCKER-USER`
+  CIDR DROP，也不用 `protected=true`——兩者都是整段一視同仁，會連帶擋掉 WS8
+  spec §6.1 要求的同座位橫向移動。`ALLOW_BLUE_LATERAL=1` 同樣在 flow 這層兌現。
 - APP／EDGE／BLUE netns 是 policy stub，不代表 WS5／WS7 runtime 已完成。
   （#62 的 seat runtime 本身已交付，見 `seat_provisioner.py`；這裡的 netns 是另一回事，
   純粹是驗防火牆規則用的假端點。）

@@ -266,10 +266,23 @@ def _ensure_blue_seat_pair_isolation(bridge: str, blue_cidr: str) -> None:
     統一生效，擋得住跨 seat 互打，但也連帶擋掉同一個 seat 內 a↔b 的合法橫向
     移動——VM 上實測撞到（a ping b 100% packet loss），protected 表達不出
     「同 seat 允許、跨 seat 擋」這種依對象而定的規則，只有 flow 規則做得到。
+
+    `ALLOW_BLUE_LATERAL=1`（zones.env 的收尾期開關）在這裡生效：flow 規則是
+    藍隊**唯一**的隔離機制（`run()` 不對 Z-BLUE 下 DOCKER-USER 規則），所以
+    這個開關也只能在這裡兌現。開啟時不只是「不裝」預設 deny，還要把上一輪
+    可能留下的那條刪掉——flow 存活於 bridge、跨 provisioner 重啟不會自己消失，
+    只跳過安裝的話開關按了等於沒按。`--strict` 讓刪除限定在同 match＋同
+    priority 的那一條，不會連帶掃掉 `_allow_seat_pair()` 的 per-pair 白名單。
     """
+    flow = f"priority=100,ip,nw_src={blue_cidr},nw_dst={blue_cidr}"
+    if os.environ.get("ALLOW_BLUE_LATERAL") == "1":
+        subprocess.run(
+            ["ovs-ofctl", "--strict", "del-flows", bridge, flow],
+            capture_output=True, check=False,
+        )
+        return
     subprocess.run(
-        ["ovs-ofctl", "add-flow", bridge,
-         f"priority=100,ip,nw_src={blue_cidr},nw_dst={blue_cidr},actions=drop"],
+        ["ovs-ofctl", "add-flow", bridge, f"{flow},actions=drop"],
         check=True, capture_output=True,
     )
 
@@ -497,6 +510,11 @@ def _ensure_docker_user_drop(cidr: str, lateral_env: str) -> None:
     `attach-red.sh` 對 Z-RED 的同款規則）：`protected=true` 擋的是走 br-range
     veth 那條路徑；這條擋的是萬一流量改道進了 docker forward path。冪等
     （`-C` 先查再 `-I`），provisioner 每次啟動都跑一次，不用另外開關腳本。
+
+    **只給紅隊用**：這條是整段 CIDR 的 src+dst DROP，沒有 per-pair 例外，
+    只有在「同段內沒有任何合法互通」時才等價於 `protected`。紅隊成立，藍隊
+    不成立（同 seat a↔b 必須通，WS8 spec §6.1），所以 `run()` 不對 Z-BLUE
+    呼叫這支——理由見那裡的註解。
     """
     if os.environ.get(lateral_env) == "1":
         return
@@ -535,10 +553,14 @@ def run(
     zones = load_zones()
     prefix = zones["RANGE_NET_PREFIX"]
     ensure_isolation(f"{prefix}.{zones['Z_RED_VLAN']}.0/24", "ALLOW_RED_LATERAL")
-    ensure_isolation(f"{prefix}.{zones['Z_BLUE_VLAN']}.0/24", "ALLOW_BLUE_LATERAL")
-    # 藍隊改用 flow 規則做同 seat/跨 seat 的差別待遇（見
-    # _ensure_blue_seat_pair_isolation docstring），跟上面 ensure_isolation
-    # 的 protected+DOCKER-USER 是不同機制，兩邊都要跑。
+    # 藍隊**刻意沒有** DOCKER-USER 第二層：那條規則是整段 CIDR 的 src+dst
+    # DROP，表達不出「同 seat 的 a↔b 允許、跨 seat 擋」（WS8 spec §6.1 要求
+    # 同座位橫向移動可行），也沒有 per-pair 例外可加。紅隊擋整段符合意圖
+    # （seat 之間本來就沒有合法互通），藍隊擋整段會直接違反規格。今天 br-range
+    # 是 OVS bridge、同段流量走 L2 不進 FORWARD/DOCKER-USER，所以那條規則是
+    # 沒作用的死規則——但只要 br_netfilter 被載入、或藍隊路徑改掛 docker
+    # bridge network，同 seat 的 a↔b 就會無聲斷掉（正是 #118 花時間查過的
+    # Bug 1 長相）。藍隊的隔離機制單一：下面的 OVS flow 白名單。
     ensure_blue_flow_isolation(zones["RANGE_BRIDGE"], f"{prefix}.{zones['Z_BLUE_VLAN']}.0/24")
     swept = sweep_orphans(admission, zones=zones)
     if swept:
