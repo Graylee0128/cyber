@@ -133,25 +133,52 @@ AI 輔助（#131）：Low profile 那輪測試環境**不存在**（`.88` 的 ma
 
 三個 profile 在 Platform 狀態（不含演練負載）下**全部輕鬆通過**，headroom 都在 70%+ 以上（Low 82%、Candidate 73%、Recommended 91%）。CPU 三輪皆無 throttling，記憶體三輪皆無 pressure/OOM/swap。**代表平台常駐開銷本身很小，連 Low(4C/8G) 都綽綽有餘**——三個 profile 在 S1 這一層事實上難以區分優劣，真正會拉開差距、決定 Candidate Minimum 能不能定案的是 S2（見下）。
 
-### 5.4 S2 Typical Exercise（三個 profile 皆未執行）
+### 5.4 S2 Typical Exercise —— Candidate Minimum(6C/12G) 已完成
 
-`scripts/range/seat_provisioner.py`（[#62](https://github.com/Graylee0128/cyber/issues/62)）原本雖然程式碼與測試都已交付，但**沒有被任何腳本啟動**——導致座位卡在 `requested` 出不去。**本票這輪已經修好這個接線**（`scripts/range/seat-provisioner-daemon.sh`，見同一個 PR 的另一顆 commit），並在 `.88` 上端到端驗證過：真實建立一顆 pending seat、provisioner 3 秒內撿到、建出真容器、接上 VLAN30 拿到真 IP。
+**這條路線走通了**。`#62` seat provisioner 接線修好（`seat-provisioner-daemon.sh`）之後，[#143](https://github.com/Graylee0128/cyber/issues/143) 項目 1（prepare 端點沒有合法呼叫者）也在同一輪修好（見另一個 PR #145），兩者一起解除了 S2 的執行阻礙。過程中額外抓到 **3 個真的 production bug**，全部修進本 PR 才讓 S2 真的跑得起來：
 
-但 S2 本身**這輪仍未執行**——用真的 30 Red + 20 Blue seat 跑一輪需要先讓一場 exercise 走完整的「建立 → prepare → 領位」流程，而 [#143](https://github.com/Graylee0128/cyber/issues/143) 項目 1 指出這條路徑目前**沒有合法呼叫者**（`prepare` 端點只認 `admission` 服務身分，但沒有任何呼叫端會用這個身分打它），也就是說即使 provisioner 已經能動，S2 要做的「開一場正式演練、動態灌入典型人數」這件事本身還卡著另一個尚待解的缺口。留給下一輪或等 `#143` 項目 1 解決後再測。
+1. **`purplescope/blue-seat:latest` 從來沒有任何腳本會 build**（紅隊靠 `attach-red.sh` 順便建，藍隊完全沒有對應步驟）——加 `_ensure_image_built()`。
+2. **`deploy/blue-seat/Dockerfile` 的 `COPY` 路徑假設錯的 build context**（寫死 repo-root 相對路徑，但唯一真的呼叫路徑用的是 image 自己的資料夾）——這代表藍隊座位這條路徑在這次修復前**從沒被成功 build 過一次**，不是理論上的邊界情況。
+3. **`_attach_container_to_vlan` 的 veth peer 名 `cs0` 是寫死字面值**，跨所有 seat 共用；只要有一次建置失敗在 peer 端搬進 netns 之前，就會孤兒卡住、擋住**之後所有**座位（不分紅藍）的建置。這次量測撞到 3 個座位卡死超過 150 秒，log 累積 737 筆 ERROR，才追出來。
+
+**執行方式**：真實 HTTP 流程（不是模擬）——`POST /admission/prepare` 拿到 Range Core 生成的 `exercise_id` → `PUT .../pool-config`（`red_cap=30, blue_cap=20`）→ **藍隊先 claim（20 次，鎖之前）** → 紅隊 claim（30 次）→ provisioner 輪詢建置。
+
+**踩到的第 4 個坑（流程性，非 bug）**：`pool-config/lock` 的語意跟直覺相反——**上鎖後藍隊自助 claim 會被擋**（`request_blue_seat` 檢查 `locked_at IS NOT NULL` 就直接拒絕）。正確順序是先讓藍隊 claim 完，鎖只是用來凍結名冊、不是開放 claim 的信號。第一次測試順序搞反，卡出一個沒有任何取消機制的 `prepared` 殭屍 exercise（呼應 `#143` 討論時就發現的「沒有取消預備」缺口），只能直接動 DB 清掉重來。
+
+**S2 結果**（Candidate Minimum 6C/12G，30 Red + 20 Blue，共 70 個動態 seat 容器 + 6 台固定紅隊容器 + target VM + 17 個 compose service）：
+
+| 指標 | 數值 | 備註 |
+|---|---|---|
+| 動態 seat 容器建置成功率 | 70/70（100%） | 30 紅（各 1 台）+ 20 藍（各 2 台 a/b） |
+| RAM（compose 17 服務 + 70 seat 容器，cgroup 準確量測） | ≈705 MiB | 目標 VM 這輪未重新綁定 cgroup partition（見下方限制），另計 |
+| RAM（target VM，`/proc/PID/status` 直讀） | ≈1.13 GiB | 與其他 profile 一致（golden image 開機後的穩態值） |
+| **RAM 合計（可信估計）** | **≈1.83 GiB** | 705 MiB + 1.13 GiB；6 台固定紅隊容器（`attach-red.sh`）不在任何 cgroup 量測範圍內，估計數十 MB 等級 |
+| 佔 Candidate Minimum 配額 | **≈15%／12 GiB** | 大量餘裕 |
+| Swap / OOM / CPU throttling | 全 0 | ✓ |
+| CPU（累積 usage_usec，約 15 分鐘含建置過程） | 196.13s CPU-time | 平均 ≈22%／6 vCPU |
+| Disk footprint | Δ≈427 MB（70 個輕量容器的可寫層，image 已快取） | 輕量 |
+| Health checks | 17/17 compose service `Up`，全 `healthy` | ✓ |
+| 功能性 smoke | 動態建立的紅隊 seat 容器打 target VM，`404`（有回應） | 通 ✓ |
+
+**S2 Candidate Minimum 結論**：**通過**——即使把 30+20 典型人數的動態座位全部灌進去，RAM 用量也只到 12GiB 配額的 15%，遠低於 acceptance threshold 的 20% headroom 門檻（反過來說是還有 85% 沒用到）。這代表 Candidate Minimum(6C/12G) 對「典型演練規模」而言可能訂得**過於寬鬆**，不是卡在資源邊緣。
+
+**已知量測限制**：這輪 target VM 沒有重新走「destroy → 修 partition → redefine → restart」那套精確歸戶流程（S1 各 profile 有做，S2 為了先驗證流程本身能不能走通而省略），改用 `/proc/PID/status` 的 `VmRSS` 直讀相加——數字量級可信，但沒有像 S1 那樣通過 cgroup 硬性配額驗證（也就是說沒有實測到「VM + 70 seat 容器同時被 12GiB 硬上限夾住會怎樣」，只知道理論總量遠低於上限）。6 台固定紅隊容器同樣不在任何量測範圍內（S1/S2 一致的已知缺口）。
+
+**Low(4C/8G)、Recommended(8C/16G) 的 S2 尚未執行**——方法已驗證可重複，下一輪可直接比照 Candidate 的流程套用（含這次修好的三個 provisioner bug 與 claim 順序坑）。
 
 ## 6. Recommendation
 
-**待補**——S2 未完成前不拍板 Minimum/Recommended 正式規格。目前可確定的：S1（平台本身，不含演練負載）在三個 profile 下都有大量餘裕（Low 82%、Candidate 73%、Recommended 91%），代表最終瓶頸會落在 seat 規模化，而非平台常駐開銷，與 #78「第一個瓶頸是 RAM，非 CPU」的結論方向一致。**傾向**：Low(4C/8G) 作為 Candidate Minimum 的下限候選看起來過於寬鬆（S1 才用 18%），真正的下限判定必須等 S2 數據，不能用 S1 的餘裕反推。
+**仍待補一部分，但已有實測依據**：Candidate Minimum(6C/12G) 在 S2 典型負載下只用了 15%，顯示這個 profile 對典型演練規模而言餘裕過大，**下限候選可能可以比 6C/12G 更低**——但 Low(4C/8G) 的 S2 這輪沒測，不能直接下結論說 4C/8G 就夠。真正的 Candidate Minimum 判定，建議下一輪把 S2 也跑一次 Low profile，用「S2 在哪個 profile 開始出現 headroom<20%」反推真正的下限，而不是繼續用 Candidate 這個中間值。Recommended(8C/16G) 維持作為建議規格候選（S1 91% headroom，S2 未測但可預期同樣寬裕）。
 
 ## 7. Validated Envelope
 
-**已驗證**：1 host（裸機，非巢狀 VM）+ 1 target VM（Falco/Alloy/app 烤進 golden image）+ 6 台固定紅隊容器 + 完整 L1 觀測棧（含 Ollama），在 Low(4C/8G)／Candidate Minimum(6C/12G)／Recommended(8C/16G) 三個 cgroup 圈禁 profile 下的 Platform 狀態（S1）。`#62` seat provisioner 接線本身端到端驗證過（見 5.4），但未在完整 S2 演練負載下測過。
+**已驗證**：1 host（裸機，非巢狀 VM）+ 1 target VM（Falco/Alloy/app 烤進 golden image）+ 6 台固定紅隊容器 + 完整 L1 觀測棧（含 Ollama），在 Low(4C/8G)／Candidate Minimum(6C/12G)／Recommended(8C/16G) 三個 cgroup 圈禁 profile 下的 Platform 狀態（S1）。**S2 典型演練負載（30 Red + 20 Blue，70 個動態 seat 容器）已在 Candidate Minimum(6C/12G) 上端到端驗證通過**，含真實 HTTP 建立演練流程（非模擬）、真實 seat provisioner 建置、真實網路連通性 smoke。
 
-**未驗證**：volumetric DDoS、heavy PCAP、malware detonation、S2 典型演練負載（三個 profile 皆未執行，卡在 #143 項目 1 的 exercise 建立流程缺口）、multi-host 部署。
+**未驗證**：volumetric DDoS、heavy PCAP、malware detonation、Low/Recommended 兩個 profile 的 S2、multi-host 部署、S2 狀態下 target VM 的精確 cgroup 歸戶（見 5.4 量測限制）。
 
 ## 8. Revalidation Triggers
 
-需要重跑本 baseline 的情況：participant envelope 提高、新增重量級 service、加入 IDS/PCAP、加入 DDoS scenario、target VM 數量增加、container→VM 架構改變、single-node→multi-host、telemetry volume 模型重大改變、Ollama 模型換版或常駐推論策略改變（見 5.2 的記憶體波動註記）。
+需要重跑本 baseline 的情況：participant envelope 提高、新增重量級 service、加入 IDS/PCAP、加入 DDoS scenario、target VM 數量增加、container→VM 架構改變、single-node→multi-host、telemetry volume 模型重大改變、Ollama 模型換版或常駐推論策略改變（見 5.2 的記憶體波動註記）、seat_provisioner.py 的建置邏輯有重大改動（本輪修的三個 bug 屬於此類）。
 
 ---
 
@@ -162,6 +189,9 @@ AI 輔助（#131）：Low profile 那輪測試環境**不存在**（`.88` 的 ma
 - [x] Candidate Minimum(6C/12G) profile：S0 + S1
 - [x] Recommended(8C/16G) profile：S0 + S1
 - [x] `#62` Seat Provisioner 接線修復並端到端驗證（另一顆 commit，同一個 PR）
-- [ ] 三個 profile 的 S2（現在 provisioner 能動了，但卡在 #143 項目 1：exercise 建立流程沒有合法呼叫者，見 5.4）
-- [ ] 第 6 節 Recommendation 待全部 S2 數據到齊才能拍板
+- [x] `#62` seat_provisioner.py 三個真 bug 修復：blue-seat image 沒人 build、Dockerfile COPY 路徑錯 context、`cs0` peer 名孤兒擋住全部座位
+- [x] `#143` 項目 1（prepare 沒有合法呼叫者）修好後（另一個 PR #145），S2 blocker 解除
+- [x] Candidate Minimum(6C/12G) profile：S2（30 Red + 20 Blue，70 個動態 seat 容器，100% 建置成功，headroom 仍有 ~85%）
+- [ ] Low(4C/8G)、Recommended(8C/16G) 兩個 profile 的 S2（方法已驗證可重複套用）
+- [x] 第 6 節 Recommendation 已有初步依據（Candidate 過於寬鬆），但正式下限判定待 Low profile 的 S2 補齊
 - [x] `.88` 每輪測試後都已還原乾淨（git checkout 復原 `docker-compose.yml`、slice 單元已移除、容器/VM/network 全部 teardown）
