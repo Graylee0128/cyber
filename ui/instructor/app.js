@@ -113,18 +113,18 @@ $("#btn-start").addEventListener("click", async () => {
 });
 
 $("#btn-prepare").addEventListener("click", async () => {
+  // #143 項目 1：prepare 只收 Range Core 的 admission 服務身分，教官控台
+  // 自己打必定 403——改經 Admission 代打（它本來就持有那個身分）。
+  // exercise_id 由 Range Core 生成，這裡原樣顯示，不讓教官自己編號。
   try {
-    await api.core("/api/exercises/prepare", {
+    const result = await api.admission("/prepare", {
       method: "POST",
       body: { scenario_id: $("#scenario-select").value },
     });
-    showBanner(banner, "已預備。玩家現在可以經 Admission 領位。", "info");
+    showBanner(banner, `已預備 exercise_id=${result.exercise_id}。玩家現在可以經 Admission 領位。`, "info");
+    refresh();
   } catch (error) {
-    // prepare 只收 admission 身分（Range Core 的 require_identity 明文擋下），
-    // 所以 instructor gateway 打這條會 403 —— 照實說，不要讓按鈕看起來壞掉。
-    showBanner(banner, error.status === 403
-      ? "預備演練只接受 Admission 服務身分呼叫，教官控台不是那條路徑的合法呼叫者。"
-      : humanize(error));
+    showBanner(banner, humanize(error));
   }
 });
 

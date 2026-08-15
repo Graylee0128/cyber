@@ -18,6 +18,9 @@ class RangeFake:
     def revoke_player(self, exercise_id, player_id):
         self.revoked.append(player_id)
 
+    def prepare(self, scenario_id):
+        return {"exercise_id": "ex-fake", "scenario_id": scenario_id, "state": "prepared"}
+
 
 class AlertFake:
     def __init__(self): self.alerts = []

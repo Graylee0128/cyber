@@ -13,6 +13,7 @@ log = logging.getLogger("admission.service")
 class RangePublisher(Protocol):
     def publish_player(self, **player: Any) -> None: ...
     def revoke_player(self, exercise_id: str, player_id: str) -> None: ...
+    def prepare(self, scenario_id: str) -> dict[str, Any]: ...
 
 
 class Alerter(Protocol):
@@ -22,6 +23,11 @@ class Alerter(Protocol):
 class NullRangePublisher:
     def publish_player(self, **player: Any) -> None: del player
     def revoke_player(self, exercise_id: str, player_id: str) -> None: del exercise_id, player_id
+    def prepare(self, scenario_id: str) -> dict[str, Any]:
+        # 跟 publish/revoke 的靜默 no-op 不一樣——prepare 沒有「假裝成功」的安全
+        # 選項，呼叫端需要 Range Core 真的生成的 exercise_id 才能繼續，吞掉等於
+        # 把「沒接 Range Core」偽裝成「已經準備好了」，寧可噴出去讓教官看到。
+        raise RuntimeError("range core publication not configured")
 
 
 class NullAlerter:
@@ -59,6 +65,12 @@ class AdmissionService:
                 return self.allocate(exercise_id, team)
         except TeamFull:
             raise
+
+    def prepare(self, scenario_id: str) -> dict[str, Any]:
+        """代教官呼叫 Range Core 的 prepare（#143 項目 1）。純轉發——Admission
+        自己的 seat/pool 狀態不需要跟著這一步改變，exercise_id 由 Range Core
+        決定，這裡不寫回任何 Admission 表。"""
+        return self.publisher.prepare(scenario_id)
 
     def bind_session(self, seat_id: str) -> str:
         if self.session_ttl_seconds is None:

@@ -76,6 +76,9 @@ class ThreadSafeRangeFake:
         with self._lock:
             self.revoked.append((exercise_id, player_id))
 
+    def prepare(self, scenario_id):
+        return {"exercise_id": "ex-fake", "scenario_id": scenario_id, "state": "prepared"}
+
 
 class ThreadSafeAlertFake:
     def __init__(self):
