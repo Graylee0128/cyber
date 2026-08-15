@@ -50,9 +50,24 @@ class ActionEvidence:
     window_end: datetime
     expected_sources: tuple[str, ...]
     telemetry_refs: tuple[str, ...] = ()
+    #: 每個 expected source 在此動作時間窗內有沒有命中 marker 的 raw 遙測
+    #: （#126：Purple Console 畫面二的 Telemetry 欄輸入）。與 `telemetry_refs`
+    #: 同一次查詢的副產品，不是第二次遙測後端呼叫。
+    telemetry_by_source: tuple[tuple[str, bool], ...] = ()
     detection_event_ids: tuple[str, ...] = ()
     corroborating_sources: tuple[str, ...] = ()
     entry_accepted: bool = False
+
+
+@dataclass(frozen=True)
+class SourceMark:
+    """一個來源在此動作的健康度與有無 raw 遙測——`purple.console.drilldown`
+    畫面二 Telemetry 欄的輸入形狀，故意跟它的 `sources` 參數同構
+    （`(source_id, SourceState, event_present)`）。"""
+
+    source_id: str
+    state: SourceState
+    event_present: bool
 
 
 @dataclass(frozen=True)
@@ -65,6 +80,7 @@ class ActionResult:
     gap: str | None
     reason: str
     event_ids: tuple[str, ...] = ()
+    source_marks: tuple[SourceMark, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -113,6 +129,8 @@ class EvaluationService:
                 )
                 continue
 
+            marks = _source_marks(evidence, self.source_registry)
+
             if evidence.detection_event_ids:
                 level, reason = _grade_evidence(technique, evidence)
                 results.append(
@@ -123,6 +141,7 @@ class EvaluationService:
                         gap=None,
                         reason=reason,
                         event_ids=evidence.detection_event_ids,
+                        source_marks=marks,
                     )
                 )
                 continue
@@ -135,6 +154,7 @@ class EvaluationService:
                     level=None,
                     gap=gap,
                     reason=reason,
+                    source_marks=marks,
                 )
             )
         return results
@@ -175,6 +195,27 @@ def _grade_evidence(technique: str, evidence: ActionEvidence) -> tuple[EvidenceL
     if evidence.entry_accepted:
         return EvidenceLevel.C2, "已確認，但僅單一來源——同一 collector 的多筆事件不算跨來源。"
     return EvidenceLevel.C1, "僅有原始遙測訊號，尚未經過確認。"
+
+
+def _source_marks(evidence: ActionEvidence, registry: Registry) -> tuple[SourceMark, ...]:
+    """走訪這個動作的 expected sources，配上 registry 的健康度與有沒有這筆
+    raw 遙測（#126）。只看 `expected_sources`——那份清單本身已經是
+    scenario 宣告 `expected=True` 的子集（見 assembly.py），未宣告或
+    `expected=False` 的來源在這個動作的脈絡下不構成訊號，不屬於這裡。"""
+    present = dict(evidence.telemetry_by_source)
+    marks: list[SourceMark] = []
+    for source_id in evidence.expected_sources:
+        status = registry.get(source_id)
+        if status is None:
+            continue
+        marks.append(
+            SourceMark(
+                source_id=source_id,
+                state=status.state,
+                event_present=present.get(source_id, False),
+            )
+        )
+    return tuple(marks)
 
 
 def _classify_not_hit(

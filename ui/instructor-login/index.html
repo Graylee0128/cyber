@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Instructor Login</title>
+<link rel="stylesheet" href="../assets/base.css">
+<style>
+  .login-panel { max-width: 420px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <h1>Instructor Login</h1>
+    <div class="sub">教官／分析師登入畫面（#126）</div>
+  </div>
+</div>
+
+<div id="banner" class="banner"></div>
+
+<div class="panel login-panel">
+  <div class="panel-title">登入</div>
+  <div class="row">
+    <input id="token" type="password" placeholder="instructor token" style="flex:1">
+    <button class="primary" id="submit">登入</button>
+  </div>
+  <div class="note">
+    這不是新密碼——跟部署時設定的 <code>ADMISSION_INSTRUCTOR_TOKEN</code> 是同一組。
+    這一頁本身沒有任何存取限制（純表單，不做特權動作）；真正的憑證檢查發生在
+    送出之後，登入成功才會換到能通過網段限制之外那層檢查的 session cookie，
+    再轉往 Instructor Console。
+  </div>
+</div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

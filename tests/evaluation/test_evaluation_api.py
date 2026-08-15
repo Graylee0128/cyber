@@ -147,6 +147,8 @@ def test_detected_action_is_scored_with_all_four_numbers(pg_connection):
             "gap": None,
             "reason": body["actions"][0]["reason"],
             "event_ids": ["evt-hit"],
+            # #126：畫面二 Telemetry 欄——alloy 健康且這筆動作有命中的 raw 遙測。
+            "telemetry": [{"source_id": "alloy", "state": "healthy", "mark": "✅"}],
         }
     ]
 

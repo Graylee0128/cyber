@@ -84,6 +84,17 @@ CREATE TABLE IF NOT EXISTS admission_alert (
     reason text NOT NULL,
     UNIQUE (seat_id, reason)
 );
+
+-- #126 item 2：教官的瀏覽器 session（不是伺服器對伺服器的 Bearer token）。
+-- 沿用同一份 instructor_tokens 當憑證來源，這裡只是多一種出示方式——
+-- 表單登入換 cookie，供 nginx auth_request 用；不綁 seat_id，因為教官不是座位。
+CREATE TABLE IF NOT EXISTS admission_instructor_session (
+    token_hash text PRIMARY KEY,
+    actor text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    expires_at timestamptz NOT NULL,
+    revoked_at timestamptz
+);
 """
 
 
@@ -111,5 +122,6 @@ def ensure_schema(conn: psycopg.Connection) -> None:
 def truncate_all(conn: psycopg.Connection) -> None:
     """測試專用：TRUNCATE 但保留 schema，跑完馬上乾淨。"""
     conn.execute(
-        "TRUNCATE admission_alert, admission_audit, admission_session, admission_remote_link, seat, exercise_pool_config RESTART IDENTITY"
+        "TRUNCATE admission_alert, admission_audit, admission_session, admission_instructor_session, "
+        "admission_remote_link, seat, exercise_pool_config RESTART IDENTITY"
     )

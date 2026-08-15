@@ -25,7 +25,10 @@
     <h1>Instructor Console</h1>
     <div class="sub" id="subtitle">載入中…</div>
   </div>
-  <div class="who"><span class="dot-live" id="live"></span>身分 <b>instructor</b>　·　唯一的全知角色</div>
+  <div class="who">
+    <span class="dot-live" id="live"></span>身分 <b>instructor</b>　·　唯一的全知角色
+    　·　<button class="link" id="btn-logout">登出</button>
+  </div>
 </div>
 
 <div id="banner" class="banner"></div>
@@ -54,6 +57,14 @@
       <button id="btn-latency">計算並保存延遲摘要</button>
     </div>
     <div id="ops-result"></div>
+    <div class="section-label">遙測後端</div>
+    <div class="dot" id="grafana-status">
+      <span class="dot-live" id="grafana-live"></span>Grafana（唯一 alert engine）
+    </div>
+    <div class="note">
+      這裡只補可見性，不補告警管線：掛了會在這裡變紅，不會另外推播——現場由教官盯著，
+      不是 on-call 場景（#126 決策）。
+    </div>
     <div class="section-label">Admission 告警</div>
     <div id="admission-alerts"></div>
   </div>

@@ -44,6 +44,15 @@ const LEVEL_NOTE = {
   C3: "C3 · 已確認，跨來源交叉支持",
 };
 
+// #126：畫面二 Telemetry 欄——四種標記對應既有的 badge 色票（同 ACTION_STATE 的
+// 語意，✅ 綠／❌ 紅／— 灰／⏳ 黃），不是這裡新發明一套配色。
+const TELEMETRY_MARK = {
+  "✅": { class: "detected", label: "✅" },
+  "❌": { class: "missed", label: "❌" },
+  "—": { class: "na", label: "—" },
+  "⏳": { class: "unknown", label: "⏳" },
+};
+
 /** 一個 technique 底下多個動作時，用哪個狀態代表這一列。
  *
  * 取「最壞的那個」：只要有一個動作沒被偵測到，這個 technique 就不算守住了。
@@ -240,6 +249,26 @@ function renderDrilldown(techniqueId) {
       el("span", { class: "k", text: "缺口分類" }),
       el("span", { text: result?.gap ? (GAP_LABEL[result.gap] ?? result.gap) : "—" }),
     ]));
+
+    const telemetry = result?.telemetry ?? [];
+    const telemetryRow = el("div", { class: "kv-row" }, [
+      el("span", { class: "k", text: "Telemetry" }),
+    ]);
+    if (telemetry.length === 0) {
+      telemetryRow.append(el("span", { text: "—" }));
+    } else {
+      const list = el("span", { class: "row" });
+      for (const mark of telemetry) {
+        const style = TELEMETRY_MARK[mark.mark] ?? { class: "neutral", label: mark.mark };
+        list.append(el("span", {
+          class: `badge ${style.class}`,
+          text: `${mark.source_id} ${style.label}`,
+        }));
+      }
+      telemetryRow.append(list);
+    }
+    panel.append(telemetryRow);
+
     panel.append(el("div", { class: "kv-row" }, [
       el("span", { class: "k", text: "判定理由" }),
       el("span", { text: result?.reason || "—" }),
@@ -267,12 +296,6 @@ function renderDrilldown(techniqueId) {
 
   panel.append(el("div", { class: "section-label", text: "延遲（全場，依 mode 分列）" }));
   panel.append(latencyBlock());
-
-  // 誠實標示尚未存在的資料面，而不是留白讓人以為「沒有遙測」。
-  panel.append(el("div", { class: "note", text:
-    "逐來源的 Telemetry 欄（✅／❌／—／⏳）目前沒有 HTTP 出口："
-    + "`purple/console/drilldown.py` 的判定邏輯已存在，但 Evaluation API 只吐引擎算好的"
-    + "缺口分類，未吐每個來源的個別標記。上面的「缺口分類」即為該欄要回答的問題。" }));
 }
 
 function latencyBlock() {

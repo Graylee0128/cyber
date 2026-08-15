@@ -85,16 +85,10 @@ reset_scope: environment
             "expected_sources": ["falco"],
             "detection": ["FalcoCommandExec"],
             "intentional_gaps": ["T1005"],
-            "attack_chain": [
-                {
-                    "id": "exploit-web",
-                    "technique": "T1190",
-                    "description": "Exploit the public-facing web application.",
-                }
-            ],
             "reset_scope": "environment",
         }
     ]
+    assert "attack_chain" not in response.json()[0]
 
 
 def test_get_scenarios_never_leaks_hint_text(tmp_path: Path):
@@ -153,6 +147,63 @@ reset_scope: exercise
     assert hints == [{"objective_id": "capture_flag", "penalty_percent": 50}]
     assert "text" not in hints[0]
     assert "Inspect local application data." not in response.text
+
+
+def test_get_scenarios_never_leaks_attack_chain(tmp_path: Path):
+    """#126 P0: `/api/scenarios` is unauthenticated and Red can reach it
+    directly. WS2 spec §4.2 is explicit that the attack chain is not given
+    to players — it is the expected-path denominator for P2 Action
+    Registry, not a walkthrough. Battleboard deliberately anonymizes it
+    into `Attack #N`; leaving it here would hand Red the answer key that
+    anonymization exists to hide."""
+    scenario_root = tmp_path / "scenarios"
+    scenario_root.mkdir()
+    package = scenario_root / "chained-scenario"
+    package.mkdir()
+    (package / "metadata.yaml").write_text(
+        """
+id: chained-scenario
+name: Chained Scenario
+difficulty: custom-label
+duration: 45m
+objectives:
+  - id: capture_flag
+    evaluation: submission
+    points: 500
+targets:
+  - host: target-01
+    surfaces: [web]
+expected_sources: [falco]
+attack_chain:
+  - id: exploit-web
+    technique: T1190
+    description: Exploit the public-facing web application via SQL injection.
+reset_scope: exercise
+""".strip(),
+        encoding="utf-8",
+    )
+    (package / "briefing.md").write_text("Capture the flag.", encoding="utf-8")
+    sources = tmp_path / "sources.yaml"
+    sources.write_text("sources:\n  - id: falco\n", encoding="utf-8")
+    rules = tmp_path / "rules.yaml"
+    rules.write_text("groups: []\n", encoding="utf-8")
+    techniques = tmp_path / "techniques.yaml"
+    techniques.write_text("techniques:\n  - id: T1190\n", encoding="utf-8")
+    catalog = ScenarioCatalog.from_directory(
+        scenario_root,
+        source_definitions_path=sources,
+        detection_rules_path=rules,
+        techniques_path=techniques,
+    )
+    app = create_app(catalog, token_map=TOKEN_MAP)
+
+    response = TestClient(app).get("/api/scenarios", headers=AUTH)
+
+    assert response.status_code == 200
+    assert "attack_chain" not in response.json()[0]
+    assert "exploit-web" not in response.text
+    assert "T1190" not in response.text
+    assert "SQL injection" not in response.text
 
 
 def test_start_and_current_exercise_are_available_over_http(exercise_store) -> None:

@@ -6,7 +6,7 @@ from purple.evaluation.evaluator import (
     EvidenceLevel,
     EvaluationService,
 )
-from purple.registry.source_registry import ScenarioSource, evaluate_registry
+from purple.registry.source_registry import ScenarioSource, SourceState, evaluate_registry
 
 NOW = datetime(2026, 8, 13, 4, 0, tzinfo=timezone.utc)
 
@@ -110,6 +110,27 @@ def test_t1005_open_does_not_claim_accepted_or_exfiltrated():
     ).evaluate()[0]
     assert item.level is EvidenceLevel.C1
     assert "未證明內容外流" in item.reason
+
+
+def test_source_marks_reflect_registry_state_and_telemetry_presence():
+    """#126：畫面二 Telemetry 欄的輸入——每個 expected source 各自的健康度
+    （來自 registry）與有沒有這筆 raw 遙測（來自 evidence），不是聚合後的
+    單一 gap 分類。falco 掉線、alloy 健康且有這筆事件：兩者互不影響。"""
+    service = EvaluationService(
+        actions=(("a", "T1059"),),
+        source_registry=registry(falco_heartbeat=NOW - timedelta(minutes=5)),
+        evidence_by_action={
+            "a": evidence(
+                "a",
+                telemetry_by_source=(("falco", False), ("alloy", True)),
+            ),
+        },
+    )
+    marks = {mark.source_id: mark for mark in service.evaluate()[0].source_marks}
+    assert marks["falco"].state is SourceState.STALE
+    assert marks["falco"].event_present is False
+    assert marks["alloy"].state is SourceState.HEALTHY
+    assert marks["alloy"].event_present is True
 
 
 def test_metrics_exclude_unknown_and_not_executed_and_never_fake_zero_percent():

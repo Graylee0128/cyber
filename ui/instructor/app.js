@@ -265,5 +265,32 @@ api.stream({
   onDrop: () => { liveDot.className = "dot-live off"; },
 });
 
+/* ---------- Grafana 可見性（#126）---------- *
+ * 不走 Gateway：這是無身分限制的 liveness passthrough（見
+ * deploy/ui/default.conf.template 的 /health/grafana），跟主要 refresh
+ * poll 分開、互不阻塞——Grafana 掛掉不該連帶讓演練狀態也顯示不出來。 */
+const grafanaDot = $("#grafana-live");
+async function checkGrafanaHealth() {
+  try {
+    const response = await fetch("/health/grafana");
+    grafanaDot.className = response.ok ? "dot-live on" : "dot-live off";
+  } catch {
+    grafanaDot.className = "dot-live off";
+  }
+}
+
+/* ---------- 登出（#126）---------- */
+
+$("#btn-logout").addEventListener("click", async () => {
+  try {
+    await api.admission("/instructor/logout", { method: "POST" });
+  } catch (error) {
+    // session 可能本來就過期了——清 cookie、轉頁這件事仍要做到。
+    console.error("logout failed", error);
+  }
+  location.href = "../instructor-login/";
+});
+
 renderRaw();
 poll(8, refresh);
+poll(10, checkGrafanaHealth);

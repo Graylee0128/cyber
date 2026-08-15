@@ -45,12 +45,14 @@ def _parse(raw: bytes):
         return {"raw": raw.decode(errors="replace")}
 
 
-def _get(path: str, method: str = "GET", payload: dict | None = None):
+def _get(path: str, method: str = "GET", payload: dict | None = None, cookie: str | None = None):
     body = None
     headers = {}
     if payload is not None:
         body = json.dumps(payload).encode()
         headers["Content-Type"] = "application/json"
+    if cookie is not None:
+        headers["Cookie"] = cookie
     request = Request(UI_URL + path, data=body, headers=headers, method=method)
     try:
         with urlopen(request, timeout=15) as response:
@@ -63,22 +65,60 @@ def _post(path: str, payload: dict | None):
     return _get(path, method="POST", payload=payload)
 
 
-def test_static_screens_are_served():
-    """六個畫面都真的在 image 裡。少 build 一個目錄會在這裡變紅。"""
+def _instructor_cookie() -> str:
+    """登入教官並回傳 session cookie（#126 item 2）。
+
+    憑證就是部署注入的 `ADMISSION_INSTRUCTOR_TOKEN`，compose 裡設為
+    `e2e-service-token`——不是測試專用的第二把鑰匙。
+    """
+    request = Request(
+        UI_URL + "/gw/instructor/admission/instructor/login",
+        data=json.dumps({"token": "e2e-service-token"}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(request, timeout=15) as response:
+        assert response.status == 204, response.status
+        set_cookie = response.headers.get("Set-Cookie")
+    assert set_cookie, "登入沒有發出 session cookie"
+    return set_cookie.split(";", 1)[0]
+
+
+def test_public_static_screens_are_served():
+    """公開層畫面都真的在 image 裡。少 build 一個目錄會在這裡變紅。"""
     for path in (
         "/index.html",
         "/battleboard/index.html",
         "/player/index.html",
         "/player/blue.html",
         "/blue-soc/index.html",
-        "/purple/index.html",
-        "/instructor/index.html",
-        "/event-control/index.html",
+        "/instructor-login/index.html",
         "/assets/base.css",
         "/assets/api.js",
     ):
         status, body = _get(path)
         assert status == 200, f"{path} 沒有被服務出來：{body}"
+
+
+def test_privileged_screens_require_an_instructor_session():
+    """#126 item 2：教官／紫隊／中控三個畫面在登入前拿不到。
+
+    這同時驗兩件事：檔案真的在 image 裡（登入後 200），以及 nginx 的
+    `auth_request` 真的接上了（登入前 403）。少了後者，拿到網址就進得去。
+    """
+    privileged = (
+        "/purple/index.html",
+        "/instructor/index.html",
+        "/event-control/index.html",
+    )
+    for path in privileged:
+        status, _ = _get(path)
+        assert status == 403, f"{path} 在沒有教官 session 時就被服務出來了"
+
+    cookie = _instructor_cookie()
+    for path in privileged:
+        status, body = _get(path, cookie=cookie)
+        assert status == 200, f"{path} 登入後仍拿不到：{body}"
 
 
 def test_gateway_injects_the_service_token():
@@ -100,6 +140,21 @@ def test_the_prefix_decides_the_identity_not_the_caller():
     """
     status, body = _get("/gw/red/core/api/exercises/reset", method="POST")
     assert status == 403, body
+
+
+def test_grafana_health_passthrough_has_no_identity_gate():
+    """#126：Grafana 是唯一 alert engine，掛了偵測全停不會有信號。這條只補
+    可見性，不補告警管線——Instructor Console 直接 fetch 這條顯示狀態燈，
+    所以它必須對任何呼叫者都開放（沒有 gateway 前綴，不需要身分）。
+
+    **不斷言 200**：`admission-e2e` 這個 profile 不含 grafana（它住預設
+    profile），所以這裡正常會是 502 —— 而 502 本身就證明了要驗的那件事：
+    請求穿過 nginx 走到了上游，沒有被身分檢查擋下來。斷言 200 會讓這條測試
+    變成「grafana 有沒有在跑」的健康檢查，那不是它的職責。
+    """
+    status, _ = _get("/health/grafana")
+    assert status not in (401, 403), "liveness passthrough 不該有身分檢查"
+    assert status in (200, 502), status
 
 
 def test_instructor_prefix_reaches_instructor_only_endpoints():

@@ -14,10 +14,15 @@ from admission.credentials import verify_onsite_code
 from admission.range_client import HttpRangePublisher
 from admission.service import AdmissionService, RangePublisher, TeamFull
 from admission.store.db import connect, ensure_schema
+from admission.store.instructor_sessions import InstructorSessionStore
 from admission.store.pool import PoolConfigStore
 from admission.store.seats import SeatStore
 
 SESSION_COOKIE = "admission_session"
+#: 教官瀏覽器 session 的 cookie，刻意跟玩家的 `SESSION_COOKIE` 分開命名——
+#: 兩者綁的東西不同（座位 vs actor 名字），共用一個 cookie 名字會讓兩套
+#: session 生命週期在同一個瀏覽器裡互相踩到。
+INSTRUCTOR_SESSION_COOKIE = "admission_instructor_session"
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
 
@@ -31,23 +36,33 @@ class AdmissionSettings:
     disable_range_publication: bool = False
     session_ttl_seconds: int | None = None
     remote_link_ttl_seconds: int | None = None
+    #: 教官瀏覽器 session 的存活時間。跟 `session_ttl_seconds`（玩家座位 session）
+    #: 分開設定——語意不同：一整個活動日的教官登入不該因為玩家 session 的
+    #: TTL 調整而被連動改變（#126 item 2）。
+    instructor_session_ttl_seconds: int | None = None
 
     @classmethod
     def from_env(cls) -> "AdmissionSettings":
         raw_timeout = os.environ.get("ADMISSION_REQUEST_TIMEOUT_SECONDS")
         raw_session_ttl = os.environ.get("ADMISSION_SESSION_TTL_SECONDS")
         raw_link_ttl = os.environ.get("ADMISSION_REMOTE_LINK_TTL_SECONDS")
+        raw_instructor_session_ttl = os.environ.get("ADMISSION_INSTRUCTOR_SESSION_TTL_SECONDS")
         token = os.environ.get("ADMISSION_INSTRUCTOR_TOKEN", "")
         actor = os.environ.get("ADMISSION_INSTRUCTOR_ACTOR", "")
         request_timeout = int(raw_timeout) if raw_timeout else None
         session_ttl = int(raw_session_ttl) if raw_session_ttl else None
         link_ttl = int(raw_link_ttl) if raw_link_ttl else None
+        instructor_session_ttl = (
+            int(raw_instructor_session_ttl) if raw_instructor_session_ttl else None
+        )
         if request_timeout is not None and request_timeout <= 0:
             raise ValueError("ADMISSION_REQUEST_TIMEOUT_SECONDS must be positive")
         if session_ttl is not None and session_ttl <= 0:
             raise ValueError("ADMISSION_SESSION_TTL_SECONDS must be positive")
         if link_ttl is not None and link_ttl <= 0:
             raise ValueError("ADMISSION_REMOTE_LINK_TTL_SECONDS must be positive")
+        if instructor_session_ttl is not None and instructor_session_ttl <= 0:
+            raise ValueError("ADMISSION_INSTRUCTOR_SESSION_TTL_SECONDS must be positive")
         return cls(
             onsite_secret=os.environ.get("ADMISSION_ONSITE_SECRET", ""),
             instructor_tokens={token: actor} if token and actor else {},
@@ -57,6 +72,7 @@ class AdmissionSettings:
             disable_range_publication=os.environ.get("ADMISSION_DISABLE_RANGE_PUBLICATION") == "1",
             session_ttl_seconds=session_ttl,
             remote_link_ttl_seconds=link_ttl,
+            instructor_session_ttl_seconds=instructor_session_ttl,
         )
 
 
@@ -84,6 +100,11 @@ class PoolRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     red_cap: int = Field(ge=0)
     blue_cap: int = Field(ge=0)
+
+
+class InstructorLoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: str = Field(min_length=1)
 
 
 def create_app(
@@ -166,6 +187,59 @@ def create_app(
         response.status_code = 204
         return response
 
+    @application.post("/admission/instructor/login", status_code=204)
+    def instructor_login(
+        body: InstructorLoginRequest, response: Response, c=Depends(provide_conn)
+    ) -> Response:
+        """人在瀏覽器裡登入教官畫面（#126 item 2）。**不是**新密鑰——憑證沿用
+        `instructor_tokens`，跟 `instructor()` dependency 驗的是同一把鑰匙，
+        只是這裡走表單提交而非 Authorization header，換一個 session cookie
+        供 nginx `auth_request` 用。這個端點本身刻意不受 `auth_request` 保護
+        （否則登入永遠拿不到能通過它的 cookie），CIDR 仍是它唯一的外圍防線。
+        """
+        if configured.instructor_session_ttl_seconds is None:
+            raise HTTPException(
+                status_code=503, detail="ADMISSION_INSTRUCTOR_SESSION_TTL_SECONDS is required"
+            )
+        actor = next(
+            (
+                candidate
+                for token, candidate in (configured.instructor_tokens or {}).items()
+                if secrets.compare_digest(body.token, token)
+            ),
+            None,
+        )
+        if actor is None:
+            raise HTTPException(status_code=403, detail="invalid instructor credential")
+        session_token = InstructorSessionStore(c).bind(
+            actor, configured.instructor_session_ttl_seconds
+        )
+        response.set_cookie(
+            INSTRUCTOR_SESSION_COOKIE, session_token,
+            httponly=True, secure=True, samesite="strict",
+        )
+        response.status_code = 204
+        return response
+
+    @application.post("/admission/instructor/logout", status_code=204)
+    def instructor_logout(request: Request, response: Response, c=Depends(provide_conn)) -> Response:
+        InstructorSessionStore(c).revoke(request.cookies.get(INSTRUCTOR_SESSION_COOKIE))
+        response.delete_cookie(INSTRUCTOR_SESSION_COOKIE, secure=True, httponly=True, samesite="strict")
+        response.status_code = 204
+        return response
+
+    @application.get("/admission/auth/instructor", status_code=204)
+    def auth_instructor(request: Request, c=Depends(provide_conn)) -> Response:
+        """nginx `auth_request` 的目標端點——跟 `/admission/auth/ttyd/{terminal}`
+        同一個角色，差別是驗的不是「這個 session 擁不擁有這台終端機」，是
+        「這個瀏覽器有沒有登入教官」。204＝有，403＝沒有；nginx 據此決定要不要
+        放行教官／purple／event-control 的靜態頁與 gateway 呼叫（見
+        deploy/ui/default.conf.template）。"""
+        actor = InstructorSessionStore(c).resolve(request.cookies.get(INSTRUCTOR_SESSION_COOKIE))
+        if actor is None:
+            raise HTTPException(status_code=403, detail="instructor session required")
+        return Response(status_code=204, headers={"X-Instructor-Actor": actor})
+
     @application.post("/admission/{exercise_id}/remote-links", status_code=201)
     def create_remote_link(exercise_id: str, _actor: str = Depends(instructor),
                            c=Depends(provide_conn)) -> dict:
@@ -235,6 +309,26 @@ def create_app(
         if upstream is None:
             raise HTTPException(status_code=403, detail="session does not own this terminal")
         return Response(status_code=204, headers={"X-Ttyd-Upstream": upstream})
+
+    @application.get("/admission/auth/seat", status_code=204)
+    def auth_seat(request: Request, svc: AdmissionService = Depends(service)) -> Response:
+        """Product UI gateway 的 `auth_request` 目標，用於名冊歸屬（#126 item 4）。
+
+        跟 `/admission/auth/ttyd/{terminal}` 同一個角色：回答「這個 session 對
+        應到哪台機器」。差別是那條回 ttyd 的 upstream 位址（要拿去 proxy_pass），
+        這條回名冊上的來源 IP（要拿去當 Range Core 的 `X-Seat-Source-Ip`）。
+        呼叫者是 Product UI 的 gateway 而非 Z-EDGE：代宣告來源 IP 需要同時握有
+        Range Core 的服務 token，而 Z-EDGE 必須維持零憑證（WS8 spec §5.3）。
+
+        藍隊 session 也回 204，只是不帶標頭——藍隊不做個人計分，沒有名冊歸屬，
+        但仍然是合法的 session，不該被擋在遊戲 API 之外（例如讀 `/api/score`）。
+        """
+        token = request.cookies.get(SESSION_COOKIE)
+        if svc.resolve_session(token) is None:
+            raise HTTPException(status_code=403, detail="active seat session required")
+        source_ip = svc.seat_source_ip(token)
+        headers = {"X-Seat-Source-Ip": source_ip} if source_ip else {}
+        return Response(status_code=204, headers=headers)
 
     @application.put("/admission/{exercise_id}/pool-config", status_code=204)
     def pool_config(exercise_id: str, body: PoolRequest, _actor: str = Depends(instructor), c=Depends(provide_conn)) -> Response:

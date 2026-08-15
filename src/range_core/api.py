@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import socket
 import time
 from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from datetime import datetime
@@ -174,25 +175,75 @@ class BlueActionRequest(BaseModel):
     technique: str | None = None
 
 
+#: Header carrying the seat's real source IP, set by the Product UI gateway
+#: only (#126 item 4). Deliberately not `X-Forwarded-For`: that name is set by
+#: every proxy in the world and by plenty of clients, so a value under it says
+#: nothing about who put it there. This one is meaningful only in combination
+#: with the peer check in `_source_ip` -- the gateway strips any inbound copy
+#: before setting its own.
+SEAT_SOURCE_IP_HEADER = "X-Seat-Source-Ip"
+
+
+def _trusted_gateway_addresses() -> set[str]:
+    """Resolve the configured gateway hostname to the addresses it may call from.
+
+    Resolved per request rather than cached at startup: in compose and in a
+    real deployment the gateway's address can change when it restarts, and a
+    stale cache would fail closed in a way that looks like a roster bug.
+    """
+    host = os.environ.get("RANGE_CORE_TRUSTED_EDGE_HOST", "").strip()
+    if not host:
+        return set()
+    return _resolve_host(host)
+
+
+def _resolve_host(host: str) -> set[str]:
+    try:
+        return {info[4][0] for info in socket.getaddrinfo(host, None)}
+    except OSError:
+        # Unresolvable trusted host = no trusted addresses = fail closed.
+        return set()
+
+
 def _source_ip(request: Request) -> str:
-    """The TCP peer address only — **never** `X-Forwarded-For`.
+    """The TCP peer address, **except** when the peer is the trusted gateway.
 
     Source IP is the roster key (#32's six distinct Kali addresses exist
     specifically so an attacker is individually attributable). Honoring a
-    client-settable header here would let one red player submit flags or
-    request hints as another player. WS7 spec names the same threat for
-    clearance and rejects header-trusted source IP for the same reason.
+    client-settable header unconditionally would let one red player submit
+    flags or request hints as another player. WS7 spec names the same threat
+    for clearance and rejects header-trusted source IP for the same reason.
 
-    Deployment constraint this implies: Range Core must sit where Kali hosts
-    connect to it directly. Any reverse proxy or NAT in front of it replaces
-    every `request.client.host` with the proxy's own address, taking every
-    submission/hint/roster lookup to 403 at once (deployment topology is not
-    yet decided as of #33 -- WS6/#44 territory, flagged here so it can't be
-    discovered by surprise).
+    #126 item 4: a Player Portal served through a reverse proxy makes the peer
+    address the *proxy's*, so every submission/hint went 403 at once. The fix
+    is not to start trusting a header -- it is to trust exactly one caller:
+
+        peer is the Product UI gateway -> the seat IP it resolved via Admission
+        peer is anything else          -> the peer address, header ignored
+
+    Why this is not the rejected design: the header is only consulted after the
+    TCP peer has been checked against the resolved address of the deployment's
+    gateway. A red player connecting to Range Core directly and setting the
+    header gets their own peer address anyway, because their peer is a Kali
+    host and not the gateway. Forging it requires already being the gateway.
+
+    Why the gateway and not Z-EDGE, which also fronts players: claiming a
+    source IP on someone's behalf requires holding a Range Core service token,
+    and Z-EDGE must stay credential-free (WS8 spec §5.3 -- compromising it must
+    not hand over any token). The gateway already holds every service token by
+    design, so this adds no new secret to any host.
+
+    The gateway, for its part, must strip any client-supplied copy of the
+    header before setting its own (see deploy/ui/default.conf.template) --
+    otherwise a browser could send one through and have it forwarded verbatim.
     """
     if request.client is None:
         raise HTTPException(status_code=403, detail="no client address")
-    return request.client.host
+    peer = request.client.host
+    forwarded = request.headers.get(SEAT_SOURCE_IP_HEADER)
+    if forwarded and peer in _trusted_gateway_addresses():
+        return forwarded
+    return peer
 
 
 def create_app(
@@ -369,13 +420,20 @@ def create_app(
 
     @application.get("/api/scenarios")
     def list_scenarios() -> list[dict]:
-        """Full scenario shape **minus hint text** (#33 review finding):
-        this is a public, unauthenticated listing and Red can reach it
-        directly, so leaving hint text in it makes hint penalties optional
-        — nobody needs to call the recorded `POST /api/hints` path when the
-        answer is free here. `GET /api/hints?objective_id=` is the sanctioned
-        way to see a hint's cost before requesting it; hint *text* is only
-        ever returned by `POST /api/hints`, after the usage is recorded."""
+        """Full scenario shape **minus hint text and attack_chain** (#33
+        review finding, extended by #126 P0): this is a public,
+        unauthenticated listing and Red can reach it directly.
+
+        Hint text: leaving it in makes hint penalties optional — nobody
+        needs to call the recorded `POST /api/hints` path when the answer
+        is free here. `GET /api/hints?objective_id=` is the sanctioned way
+        to see a hint's cost before requesting it; hint *text* is only ever
+        returned by `POST /api/hints`, after the usage is recorded.
+
+        `attack_chain`: WS2 spec §4.2 is explicit — "攻擊鏈不給玩家看". It is
+        the expected-path denominator for P2 Action Registry, not a walkthrough;
+        exposing it here hands Red the answer key that Battleboard deliberately
+        anonymizes into `Attack #N` for everyone else."""
         sanitized = []
         for scenario in loaded_catalog.scenarios:
             data = scenario.model_dump()
@@ -383,6 +441,7 @@ def create_app(
                 {"objective_id": h["objective_id"], "penalty_percent": h["penalty_percent"]}
                 for h in data["hints"]
             ]
+            del data["attack_chain"]
             sanitized.append(data)
         return sanitized
 

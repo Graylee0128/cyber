@@ -146,6 +146,25 @@ class AdmissionService:
         self.seats.claim_for_access(seat["seat_id"])
         return f"{endpoint['host']}:{endpoint['port']}"
 
+    def seat_source_ip(self, token: str | None) -> str | None:
+        """這個 session 綁的座位對 Range Core 而言的來源 IP（#126 item 4）。
+
+        名冊的鍵是紅隊那台 kali 自己的位址，所以只有紅隊有值——藍隊不進個人
+        計分（WS8 spec §6.5.1），沒有 flag 提交也沒有 hint，本來就不需要名冊
+        歸屬。回傳 None 時 Z-EDGE 不設標頭，Range Core 就退回看 TCP peer。
+
+        取 `endpoints[0]["host"]` 與 `AdmissionService.ready()` 交給 Range Core
+        的 `source_ip` 是同一個值、同一個取法——名冊在領位時就是照這個欄位登記
+        的，這裡若換一種取法，兩邊會在多端點座位上悄悄對不起來。
+        """
+        seat = self.resolve_session(token)
+        if seat is None or seat["state"] not in ("ready", "claimed"):
+            return None
+        if seat["team"] != "red":
+            return None
+        endpoints = seat["endpoints"] or []
+        return endpoints[0]["host"] if endpoints else None
+
     def expire_requested(self, timeout_seconds: int) -> dict[str, int]:
         """Retry or release stale requested seats atomically.
 
