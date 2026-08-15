@@ -66,7 +66,7 @@ Falco 是 runtime sensor，需要驅動吃得下 host kernel。腳本用
 
 | WS | 工作包 | 內容 | 狀態 |
 |---|---|---|---|
-| **6** | Range Infrastructure | 執行環境、隔離、Reset、網路與部署 | 🟡 G2 四區 VLAN／方向性防火牆／靶機真 VM／六台紅隊／一鍵 IaC 已在單主機實測；G3 新增 Z-EDGE／Z-BLUE 與動態座位，[#20](https://github.com/Graylee0128/cyber/issues/20)（六區網路契約）與 [#62](https://github.com/Graylee0128/cyber/issues/62)（Seat Runtime，PR #116／#117／#118）**均已交付關閉** —— **WS6 已無 open 票** |
+| **6** | Range Infrastructure | 執行環境、隔離、Reset、網路與部署 | 🟡 G2 四區 VLAN／方向性防火牆／靶機真 VM／六台紅隊／一鍵 IaC 已在單主機實測；G3 新增 Z-EDGE／Z-BLUE 與動態座位，[#20](https://github.com/Graylee0128/cyber/issues/20)（六區網路契約）與 [#62](https://github.com/Graylee0128/cyber/issues/62)（Seat Runtime，PR #116／#117／#118）**均已交付關閉**。2026-08-15 新開 [#137](https://github.com/Graylee0128/cyber/issues/137)（Deployment Baseline：把 #78 的承載證據收斂成正式的 Minimum／Recommended 硬體規格與 validated envelope），**WS6 目前 open 1 張** |
 | **4-P1** | Purple Platform · Telemetry & Detection | 遙測、偵測、Response、事件 schema | 🟡 G2 前四條契約與全鏈已真環境實測；[驗收 9 項中 4 項有證據](./purple_platform_plan.md#27-p1-驗收)，source registry（原 #18）已由 PR #73 合併，餘 [#29](https://github.com/Graylee0128/cyber/issues/29)（來源欄位＋VM 時鐘）在追。response 鏈程式碼已合（PR #39），三項大主機驗證隨 [#44](https://github.com/Graylee0128/cyber/issues/44) 重烤 golden 一併補，故驗收第 2／7 項仍未打勾 |
 | **4-P2** | Purple Platform · Evaluation & Console | coverage／MTTD／MTTR／缺口分類、**Purple Console** | 🟡 三張傘票 [#21](https://github.com/Graylee0128/cyber/issues/21)（Evaluation Backend）[#26](https://github.com/Graylee0128/cyber/issues/26)（Purple Console）[#28](https://github.com/Graylee0128/cyber/issues/28)（Exercise Report）與 [#90](https://github.com/Graylee0128/cyber/issues/90)（Evaluation 接線，Phase 4 的 20 次量測已在真環境跑滿，PR #111）**均已交付關閉**；Console 畫面本身由 PR #110 落地（`ui/purple/`）。[#98](https://github.com/Graylee0128/cyber/issues/98)（#26／#28 的真環境驗收）已於 2026-08-14 關閉 —— **WS4-P2 已無 open 票** |
 | **5** | Cyber Range Core | Event、Score、Exercise State、API | 🟡 架構已定案（[spec](./.scratch/ws5-range-core/spec.md)，2026-08-11 grilling，5 題）；歷史里程碑 [#31](https://github.com/Graylee0128/cyber/issues/31) 已由 PR #40 交付，交付格式與 WS2 決策的六處衝突已由遷移票（原 #42，PR #54）修正並關閉，[#32](https://github.com/Graylee0128/cyber/issues/32) 起的其餘票可照現行 schema 開工 |
@@ -74,7 +74,7 @@ Falco 是 runtime sensor，需要驅動吃得下 host kernel。腳本用
 | **2** | Scenario / Target | 靶機、漏洞、攻擊鏈、Flag、Scenario Package | 🟡 內容規則已定案（[spec](./.scratch/ws2-scenario-target/spec.md)，2026-08-11 grilling，17 題）；[#43](https://github.com/Graylee0128/cyber/issues/43)（sources 重整）已由 PR #100 交付關閉，[#44](https://github.com/Graylee0128/cyber/issues/44)（真攻擊面，PR #92／#95／#99）與 [#47](https://github.com/Graylee0128/cyber/issues/47)（第一個真 scenario `shopdb-credential-pivot`，PR #112）**均已交付關閉**，schema 遷移（原 #42）已由 PR #54 關閉 —— **WS2 已無 open 票**。#47 的 T4 實測走完整條：SQLi 撈 credentials → 負向確認 webapp 對 vault 無 grant → dbadmin 直連取 flag，與 host 當場 flag 完全一致。**#65 決策 19**：個人計分 objective 只長在 Z-BLUE，scenario 需明文指定主線攻擊面 |
 | **3** | Blue Operations | Incident、Investigation、Response Workflow | 🟡 藍隊工作定義已定案（[spec](./.scratch/ws3-blue-ops/spec.md)，2026-08-11 grilling，9 題）；[#48](https://github.com/Graylee0128/cyber/issues/48)（人在迴圈）[#49](https://github.com/Graylee0128/cyber/issues/49)（Investigation／遮蔽／評分）[#51](https://github.com/Graylee0128/cyber/issues/51)（封鎖路徑，PR #106／#109）**均已交付關閉** —— **WS3 已無 open 票**。#51 的驗收是跨容器 e2e：Blue `contain` → Range Core（Z-APP）→ receiver enqueue（Z-MGMT），land-then-dispatch 確保不會「有分數沒封鎖」。**關鍵發現：封鎖原本是全自動的，SA §9 四個 Blue objective 有三個是機器在做** |
 | **8** | Event Control Plane（會議中控）| 憑據、座位、會話 —— `player_id` 的唯一產生點 | 🟡 **架構已定案**（[spec](./.scratch/ws8-event-control/spec.md)，2026-08-11／12 兩輪 grilling，**25 條決策**；[中控畫面 demo](./.scratch/ws8-event-control/demo.html)、[玩家旅程圖](./.scratch/ws8-event-control/player-journey-v0_1-draft.svg)）。票：[#20](https://github.com/Graylee0128/cyber/issues/20)（六區網路契約）與 [#59](https://github.com/Graylee0128/cyber/issues/59)（Admission／Seat，PR #105）**均已交付關閉**；中控畫面（原 handoff 票 [#76](https://github.com/Graylee0128/cyber/issues/76)）已由 PR #110 落地（`ui/event-control/`）。[#78](https://github.com/Graylee0128/cyber/issues/78)（承載 spike，PR #115）與 [#62](https://github.com/Graylee0128/cyber/issues/62)（Seat Runtime，PR #116／#117／#118）於 2026-08-15 交付關閉 —— **WS8 已無 open 票**。SA 回寫由 PR #68 完成；決策 gate #65 已於 2026-08-12 拍板收斂並關閉 |
-| **7** | Product UI | Player Portal、Blue SOC、Battleboard、Instructor（**Purple Console 屬 4-P2**，SA §4.2）| 🟡 邊界層 [#52](https://github.com/Graylee0128/cyber/issues/52)（共用契約＋服務身分，`src/disclosure/`）與**畫面層** [#75](https://github.com/Graylee0128/cyber/issues/75)（PR #110）**均已交付關閉** —— **WS7 已無 open 票**。六個畫面在 [`ui/`](./ui/README.md)：零依賴靜態頁，服務 token 由 nginx server 端注入、不進瀏覽器，前綴決定身分→身分決定 clearance。**殘留缺口誠實記在 [ui/README.md](./ui/README.md)**（來源 IP 歸屬與反向代理相衝、教官畫面只靠網段擋、`/api/scenarios` 會吐 `attack_chain`、Override／Inject 後端無端點） |
+| **7** | Product UI | Player Portal、Blue SOC、Battleboard、Instructor（**Purple Console 屬 4-P2**，SA §4.2）| 🟡 邊界層 [#52](https://github.com/Graylee0128/cyber/issues/52)（共用契約＋服務身分，`src/disclosure/`）與**畫面層** [#75](https://github.com/Graylee0128/cyber/issues/75)（PR #110）**均已交付關閉** —— **WS7 已無 open 票**。七個畫面在 [`ui/`](./ui/README.md)（Player Portal 紅藍各一檔）：零依賴靜態頁，服務 token 由 nginx server 端注入、不進瀏覽器，前綴決定身分→身分決定 clearance。**殘留缺口誠實記在 [ui/README.md](./ui/README.md)**：[#126](https://github.com/Graylee0128/cyber/issues/126)（PR #134）已修掉來源 IP 歸屬撞反向代理、`/api/scenarios` 吐 `attack_chain`、逐來源 telemetry 欄沒出口三項，並替教官畫面補上 `auth_request` 第二層；**仍在的是** `UI_PRIVILEGED_CIDR` 預設 `0.0.0.0/0`（正式部署必須收斂）、briefing 沒有 API、未登記的 scenario 在 Evaluation API 上回 503、Override／Inject 後端無端點（決議暫不開票） |
 
 四條線可平行：**技術線** WS4-P2、**產品線** WS1→WS5→WS7、**內容線** WS2／WS3、
 **入場線** WS8→WS6→WS7。箭頭方向不可逆 —— 逆向施工的代價是重工，不是延遲（SA §4.1）。
@@ -94,7 +94,10 @@ blockers」＝現行依賴 ＋「Preserved sub-tickets」＝歷史證據兩段�
 同日稍晚，**#65 decision gate 第二輪 grilling 十題全數拍板並關票**（詳見
 [WS8 spec §10.1](./.scratch/ws8-event-control/spec.md)）。**目前沒有任何 human gate 擋著。**
 
-Canonical open set（3 張，2026-08-15 v2 grilling 後）：**#69／#126／#131**。
+Canonical open set（3 張，2026-08-15 晚間）：**#69／#137／#138**。
+（v2 grilling 當日收斂出的 [#126](https://github.com/Graylee0128/cyber/issues/126)
+與 [#131](https://github.com/Graylee0128/cyber/issues/131) 已分別由 PR #134／#136 交付關閉，
+子票 #127–#130／#132／#133 隨之關閉；新開的三張見下方表格。）
 （收斂當日 22 張 → 陸續關閉 #56／#42／#18／#19／#65／#20／#21／#26／#28／#29／#32
 ／#33／#36／#43／#44／#47／#48／#49／#51／#52／#59／#62／#75／#76／#78／#90／#98，
 新增 #69／#75／#76／#78／#90／#98。#69 是文件維護的常駐 anchor，**不因單次清理而關閉**
@@ -125,18 +128,30 @@ Canonical open set（3 張，2026-08-15 v2 grilling 後）：**#69／#126／#131
 > （子票關閉指回，內文保留為歷史證據）。決策細節見
 > [purple_platform_plan.md §7.2](./purple_platform_plan.md#72-已解2026-08-15v2-scope-grilling)
 > 與兩張票內文。
+>
+> **同日晚間兩張都做完了。** #126 由 PR #134 五項全數交付（其中兩項在實作中推翻了原
+> issue 的描述：Grafana healthcheck 其實 2026-08-09 就存在、缺的只有 UI 那一半；來源 IP
+> 代宣告最後不走 Z-EDGE 而由 Product UI gateway 承擔，因為 Z-EDGE 必須維持零憑證 ——
+> 後者另立 [ADR 0004](./docs/adr/0004-roster-attribution-via-trusted-gateway.md)）。#131 由
+> PR #136 交付 Ollama service（模型落 volume 不烤進 image）＋ Exercise Report 敘事
+> ＋ Instructor SOC Copilot，子票 #132／#133 隨之關閉。
+>
+> **接著開了新的三張**：[#137](https://github.com/Graylee0128/cyber/issues/137) 把 #78 的
+> 承載證據收斂成正式硬體規格（deployment qualification，不是重跑 benchmark）、
+> [#138](https://github.com/Graylee0128/cyber/issues/138) Role × UI × Permission Matrix
+> 與三層文件體系，加上常駐的 #69。
 
 - 對外契約 → [docs/p1-output-contract.md](./docs/p1-output-contract.md)｜執行導覽 → [archive/p1-output-contract-map.md](./archive/p1-output-contract-map.md)（P1 已結，存查）
 - 決策 spec → [WS1 遊戲規則](./.scratch/ws1-game-design/spec.md)｜[WS2 Scenario 內容規則](./.scratch/ws2-scenario-target/spec.md)｜[WS3 藍隊工作定義](./.scratch/ws3-blue-ops/spec.md)｜[WS5 Range Core](./.scratch/ws5-range-core/spec.md)｜[WS7 Console 邊界層](./.scratch/ws7-boundary/spec.md)｜[WS8 會議中控](./.scratch/ws8-event-control/spec.md)
-- **實作的畫面**（吃真 API）→ [`ui/`](./ui/README.md)：Battleboard｜Player Portal（Red／Blue 兩個獨立入口）｜Blue SOC｜Purple Console｜Instructor Console｜Event Control
+- **實作的畫面**（吃真 API，七個 surface）→ [`ui/`](./ui/README.md)：Battleboard｜Player Portal（Red／Blue 兩個獨立入口）｜Blue SOC｜Purple Console｜Instructor Console｜Event Control
 - 視覺提案（**已被上面取代**，保留為設計依據；全是零依賴單檔 mock、資料寫死）→ [中控畫面](./.scratch/ws8-event-control/demo.html)｜[Purple Console](./.scratch/purple-console-ui/demo.html)｜[Battleboard](./.scratch/battleboard-ui/demo.html)｜[Player Portal](./.scratch/product-ui/player-portal.html)｜[Blue SOC](./.scratch/product-ui/blue-soc.html)｜[Instructor Console](./.scratch/product-ui/instructor-console.html)
 - 所有票 → [GitHub Issues](https://github.com/Graylee0128/cyber/issues)
 
 | 目前 open（3 張） | 說明 |
 |---|---|
 | [#69](https://github.com/Graylee0128/cyber/issues/69) Docs maintenance | canonical set 漂移同步、票關閉後的 stale 清理。**常駐 anchor，不因單次清理而關閉** —— 它同時是 `pr-contract.yml` 給純文件 PR 的唯一合法 target，關掉它之後每張文件 PR 都會被 metadata check 擋下 |
-| [#126](https://github.com/Graylee0128/cyber/issues/126) v2 已知缺口 triage | canonical work package，5 項 checklist：**P0** `/api/scenarios` 洩漏 attack_chain、教官畫面認證、Grafana healthcheck、反向代理拓樸、Purple Console telemetry 欄（backlog） |
-| [#131](https://github.com/Graylee0128/cyber/issues/131) AI 輔助（Ollama + qwen2.5:3b） | canonical work package，3 項 checklist：基礎設施（L2 依賴、烤入 golden）、Purple Report 敘事生成（不碰判讀）、Instructor SOC Copilot（只給教官不給玩家） |
+| [#137](https://github.com/Graylee0128/cyber/issues/137) WS6 Deployment Baseline | 把 [#78](https://github.com/Graylee0128/cyber/issues/78) 的承載證據收斂成正式的 **Minimum／Recommended 硬體規格**與 validated envelope。**不是重跑 benchmark**：#78 已回答「單機最多撐多少」，本票回答「正式部署最低要給多少、典型演練下有多少 headroom」。3 profile × 3 workload state，產出 `docs/deployment/hardware-baseline.md` |
+| [#138](https://github.com/Graylee0128/cyber/issues/138) Role × UI × Permission Matrix ＋ 三層文件 | 五類角色 × 七個 UI surface 的可見性與能力矩陣（含**由什麼強制**欄），據以產出 Participant／Operator／Technical Handbook 三份文件並把 docs 結構去單體化 |
 
 > ⚠️ 自動 enqueue 已由 [#48](https://github.com/Graylee0128/cyber/issues/48) 降級為「待處置建議」。
 > T4 的封鎖鏈若靠自動 enqueue 驅動會無聲變綠 —— 現行路徑是藍隊動作經 Range Core
