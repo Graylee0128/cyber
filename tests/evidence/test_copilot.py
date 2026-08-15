@@ -70,12 +70,14 @@ class TestGenerateCopilotSummary:
 
         assert generate_copilot_summary([{"player_id": "blue-01"}]) is None
 
-    def test_no_players_still_calls_generate_with_fallback_prompt(self, monkeypatch):
-        captured = {}
-        monkeypatch.setattr(
-            copilot_module, "generate", lambda p, **k: captured.setdefault("prompt", p) or "ok"
-        )
+    def test_no_players_does_not_call_ollama_at_all(self, monkeypatch):
+        """2026-08-15 實測：沒東西可摘要時還是打了 Ollama，白白吃最多 15 秒逾時——
+        教官畫面最常見的狀態（還沒開場）反而最容易卡住。改成直接回固定文字，
+        不打網路。這條測試證明 generate() 完全沒被呼叫。"""
+        called = []
+        monkeypatch.setattr(copilot_module, "generate", lambda *a, **k: called.append(1) or "x")
 
-        generate_copilot_summary([])
+        result = generate_copilot_summary([])
 
-        assert captured["prompt"] == "目前沒有任何藍隊玩家在線。"
+        assert result == "目前沒有任何藍隊玩家在線。"
+        assert called == []

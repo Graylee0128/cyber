@@ -46,6 +46,15 @@ def build_prompt(player_statuses: list[dict[str, object]]) -> str:
 
 
 def generate_copilot_summary(player_statuses: list[dict[str, object]]) -> str | None:
-    """對外唯一出口。Ollama 不可用／逾時時回 `None`，不拋例外。"""
+    """對外唯一出口。Ollama 不可用／逾時時回 `None`，不拋例外。
+
+    沒有玩家在線時**不打 Ollama**——2026-08-15 實測發現「沒有東西可摘要」也會
+    照樣送一次真的推論請求，白白吃掉最多 `COPILOT_TIMEOUT_S` 秒（CPU-only 推論
+    本來就慢，見 module docstring），教官畫面最常見的狀態（還沒開場、沒人上線）
+    因此反而是最容易卡住的狀態，不合理。這裡直接回一句固定文字，不算 AI 生成，
+    但語意一致（「目前沒有任何藍隊玩家在線」），呼叫端不用另外判斷。
+    """
+    if not player_statuses:
+        return build_prompt(player_statuses)
     prompt = build_prompt(player_statuses)
     return generate(prompt, system=_SYSTEM_PROMPT, timeout_s=COPILOT_TIMEOUT_S)
