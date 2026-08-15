@@ -45,6 +45,12 @@ also rejected from scenario, gameplay, scoring, start, and reset endpoints.
 
 ## Trust-boundary consequence
 
+> **⚠️ 本節已由 [ADR 0004](0004-roster-attribution-via-trusted-gateway.md) 取代（2026-08-15）。**
+> 下方保留原文供追溯。實際成真的是它自己預言的失敗模式：Product UI（#75）落地後，
+> Player Portal 的提交確實經 gateway 進來，於是每一次都 403。ADR 0004 授權了**單一**
+> 可信 gateway 代宣告來源 IP（peer 檢查通過才讀標頭），其餘拒絕 caller-supplied
+> 身分的原則不變。本 ADR 的其他章節全部仍然有效。
+
 This does not route gameplay through Z-EDGE and does not trust proxy identity
 headers. Red registration associates the provisioned Kali address with the
 player, but submissions and hints still resolve that association exclusively

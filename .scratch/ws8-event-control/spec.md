@@ -290,6 +290,12 @@ Z-EDGE 透過 `EDGE → APP :443` 向 Admission Service 查驗（nginx `auth_req
 
 **代價**：每個請求多一跳。在 50+ 併發、且熱路徑只有領號那一次的規模下，可接受。
 
+> **2026-08-15 補記（#126 item 4）**：本節的「Z-EDGE 零憑證」是硬約束，
+> `tests/deploy/test_edge_access.py::test_edge_config_contains_no_database_or_credential_material`
+> 是它的看守者。名冊來源 IP 的代宣告因此**不放在 Z-EDGE**（那需要握有 Range Core 的
+> 服務 token），改由本來就持有全部服務 token 的 Product UI gateway 承擔 ——
+> 見 [ADR 0004](../../docs/adr/0004-roster-attribution-via-trusted-gateway.md)。
+
 ## 5.4 ttyd 跑在容器內，不在 host 上
 
 外部參考架構寫「ttyd process 跑在 VM 上」。本專案不能照抄：
