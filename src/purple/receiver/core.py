@@ -43,7 +43,6 @@ def build_core_event(
     whitelist: Whitelist | None = None,
     *,
     exercise_id: str,
-    scenario_id: str,
 ) -> dict[str, Any]:
     """組出符合契約的 Core Event。
 
@@ -56,11 +55,6 @@ def build_core_event(
     `action_id` 只從 label 讀，**永不**由 technique ＋ 時間窗鄰近性推導（#90）：
     同一個 technique 可以有多個註冊動作，靠「最近的那個」猜會把證據配到錯的動作上，
     而且錯得無聲無息。沒有 label 就是 `None`。
-
-    `scenario_id` 由呼叫端傳入（來自 PostgreSQL 的 running exercise），**不讀
-    `labels["scenario_id"]`** —— 跟 visibility 同一條原則：rule 自帶的值不足以
-    決定事件屬於哪一場。Grafana 的 label 只用來比對是否為串場告警，見
-    `ingest_alert`。
     """
     labels = alert["labels"]
     event_type = labels["event_type"]
@@ -76,7 +70,7 @@ def build_core_event(
     event = {
         "event_id": event_id,
         "exercise_id": exercise_id,
-        "scenario_id": scenario_id,
+        "scenario_id": labels["scenario_id"],
         "event_type": event_type,
         "lifecycle": lifecycle,
         "severity": labels["severity"],

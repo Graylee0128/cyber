@@ -98,9 +98,7 @@ def seed_detection(conn, event_id, action_id):
     raw = alert(action_id)
     AlertRecordStore(conn).write(build_alert_record(raw, event_id))
     CoreEventStore(conn).append(
-        build_core_event(
-            raw, event_id, "firing", exercise_id=EXERCISE, scenario_id="sqli-01"
-        )
+        build_core_event(raw, event_id, "firing", exercise_id=EXERCISE)
     )
 
 

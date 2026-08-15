@@ -16,6 +16,13 @@ from purple.receiver.core import mint_event_id
 
 @dataclass
 class FingerprintIndex:
+    """Grafana fingerprint → event_id，**限定在一場演練內**。
+
+    `exercise_id` 不是可有可無的分類欄位：Grafana 的 fingerprint 只由 rule 的
+    label 集合決定，同一條規則在下一場會再次產生一模一樣的值。沒有場次作用域，
+    第二場的 firing 會撈回第一場的 event_id。
+    """
+
     conn: psycopg.Connection
     exercise_id: str
 

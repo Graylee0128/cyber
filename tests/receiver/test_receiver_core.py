@@ -37,40 +37,27 @@ class TestBuildCoreEvent:
             "evt-1",
             "firing",
             exercise_id="ex-current-running",
-            scenario_id="sqli-01",
         )
         assert core["exercise_id"] == "ex-current-running"
 
-    def test_scenario_id_is_injected_instead_of_trusting_the_alert_label(self):
-        # ALERT 的 label 寫 sqli-01；呼叫端傳的才算數（來源是 PostgreSQL 的
-        # running exercise，不是 Grafana rule）。
-        core = build_core_event(
-            ALERT,
-            "evt-1",
-            "firing",
-            exercise_id="ex-current",
-            scenario_id="scenario-from-running-exercise",
-        )
-        assert core["scenario_id"] == "scenario-from-running-exercise"
-
     def test_visibility_comes_from_event_type_not_label(self):
-        core = build_core_event(ALERT, "evt-1", "firing", exercise_id="ex-current", scenario_id="sqli-01")
+        core = build_core_event(ALERT, "evt-1", "firing", exercise_id="ex-current")
         assert core["visibility"] == "public"  # attack.detected → public
 
     def test_core_event_has_no_backend_fields(self):
-        core = build_core_event(ALERT, "evt-1", "firing", exercise_id="ex-current", scenario_id="sqli-01")
+        core = build_core_event(ALERT, "evt-1", "firing", exercise_id="ex-current")
         blob = repr(core).lower()
         for word in ("loki", "logql", "promql", "backend", "evidence_ref", "query", "threshold"):
             assert word not in blob, f"{word} leaked into Core Event"
 
     def test_event_id_is_carried_through(self):
         assert build_core_event(
-            ALERT, "evt-xyz", "firing", exercise_id="ex-current", scenario_id="sqli-01"
+            ALERT, "evt-xyz", "firing", exercise_id="ex-current"
         )["event_id"] == "evt-xyz"
 
     def test_target_is_the_service(self):
         assert build_core_event(
-            ALERT, "evt-1", "firing", exercise_id="ex-current", scenario_id="sqli-01"
+            ALERT, "evt-1", "firing", exercise_id="ex-current"
         )["target"] == {"service": "vulnerable-app"}
 
     def test_response_source_ip_is_carried_from_governed_alert_label(self):
@@ -79,7 +66,7 @@ class TestBuildCoreEvent:
             "labels": {**ALERT["labels"], "source_ip": "10.167.30.11"},
         }
 
-        assert build_core_event(with_source, "evt-1", "firing", exercise_id="ex-current", scenario_id="sqli-01")["target"] == {
+        assert build_core_event(with_source, "evt-1", "firing", exercise_id="ex-current")["target"] == {
             "service": "vulnerable-app",
             "source_ip": "10.167.30.11",
         }
@@ -87,7 +74,7 @@ class TestBuildCoreEvent:
     def test_invalid_event_is_rejected_before_leaving_core(self):
         bad = {**ALERT, "labels": {**ALERT["labels"], "event_type": "attack.maybe"}}
         with pytest.raises(SchemaViolation):
-            build_core_event(bad, "evt-1", "firing", exercise_id="ex-current", scenario_id="sqli-01")
+            build_core_event(bad, "evt-1", "firing", exercise_id="ex-current")
 
 
 class TestLifecycle:

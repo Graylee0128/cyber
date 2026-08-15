@@ -87,7 +87,8 @@ CREATE TABLE IF NOT EXISTS alert_records (
 --
 -- 鍵**必須**含 exercise_id：Grafana 的 fingerprint 只由 rule 的 label 集合決定，
 -- 同一條規則在下一場演練會再次產生一模一樣的 fingerprint。全域鍵會讓第二場的
--- firing 撈回第一場的 event_id，事件因此被歸屬到已經結束的場次，而且無聲無息。
+-- firing 撈回第一場鑄造的 event_id —— 新事件被靜默掛到已結束場次的 id 上，
+-- 不會噴任何錯。
 CREATE TABLE IF NOT EXISTS alert_fingerprints (
     exercise_id text        NOT NULL,
     fingerprint text        NOT NULL,
@@ -97,8 +98,8 @@ CREATE TABLE IF NOT EXISTS alert_fingerprints (
 );
 
 -- 既有資料庫的升級路徑：CREATE TABLE IF NOT EXISTS 不會替已存在的表補欄位或換主鍵。
--- 舊資料列沒有場次可歸屬，而 fingerprint 對映本來就只是生命週期關聯的暫態
--- （firing↔resolved 配對），硬塞給任意一場會製造假的跨場關聯，所以直接丟棄。
+-- 舊資料列沒有場次可歸屬，而 fingerprint 對映本來就只是 firing↔resolved 的暫態
+-- 關聯，硬塞給任意一場會製造假的跨場關聯，所以直接丟棄而不是猜。
 ALTER TABLE alert_fingerprints
     ADD COLUMN IF NOT EXISTS exercise_id text;
 DELETE FROM alert_fingerprints WHERE exercise_id IS NULL;

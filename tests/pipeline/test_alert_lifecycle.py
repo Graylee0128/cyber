@@ -45,7 +45,6 @@ def _ingest(webhook, events, records, fps):
         records=records,
         fingerprints=fps,
         exercise_id="ex-current",
-        scenario_id="sqli-01",
     )
 
 

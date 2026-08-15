@@ -62,7 +62,6 @@ def test_falco_exec_produces_core_event(stores):
         events=events,
         records=records,
         exercise_id="ex-current",
-        scenario_id="falco-exec-01",
     )
 
     core = wait_for_event(

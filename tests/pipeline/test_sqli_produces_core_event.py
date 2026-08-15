@@ -61,7 +61,6 @@ def test_sqli_produces_core_event(stores):
         events=events,
         records=records,
         exercise_id="ex-current",
-        scenario_id="sqli-01",
     )
 
     core = wait_for_event(

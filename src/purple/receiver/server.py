@@ -89,15 +89,15 @@ class WebhookHandler(BaseHTTPRequestHandler):
         # 每個請求開一條連線：Grafana webhook 量低，簡單優先於連線池。
         conn = connect()
         try:
-            context = RunningExerciseLookup(conn).require()
+            # fingerprint index 必須綁在這一場上，見 FingerprintIndex 的 docstring。
+            exercise_id = RunningExerciseLookup(conn).require_id()
             emitted = ingest_alert(
                 body,
                 events=CoreEventStore(conn),
                 records=AlertRecordStore(conn),
-                fingerprints=FingerprintIndex(conn, context.exercise_id),
+                fingerprints=FingerprintIndex(conn, exercise_id),
                 response_queue=self.response_queue,
-                exercise_id=context.exercise_id,
-                scenario_id=context.scenario_id,
+                exercise_id=exercise_id,
                 auto_response=self.auto_response,
             )
         except Exception as exc:  # 收下故障要現形，別讓 Grafana 一直重試打爆
