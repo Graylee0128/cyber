@@ -510,16 +510,20 @@ B 的角色前後期性質差很多，這是刻意的：**同一個人做引擎�
 
 實作規格：`cyber/docs/p1-output-contract.md`。
 
-## 7.2 仍未解
+## 7.2 已解（2026-08-15，v2 scope grilling）
 
-| # | 問題 | 影響 | 誰決定 |
-|---|---|---|---|
-| Q5 | 紅隊動作清單的註冊介面長什麼樣 | §3.2 分母能否演練前固定 | Product UI（契約已定：必須從 technique 白名單選） |
-| Q6 | 是否導入 Tempo（tracing） | 是否擴大 P1 範圍 | 暫緩至 V2 |
-| Q7 | Purple 是否直接參與紅藍比分 | Purple 的產出是 KPI 還是分數 | 產品決定，非紫隊 |
-| Q9 | Grafana Alerting 單點的可用性補償 | 它掛了偵測全停 | P1，接受風險後日後補健康告警 |
+| # | 問題 | 結論 |
+|---|---|---|
+| Q5 | 紅隊動作清單的註冊介面長什麼樣 | **不需要另建介面**——denominator 已由 `scenario.action_registry_seed()` 在演練前從 metadata `attack_chain` 自動凍結（`src/range_core/scenarios.py:169`）。真正缺的是「教官能否在演練中臨時改分／插入事件」（Override/Inject，ui/README.md 已知缺口 5），本輪決定**暫不做**：目前 8 個 workstream 的契約都不需要，等真實例出現再開票 |
+| Q6 | 是否導入 Tempo（tracing） | **不做**，不是「暫緩」。紫隊 KPI（coverage／MTTD／MTTR）是事件驅動不是 span 驅動，從開放問題移除 |
+| Q7 | Purple 是否直接參與紅藍比分 | **KPI-only**。紫隊角色是判讀（C1/C2/C3）去判紅藍，不是被計分的第三方——讓紫隊也被計分會讓「誰在裁判」自我指涉 |
+| Q9 | Grafana Alerting 單點的可用性補償 | **補可見性，不補告警管線**：docker-compose 加 healthcheck，狀態顯示在 Instructor Console；不建 alertmanager／pager（[#126](https://github.com/Graylee0128/cyber/issues/126)） |
 
 Step 0 的阻塞題已全部解除，P1 可開工。
+
+## 7.3 仍未解
+
+（本輪 2026-08-15 grilling 後暫無殘留；ui/README.md「已知缺口」4 項合併進 canonical work package [#126](https://github.com/Graylee0128/cyber/issues/126)（v2 已知缺口 triage），AI 輔助分支合併進 [#131](https://github.com/Graylee0128/cyber/issues/131)，Override/Inject 決定暫不開票）
 
 ---
 

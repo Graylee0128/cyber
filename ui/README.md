@@ -107,7 +107,9 @@ Incident △ —— 後端沒有 incident 聚合模型，佇列的單位是 even
 生命週期 ✅／即時真實攻防狀態 ✅／Raw Event ✅／維運動作 ✅。
 **Override Score 與 Inject Event `✗`** —— 後端完全沒有這兩條端點（全部路由清點過，沒有
 override／inject 路徑），所以做不了。spec Q3 已定案「要留稽核、與 #55 統一管道」，
-但那是對還不存在的功能所做的決策。
+但那是對還不存在的功能所做的決策。**2026-08-15 v2 grilling 拍板：暫不開票**，目前 8 個
+workstream 的契約都不需要，等真的有教官在演練中要求改分的實例出現再開（見
+`purple_platform_plan.md` §7.2 Q5）。
 
 **Event Control**
 
@@ -128,7 +130,8 @@ override／inject 路徑），所以做不了。spec Q3 已定案「要留稽核
 
 畫面照實顯示這個錯誤，不假裝成功。真正的解法是部署拓樸的決定（Portal 要從玩家自己的座位
 服務出去，或 Range Core 要坐在 Kali 直連得到的位置）—— `_source_ip` 的 docstring 自己也記著
-「deployment topology is not yet decided」。
+「deployment topology is not yet decided」。**2026-08-15 v2 grilling 拍板：走前者**（Portal
+從座位服務出去，理由見 [#126](https://github.com/Graylee0128/cyber/issues/126)）。
 
 ### 2. 誰能載入教官畫面，目前只靠網段擋
 
@@ -136,6 +139,7 @@ override／inject 路徑），所以做不了。spec Q3 已定案「要留稽核
 Admission 的 session 只回答「這個 session 擁不擁有這台終端機」（`/admission/auth/ttyd/{terminal}`），
 沒有「這個 session 是不是教官」的端點，所以 nginx 的 `auth_request` 接不上去。
 compose 裡的預設值是 `0.0.0.0/0`（本機 demo 用），**正式環境必須收斂到 Z-MGMT 網段**。
+追蹤票：[#126](https://github.com/Graylee0128/cyber/issues/126)。
 
 ### 3. `GET /api/scenarios` 會吐出攻擊鏈
 
@@ -144,12 +148,14 @@ compose 裡的預設值是 `0.0.0.0/0`（本機 demo 用），**正式環境必�
 匿名化成 `Attack #N`，但紅隊直接打這條端點就全拿到了。
 
 Player Portal 不渲染它，可是前端不渲染不等於沒外洩。這要在後端補投影，屬 WS5／#82 的範圍。
+**2026-08-15 v2 grilling 拍板：最高優先修**，追蹤票：[#126](https://github.com/Graylee0128/cyber/issues/126)。
 
 ### 4. 逐來源的 Telemetry 欄沒有出口
 
 `purple/console/drilldown.py` 的 ✅／❌／—／⏳ 判定邏輯是完整的，但 Evaluation API 只吐引擎
 算好的缺口分類，不吐每個來源的個別標記。Purple Console 畫面二因此顯示缺口分類（那正是
 Telemetry 欄要回答的問題），並在畫面上標明少了哪一層，而不是留白。
+**2026-08-15 v2 grilling 拍板：排 backlog**，追蹤票：[#126](https://github.com/Graylee0128/cyber/issues/126)。
 
 ### 5. briefing 沒有 API
 

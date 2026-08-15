@@ -7,7 +7,20 @@ Gamified Red-Blue-Purple 攻防訓練平台。不是 observability lab，也不�
 
 ## 一鍵部署 ／ 一鍵測試
 
-只有兩個指令要記得。其餘 `scripts/range/*.sh` 都由它們呼叫，不必逐支背。
+新機器、什麼都還沒 clone：一行到位。
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Graylee0128/cyber/master/bootstrap.sh | sudo bash
+```
+
+`bootstrap.sh` 只做兩件事：clone/更新 repo 到 `~/cyber`（`CYBER_DIR` 可覆寫），
+然後直接呼叫 `deploy.sh`。想帶 `deploy.sh` 的參數（例如乾淨主機要 `--install-deps`）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Graylee0128/cyber/master/bootstrap.sh | sudo bash -s -- --install-deps
+```
+
+已經 clone 好本機的話，只有兩個指令要記得。其餘 `scripts/range/*.sh` 都由它們呼叫，不必逐支背。
 
 ```bash
 sudo bash deploy.sh      # 部署：觀測平面(compose) + Range（目前已實作 G2 四區／靶機 VM／六台紅隊）
@@ -81,11 +94,11 @@ blockers」＝現行依賴 ＋「Preserved sub-tickets」＝歷史證據兩段�
 同日稍晚，**#65 decision gate 第二輪 grilling 十題全數拍板並關票**（詳見
 [WS8 spec §10.1](./.scratch/ws8-event-control/spec.md)）。**目前沒有任何 human gate 擋著。**
 
-Canonical open set（1 張，2026-08-15）：**#69**。
+Canonical open set（3 張，2026-08-15 v2 grilling 後）：**#69／#126／#131**。
 （收斂當日 22 張 → 陸續關閉 #56／#42／#18／#19／#65／#20／#21／#26／#28／#29／#32
 ／#33／#36／#43／#44／#47／#48／#49／#51／#52／#59／#62／#75／#76／#78／#90／#98，
 新增 #69／#75／#76／#78／#90／#98。#69 是文件維護的常駐 anchor，**不因單次清理而關閉**
-—— 也就是說**目前唯一 open 的票就是這張常駐 anchor 本身，實作票全部清空**。）
+—— 該日一度清到只剩 #69，見下段。）
 
 > 2026-08-14 單日關掉六張：#44（真攻擊面，PR #92／#95／#99）、#90（Evaluation 接線，
 > PR #91／#111）、#51（封鎖路徑，PR #106／#109）、#47（第一個真 scenario，PR #112）、
@@ -99,7 +112,19 @@ Canonical open set（1 張，2026-08-15）：**#69**。
 > ＋RED→BLUE DMZ-only），全部在該主機真環境驗證。#98 的項目 1、2 同樣在該主機補完並於
 > 2026-08-14 關閉。
 >
-> **實作票已全部清空**，只剩 #69 這張常駐 anchor。下一步不再卡硬體，是要決定開哪一批新票。
+> **實作票當日一度全部清空**，只剩 #69 這張常駐 anchor。
+>
+> **同日稍晚做了一輪 v2 scope grilling**（8 題：Tempo/tracing、Purple 是否計分、Grafana
+> Alerting 單點、紅隊動作註冊介面、ui/README.md 5 個已知缺口），拍板後收斂成一張
+> canonical work package [#126](https://github.com/Graylee0128/cyber/issues/126)「v2 已知缺口 triage」
+> （`/api/scenarios` 洩漏 attack_chain 最高優先、教官認證、Grafana healthcheck、反向代理拓樸、
+> Purple Console telemetry 欄排 backlog）。接著又追加一輪 AI 輔助分支：**Ollama + qwen2.5:3b
+> 本機模型**，角色鎖定「Purple 敘事生成」與「Instructor SOC copilot」，紅隊方向明確不做，
+> 同樣收斂成一張 [#131](https://github.com/Graylee0128/cyber/issues/131)「AI 輔助」。
+> 兩題以上原本各自切了小票，後來依「issue 開太多」的回饋合併成 2 張 canonical ticket
+> （子票關閉指回，內文保留為歷史證據）。決策細節見
+> [purple_platform_plan.md §7.2](./purple_platform_plan.md#72-已解2026-08-15v2-scope-grilling)
+> 與兩張票內文。
 
 - 對外契約 → [docs/p1-output-contract.md](./docs/p1-output-contract.md)｜執行導覽 → [archive/p1-output-contract-map.md](./archive/p1-output-contract-map.md)（P1 已結，存查）
 - 決策 spec → [WS1 遊戲規則](./.scratch/ws1-game-design/spec.md)｜[WS2 Scenario 內容規則](./.scratch/ws2-scenario-target/spec.md)｜[WS3 藍隊工作定義](./.scratch/ws3-blue-ops/spec.md)｜[WS5 Range Core](./.scratch/ws5-range-core/spec.md)｜[WS7 Console 邊界層](./.scratch/ws7-boundary/spec.md)｜[WS8 會議中控](./.scratch/ws8-event-control/spec.md)
@@ -107,16 +132,18 @@ Canonical open set（1 張，2026-08-15）：**#69**。
 - 視覺提案（**已被上面取代**，保留為設計依據；全是零依賴單檔 mock、資料寫死）→ [中控畫面](./.scratch/ws8-event-control/demo.html)｜[Purple Console](./.scratch/purple-console-ui/demo.html)｜[Battleboard](./.scratch/battleboard-ui/demo.html)｜[Player Portal](./.scratch/product-ui/player-portal.html)｜[Blue SOC](./.scratch/product-ui/blue-soc.html)｜[Instructor Console](./.scratch/product-ui/instructor-console.html)
 - 所有票 → [GitHub Issues](https://github.com/Graylee0128/cyber/issues)
 
-| 目前 open（唯一一張） | 說明 |
+| 目前 open（3 張） | 說明 |
 |---|---|
 | [#69](https://github.com/Graylee0128/cyber/issues/69) Docs maintenance | canonical set 漂移同步、票關閉後的 stale 清理。**常駐 anchor，不因單次清理而關閉** —— 它同時是 `pr-contract.yml` 給純文件 PR 的唯一合法 target，關掉它之後每張文件 PR 都會被 metadata check 擋下 |
+| [#126](https://github.com/Graylee0128/cyber/issues/126) v2 已知缺口 triage | canonical work package，5 項 checklist：**P0** `/api/scenarios` 洩漏 attack_chain、教官畫面認證、Grafana healthcheck、反向代理拓樸、Purple Console telemetry 欄（backlog） |
+| [#131](https://github.com/Graylee0128/cyber/issues/131) AI 輔助（Ollama + qwen2.5:3b） | canonical work package，3 項 checklist：基礎設施（L2 依賴、烤入 golden）、Purple Report 敘事生成（不碰判讀）、Instructor SOC Copilot（只給教官不給玩家） |
 
 > ⚠️ 自動 enqueue 已由 [#48](https://github.com/Graylee0128/cyber/issues/48) 降級為「待處置建議」。
 > T4 的封鎖鏈若靠自動 enqueue 驅動會無聲變綠 —— 現行路徑是藍隊動作經 Range Core
 > 派送（`triggered_by="manual"`），測試載具才走 auto。
 
 P1 驗收的逐項狀態見 [purple_platform_plan.md §2.7](./purple_platform_plan.md#27-p1-驗收) ——
-**9 項中 4 項有實測證據**，其餘都有票在追，不是「差不多做完了」。
+**9 項全數有實測證據**（2026-08-14 補齊），不是「差不多做完了」。
 
 ## 開發
 
