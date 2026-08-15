@@ -302,6 +302,10 @@ services:
       - ./deploy/falco/rules.d/purplescope.yaml:/etc/falco/rules.d/purplescope.yaml:ro
       - falcologs:/var/log/falco
       - /proc:/host/proc:ro   # 大主機：proc enrichment（container/proc metadata）
+      # #62 Z-BLUE 規則要靠 container.name 認出 seat-blue-*（container.id 是
+      # 動態的，規則不能寫死）；沒掛 docker.sock 之前 container.name 一律是
+      # <NA>（實測驗證過），只有 container.id 有值。唯讀掛載。
+      - /var/run/docker.sock:/host/var/run/docker.sock:ro
     networks:
       - z-target
 

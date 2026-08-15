@@ -130,6 +130,15 @@ echo "▶ 套 nftables 方向性防火牆（在 router 的 forward hook；policy
 # 也不含 `${...}`，所以展開不會誤傷（`{ 80, 3306 }` 在 heredoc 內不做 brace expansion）。
 ip netns exec ns-router nft -f - <<NFT
 table inet range_fw {
+  # RED→BLUE DMZ-only allowlist：只放 seat 的 a（DMZ）位址進來，b（內部）
+  # 不在集合裡就是被 policy drop 擋住。本檔只宣告空集合——集合成員由 #62
+  # seat_provisioner.py 在座位建立/釋放時動態 add/delete element（見該檔
+  # _allow_red_to_blue_dmz／_revoke_red_to_blue_dmz），因為「這段裡誰是 a
+  # 誰是 b」是 seat runtime 的動態配置，build-range.sh 這層的靜態骨架不知道。
+  set blue_dmz_ips {
+    type ipv4_addr
+  }
+
   chain forward {
     type filter hook forward priority filter; policy drop;
 
@@ -156,17 +165,17 @@ table inet range_fw {
     ip saddr $EDGE_CIDR ip daddr $APP_CIDR tcp dport 443 accept
     ip saddr $EDGE_CIDR ip daddr { $RED_CIDR, $BLUE_CIDR } tcp dport 7681 accept
 
-    # ⚠️ 這裡**刻意沒有** RED → BLUE 的放行規則，因此紅隊目前打不到 Z-BLUE。
-    # #65 決策 19 已定紅隊主線攻擊面是 Z-BLUE，但正確的規則是
-    # 「RED → 每段的 DMZ 主機 a」，不是整個 BLUE 網段 —— 開整段等於讓內部主機 b
-    # 不必橫向移動就能直接打，WS8 spec §6.3 的設計就沒了。
-    # 而「一段裡誰是 a 誰是 b」的定址約定屬 #62（seat runtime），本票沒有那個資訊。
-    # 結論：**主線攻擊路徑由 #62 補，本票的六區驗收不包含它。**
-    #
+    # RED → BLUE：只放行到 DMZ 主機 a（見上面 blue_dmz_ips set 的說明）。#65
+    # 決策 19 定紅隊主線攻擊面是 Z-BLUE，但正確的規則是「RED → 每段的 DMZ
+    # 主機 a」，不是整個 BLUE 網段——開整段等於讓內部主機 b 不必橫向移動就能
+    # 直接打，WS8 spec §6.3 的設計就沒了。本檔起手 set 是空的，打不到任何 b；
+    # #62 seat_provisioner.py 建座位時才把該座位的 a 位址加進集合。
+    ip saddr $RED_CIDR ip daddr @blue_dmz_ips tcp dport 7681 accept
+
     # 其餘全 drop（policy）：
     #   契約 2  MGMT→TARGET 的 new  被擋（沒有放行規則，只有 established 回程）
     #   契約 3  RED→MGMT           被擋
-    #   RED→BLUE                   被擋（見上，暫時性，由 #62 開）
+    #   RED→BLUE 除 a 以外（含 b）  被擋（policy drop，@blue_dmz_ips 沒有的位址一律擋）
   }
 }
 NFT
