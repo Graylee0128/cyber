@@ -142,10 +142,39 @@ jobs:
         if: always()
         run: docker compose --profile admission-e2e down -v
 
+  # 分片跑。`--durations=15` 量到的分佈：三條測試吃掉 459 秒裡的 388 秒，
+  # 其餘 14 條加起來 70 秒 —— 所以按檔案分沒用（三條在同一個檔），要按測試分。
+  #
+  # 為什麼是 job 層平行而不是 pytest-xdist：這些測試在**基礎設施**上彼此耦合。
+  #   1. tests/conftest.py 的 pg_connection fixture 每條測試開頭 truncate_all，
+  #      同 process 平行跑會在別人等事件的中途清掉資料
+  #   2. 它們共用一台 Grafana／Loki／target app。test_pipeline_e2e.py 自己註解
+  #      寫著要等 alert 退場「避免留下 firing 狀態污染後續測試的 60s 偵測視窗」
+  # 每個分片起自己的 compose 棧，兩個耦合同時消失。
+  #
+  # 分片用 -k 指名，最後一片是 not(前三個)。有人改了測試名字：該片會因為收不到
+  # 測試而 exit 5 直接紅，同時那條測試掉進最後一片照跑 —— 不會靜默漏測。
   compose-e2e:
     needs: changes
     if: needs.changes.outputs.telemetry == 'true'
     runs-on: ubuntu-latest
+    # 不寫的話 job 名字會把整條 -k 運算式塞進去，check 列表沒法看。
+    name: compose-e2e (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: sqli-detect
+            select: "test_real_sqli_becomes_a_core_event"
+          - shard: sqli-resolve
+            select: "test_sqli_alert_resolves_after_attack_stops"
+          - shard: evidence-api
+            select: "test_evidence_api_returns_context_from_real_loki"
+          - shard: rest
+            select: >-
+              not test_real_sqli_becomes_a_core_event
+              and not test_sqli_alert_resolves_after_attack_stops
+              and not test_evidence_api_returns_context_from_real_loki
     steps:
       - uses: actions/checkout@v5
 
@@ -172,11 +201,8 @@ jobs:
           PURPLE_ENGINE_URL: http://localhost:8001
           PURPLE_LOKI_URL: http://localhost:3100
         # -v 逐條顯示測試名與 PASSED；-s 不吃掉 print，讓每階段 echo 即時可見。
-        # --durations=15：這個 job 的 ~460 秒幾乎全是掛鐘等待（輪詢 Loki、等
-        # Grafana 規則評估、CHAIN_TIMEOUT_S=90、sleep(45)）。要決定值不值得切成
-        # matrix 分片，得先知道那 460 秒是散在 17 條測試上，還是集中在少數幾條 ——
-        # 集中的話分片的地板就是最慢那一條，切了效益有限（#124）。
-        run: python -m pytest -v -s -m integration --durations=15
+        # --durations 留著：分片比例日後會漂，要能看得出來該重新分。
+        run: python -m pytest -v -s -m integration -k "${{ matrix.select }}" --durations=15
 
       - name: Dump stack logs on failure
         if: failure()
