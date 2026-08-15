@@ -87,8 +87,12 @@ class WebhookHandler(BaseHTTPRequestHandler):
             return
 
         # 每個請求開一條連線：Grafana webhook 量低，簡單優先於連線池。
-        conn = connect()
+        # `connect()` 必須在 try **裡面**：放外面時，PG 連不上會讓例外直接穿過
+        # do_POST，Grafana 收到的是「連線被切斷、完全沒有回應」而不是 500，
+        # 錯誤也不會進 log。
+        conn = None
         try:
+            conn = connect()
             # fingerprint index 必須綁在這一場上，見 FingerprintIndex 的 docstring。
             exercise_id = RunningExerciseLookup(conn).require_id()
             emitted = ingest_alert(
@@ -100,12 +104,17 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 exercise_id=exercise_id,
                 auto_response=self.auto_response,
             )
-        except Exception as exc:  # 收下故障要現形，別讓 Grafana 一直重試打爆
+        except Exception:  # 收下故障要現形，別讓 Grafana 一直重試打爆
+            # 細節記在伺服器端，不回給呼叫者：這個 try 涵蓋了開連線與查詢，
+            # psycopg 的連線錯誤訊息帶著完整 DSN（含帳密）。
+            # 同 tests/evidence/test_service.py 的
+            # test_unexpected_error_is_500_without_leaking_details。
             log.exception("ingest 失敗")
-            self._respond(500, {"error": str(exc)})
+            self._respond(500, {"error": "ingest failed"})
             return
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
         self._respond(200, {"emitted": emitted})
 
@@ -158,9 +167,16 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 CoreEventStore(conn).append(event)
             finally:
                 conn.close()
-        except Exception as exc:
-            log.exception("response report 拒收")
+        except (AssertionError, ValueError, KeyError) as exc:
+            # 契約違規：訊息指名哪個欄位錯了，回給呼叫者才修得動（SchemaViolation
+            # 繼承 AssertionError）。這些訊息只描述送進來的事件本身。
+            log.warning("response report 拒收：%s", exc)
             self._respond(400, {"error": str(exc)})
+            return
+        except Exception:
+            # 其餘（連線失敗之類）不回細節 —— psycopg 的錯誤訊息帶著完整 DSN。
+            log.exception("response report 失敗")
+            self._respond(500, {"error": "store failed"})
             return
         self._respond(200, {"stored": event["event_id"]})
 
