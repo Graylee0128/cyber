@@ -369,13 +369,20 @@ def create_app(
 
     @application.get("/api/scenarios")
     def list_scenarios() -> list[dict]:
-        """Full scenario shape **minus hint text** (#33 review finding):
-        this is a public, unauthenticated listing and Red can reach it
-        directly, so leaving hint text in it makes hint penalties optional
-        — nobody needs to call the recorded `POST /api/hints` path when the
-        answer is free here. `GET /api/hints?objective_id=` is the sanctioned
-        way to see a hint's cost before requesting it; hint *text* is only
-        ever returned by `POST /api/hints`, after the usage is recorded."""
+        """Full scenario shape **minus hint text and attack_chain** (#33
+        review finding, extended by #126 P0): this is a public,
+        unauthenticated listing and Red can reach it directly.
+
+        Hint text: leaving it in makes hint penalties optional — nobody
+        needs to call the recorded `POST /api/hints` path when the answer
+        is free here. `GET /api/hints?objective_id=` is the sanctioned way
+        to see a hint's cost before requesting it; hint *text* is only ever
+        returned by `POST /api/hints`, after the usage is recorded.
+
+        `attack_chain`: WS2 spec §4.2 is explicit — "攻擊鏈不給玩家看". It is
+        the expected-path denominator for P2 Action Registry, not a walkthrough;
+        exposing it here hands Red the answer key that Battleboard deliberately
+        anonymizes into `Attack #N` for everyone else."""
         sanitized = []
         for scenario in loaded_catalog.scenarios:
             data = scenario.model_dump()
@@ -383,6 +390,7 @@ def create_app(
                 {"objective_id": h["objective_id"], "penalty_percent": h["penalty_percent"]}
                 for h in data["hints"]
             ]
+            del data["attack_chain"]
             sanitized.append(data)
         return sanitized
 
