@@ -46,7 +46,11 @@ export function humanize(error) {
     case 404: return "找不到對應資料（可能是還沒有進行中的演練）。";
     case 409: return error.detail || "目前的狀態不允許這個動作。";
     case 422: return error.detail || "輸入的內容不合法。";
-    case 503: return "後端服務尚未就緒（遙測後端或必要設定缺席）。";
+    // 503 的原因分兩種，處置完全不同：遙測後端真的掛了（等它起來），
+    // 或是這個 scenario 還沒在 config/scenario-sources.yaml 登記（改一行 YAML）。
+    // 後端已經把哪一種寫在 detail 裡，這裡蓋掉它就等於把「改設定」講成「後端掛了」
+    // —— #143 item 6 測試時就是因為這句話才得翻 source 才知道要動哪個檔。
+    case 503: return error.detail || "後端服務尚未就緒（遙測後端或必要設定缺席）。";
     default:  return `後端回應 ${error.status}。`;
   }
 }

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import re
+
 from fastapi.testclient import TestClient
 
 from admission.api import INSTRUCTOR_SESSION_COOKIE, AdmissionSettings, create_app
 from admission.credentials import onsite_code
+from admission.store.db import SEAT_STATES
 from admission.store.pool import PoolConfigStore
 from admission.store.seats import SeatStore
 
@@ -323,3 +326,113 @@ def test_instructor_session_is_a_second_presentation_of_the_same_credential_not_
     # 同一份憑證表也能走既有的 Authorization Bearer 路徑（伺服器對伺服器）。
     headers = {"Authorization": "Bearer svc-token"}
     assert c.get("/admission/alerts", headers=headers).status_code == 200
+
+
+# ── #143 item 4：座位池計數的零不得是空白 ─────────────────────────────────
+
+
+def test_pool_snapshot_reports_zero_for_states_with_no_seats(pg_connection):
+    """`GROUP BY` 只回有列的 state。缺 key 交給 Jinja2 就是渲染成空字串，
+    而中控畫面上一格空白會被讀成「壞了」，不會被讀成「零」。"""
+    PoolConfigStore(pg_connection).set_caps("EX", 2, 0)
+    claim(client(pg_connection))
+
+    snapshot = SeatStore(pg_connection).pool_snapshot("EX", "red")
+
+    assert set(snapshot) == set(SEAT_STATES)
+    assert snapshot["requested"] == 1
+    # 這場沒有任何一張認領完成／失敗的座位 —— 它們要是 0，不是缺席。
+    assert snapshot["claimed"] == 0
+    assert snapshot["failed"] == 0
+    assert all(isinstance(count, int) for count in snapshot.values())
+
+
+def test_pool_snapshot_states_match_the_database_check_constraint(pg_connection):
+    """`SEAT_STATES` 是零填的依據，漂離 schema 就會有一格永遠不被填。
+    直接問資料庫 CHECK 約束准哪些值，不是再抄一份清單。"""
+    inserted = []
+    for state in SEAT_STATES:
+        pg_connection.execute(
+            "INSERT INTO seat (seat_id,exercise_id,team,kind,state) "
+            "VALUES (%s,'EX-STATES','red','shell',%s)",
+            (f"seat-{state}", state),
+        )
+        inserted.append(state)
+
+    snapshot = SeatStore(pg_connection).pool_snapshot("EX-STATES", "red")
+    assert snapshot == {state: 1 for state in inserted}
+
+
+def test_instructor_console_renders_zero_counts_not_blanks(pg_connection):
+    """item 4 的實際症狀在這裡：模板拿到缺 key 會印出空字串。
+
+    斷言直接抓模板那五格 `<div class="n">…</div>` 的內容 —— 對「空白」本身斷言，
+    而不是對「有沒有出現 0」斷言：後者在任何一格湊巧是 0 時就會通過。
+    """
+    PoolConfigStore(pg_connection).set_caps("EX", 2, 0)
+    c = client(pg_connection)
+
+    html = c.get(
+        "/admission/instructor/EX/console", headers={"Authorization": "Bearer svc-token"}
+    ).text
+
+    cells = re.findall(r'<div class="n"[^>]*>([^<]*)</div>', html)
+    assert len(cells) == 5, f"中控的計數格數量變了：{cells}"
+    assert all(cell.strip().isdigit() for cell in cells), f"有格子是空的：{cells}"
+
+
+# ── #143 item 3：領位連結要能點、join.html 要能送出 ─────────────────────────
+
+
+def test_remote_link_has_no_join_url_when_public_base_url_is_unset(pg_connection):
+    """沒設 `ADMISSION_PUBLIC_BASE_URL` 時退回舊行為（只有裸 token）——
+    不是壞掉，是這層方便沒被設定。"""
+    PoolConfigStore(pg_connection).set_caps("EX", 1, 0)
+    c = client(pg_connection)
+    link = c.post("/admission/EX/remote-links", headers={"Authorization": "Bearer svc-token"}).json()
+    assert link["join_url"] is None
+    assert link["token"]
+
+
+def test_remote_link_join_url_embeds_the_token_when_public_base_url_is_set(pg_connection):
+    PoolConfigStore(pg_connection).set_caps("EX", 1, 0)
+    settings = AdmissionSettings(
+        onsite_secret="site-secret", instructor_tokens={"svc-token": "teacher"},
+        request_timeout_seconds=10, session_ttl_seconds=3600,
+        remote_link_ttl_seconds=600, instructor_session_ttl_seconds=3600,
+        public_base_url="https://join.example.test/",
+    )
+    c = TestClient(
+        create_app(conn=pg_connection, publisher=RangeFake(), settings=settings),
+        base_url="https://testserver",
+    )
+    link = c.post("/admission/EX/remote-links", headers={"Authorization": "Bearer svc-token"}).json()
+
+    assert link["join_url"] == (
+        f"https://join.example.test/admission/EX/join?token={link['token']}"
+    )
+
+
+def test_join_page_carries_the_configured_player_portal_base_url(pg_connection):
+    """`join.html` 的 script 從 `data-portal-base-url` 讀值，不是後端塞進 <script> ——
+    這裡只驗證那個屬性有正確帶出去。"""
+    PoolConfigStore(pg_connection).set_caps("EX", 1, 0)
+    settings = AdmissionSettings(
+        onsite_secret="site-secret", instructor_tokens={"svc-token": "teacher"},
+        request_timeout_seconds=10, session_ttl_seconds=3600,
+        remote_link_ttl_seconds=600, instructor_session_ttl_seconds=3600,
+        player_portal_base_url="https://play.example.test",
+    )
+    c = TestClient(
+        create_app(conn=pg_connection, publisher=RangeFake(), settings=settings),
+        base_url="https://testserver",
+    )
+
+    html = c.get("/admission/EX/join").text
+    assert 'data-portal-base-url="https://play.example.test"' in html
+
+
+def test_join_page_without_configured_portal_base_url_leaves_it_blank(pg_connection):
+    PoolConfigStore(pg_connection).set_caps("EX", 1, 0)
+    html = client(pg_connection).get("/admission/EX/join").text
+    assert 'data-portal-base-url=""' in html

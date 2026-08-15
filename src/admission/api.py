@@ -40,6 +40,15 @@ class AdmissionSettings:
     #: 分開設定——語意不同：一整個活動日的教官登入不該因為玩家 session 的
     #: TTL 調整而被連動改變（#126 item 2）。
     instructor_session_ttl_seconds: int | None = None
+    #: Admission 自己的公開網址（玩家瀏覽器打得到的那個，不是 Product UI gateway
+    #: 內部打的 docker service name）。只用來把一次性邀請連結組成**可點的網址**
+    #: （#143 item 3）——沒設時 Event Control 仍照舊只印出裸 token，不是壞掉，
+    #: 只是少了那層方便。
+    public_base_url: str = ""
+    #: Player Portal（Product UI）的公開網址。玩家在 `join.html` 領完位後要導去
+    #: 這裡看畫面；`join.html` 是 Admission 自己 serve 的模板，跟 Product UI
+    #: 是不同 origin，沒有這個值就無從構造導頁連結（#143 item 3）。
+    player_portal_base_url: str = ""
 
     @classmethod
     def from_env(cls) -> "AdmissionSettings":
@@ -73,6 +82,8 @@ class AdmissionSettings:
             session_ttl_seconds=session_ttl,
             remote_link_ttl_seconds=link_ttl,
             instructor_session_ttl_seconds=instructor_session_ttl,
+            public_base_url=os.environ.get("ADMISSION_PUBLIC_BASE_URL", ""),
+            player_portal_base_url=os.environ.get("ADMISSION_PLAYER_PORTAL_BASE_URL", ""),
         )
 
 
@@ -248,7 +259,14 @@ def create_app(
         link_id, token = SeatStore(c).issue_remote_link(
             exercise_id, configured.remote_link_ttl_seconds
         )
-        return {"link_id": link_id, "token": token}
+        # `join_url` 只在設了公開網址時才給——沒設就是 None，Event Control 退回
+        # 只印裸 token（#143 item 3 之前唯一存在的行為），不是壞掉，只是少一層方便。
+        join_url = (
+            f"{configured.public_base_url.rstrip('/')}"
+            f"/admission/{exercise_id}/join?token={token}"
+            if configured.public_base_url else None
+        )
+        return {"link_id": link_id, "token": token, "join_url": join_url}
 
     @application.delete("/admission/remote-links/{link_id}", status_code=204)
     def revoke_remote_link(link_id: str, actor: str = Depends(instructor),
@@ -375,7 +393,11 @@ def create_app(
         if result is None:
             raise HTTPException(status_code=404, detail="pool config not found")
         return templates.TemplateResponse(
-            request, "join.html", {"exercise_id": exercise_id, **result}
+            request, "join.html", {
+                "exercise_id": exercise_id,
+                "portal_base_url": configured.player_portal_base_url,
+                **result,
+            }
         )
 
     @application.get("/admission/instructor/{exercise_id}/console")

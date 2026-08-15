@@ -1,18 +1,86 @@
 <!doctype html>
 <html lang="zh-Hant">
 <head><meta charset="utf-8"><title>選擇隊伍</title></head>
-<body>
+<body data-portal-base-url="{{ portal_base_url }}">
   <main>
     <h1>選擇隊伍</h1>
     <p>名額由伺服器再次確認；此頁狀態僅供選擇。</p>
-    <label>紅隊
-      <input type="radio" name="team" value="red" {{ 'disabled' if teams.red.disabled }}>
-      剩餘 {{ teams.red.remaining }} 席
-    </label>
-    <label>藍隊
-      <input type="radio" name="team" value="blue" {{ 'disabled' if teams.blue.disabled }}>
-      剩餘 {{ teams.blue.remaining }} 席
-    </label>
+    <form id="join-form">
+      <label>紅隊
+        <input type="radio" name="team" value="red" {{ 'disabled' if teams.red.disabled }} checked>
+        剩餘 {{ teams.red.remaining }} 席
+      </label>
+      <label>藍隊
+        <input type="radio" name="team" value="blue" {{ 'disabled' if teams.blue.disabled }}>
+        剩餘 {{ teams.blue.remaining }} 席
+      </label>
+      <div id="onsite-code-field">
+        <label>現場進場碼
+          <input type="text" id="onsite-code" autocomplete="off">
+        </label>
+      </div>
+      <button type="submit">領位</button>
+    </form>
+    <p id="status"></p>
   </main>
+  <script>
+    // 帶連結進來的人不用打字：網址上有 token 就代表憑證已經在手上
+    // （Event Control 的一次性連結，見 admission/api.py 的 create_remote_link），
+    // 這時把現場進場碼欄位藏起來，這頁唯一的憑證來源就是那個 token。
+    // exercise_id 從路徑解析，不是從後端塞進 <script> —— 這頁本來就是伺服器
+    // 端渲染，沒有理由把一個已經在網址上的值再繞一手模板插值。
+    const match = location.pathname.match(/^\/admission\/([^/]+)\/join\/?$/);
+    const exerciseId = match ? decodeURIComponent(match[1]) : "";
+    const remoteToken = new URLSearchParams(location.search).get("token");
+    const portalBaseUrl = document.body.dataset.portalBaseUrl || "";
+
+    const statusEl = document.getElementById("status");
+    const onsiteField = document.getElementById("onsite-code-field");
+    if (remoteToken) onsiteField.style.display = "none";
+
+    document.getElementById("join-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const team = document.querySelector('input[name="team"]:checked')?.value;
+      if (!team) { statusEl.textContent = "先選一隊。"; return; }
+      const body = remoteToken
+        ? { team, remote_token: remoteToken }
+        : { team, onsite_code: document.getElementById("onsite-code").value.trim() };
+      if (!remoteToken && !body.onsite_code) {
+        statusEl.textContent = "輸入現場進場碼。";
+        return;
+      }
+      statusEl.textContent = "領位中…";
+      let response;
+      try {
+        response = await fetch(`/admission/${encodeURIComponent(exerciseId)}/claims`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(body),
+        });
+      } catch {
+        statusEl.textContent = "連線失敗，請確認網路後再試一次。";
+        return;
+      }
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({}));
+        statusEl.textContent = response.status === 409
+          ? "這隊名額已滿。"
+          : (typeof detail.detail === "string" ? detail.detail : "領位失敗，代碼或連結可能已失效。");
+        return;
+      }
+      const seat = await response.json();
+      if (!portalBaseUrl) {
+        statusEl.textContent = `已領到座位 ${seat.seat_id}。請聯絡現場工作人員取得畫面連結。`;
+        return;
+      }
+      // 紅隊固定 main、藍隊固定 a+b —— 這是隊伍決定的，不是座位決定的
+      // （AdmissionService 對連線資訊集合的既有約束），所以不用等 provisioner
+      // 回寫連線資訊就能算出畫面連結。
+      const page = seat.team === "blue" ? "player/blue.html" : "player/index.html";
+      const query = seat.team === "blue" ? "terminal=a&terminal=b" : "terminal=main";
+      location.href = `${portalBaseUrl.replace(/\/$/, "")}/${page}?${query}`;
+    });
+  </script>
 </body>
 </html>

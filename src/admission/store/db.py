@@ -7,6 +7,13 @@ import psycopg
 DEFAULT_DSN = "postgresql://purple:purple@localhost:5432/purple"
 CONNECT_TIMEOUT_S = 3
 
+#: 座位狀態的完整列舉，順序即中控畫面由左至右的敘事順序（尚未領 → 已在用 → 已結束）。
+#: 與下方 `SCHEMA` 裡 seat.state 的 CHECK 約束是同一份清單，
+#: `tests/admission/test_admission_api.py` 有測試在管兩邊不准漂開。
+SEAT_STATES: tuple[str, ...] = (
+    "free", "requested", "ready", "claimed", "failed", "released",
+)
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS seat (
     seat_id     text        PRIMARY KEY,

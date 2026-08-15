@@ -100,6 +100,24 @@ def render_evaluation(service: EvaluationService) -> dict[str, Any]:
     }
 
 
+#: 未登記 scenario 的 503 要指得出下一步（#143 item 6）。這個常數與 `_catalog_hint`
+#: 分開放，是因為它同時是 `tests/evaluation/test_catalog_error_message.py` 的斷言對象
+#: —— 訊息裡的檔名一旦漂掉，測試會紅，而不是靜默地回到「後端服務尚未就緒」。
+CATALOG_HINT = (
+    "在 config/scenario-sources.yaml 的 scenarios: 區塊登記它的 expected_sources 才算得出來"
+)
+
+
+def _catalog_hint(exc: CatalogError) -> str:
+    """把 catalog 的原始錯誤補成一句**做得下去**的話。
+
+    原始訊息是 `未知 scenario 'admission-e2e'`，正確但講不出要動哪裡；而畫面那端
+    對 503 只有一句「後端服務尚未就緒」，於是一個改一行 YAML 的事看起來像後端掛了。
+    這裡不改判定、不改狀態碼，只補上檔名與區塊名。
+    """
+    return f"{exc}。{CATALOG_HINT}"
+
+
 class RegistryInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     scenario_id: str = Field(min_length=1)
@@ -140,7 +158,12 @@ def create_app(
             # （WS2 spec §6.2，見 ui/README.md 已知缺口 #6）—— 這不是伺服器故障，
             # 是這個 exercise 的 scenario 還沒在來源清單登記。503 而非未攔截的
             # 500：呼叫端至少能分辨「暫時算不出來」與「程式壞了」，且不洩漏 traceback。
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+            #
+            # 訊息要指得出**哪個檔的哪個區塊**（#143 item 6）：原本只傳
+            # `未知 scenario 'admission-e2e'` 出去，畫面那端再翻成「後端服務尚未
+            # 就緒」，於是一個改一行 YAML 就能解決的事，看起來像後端掛了。
+            # 錯誤訊息說不出下一步該做什麼，就等於沒有錯誤訊息。
+            raise HTTPException(status_code=503, detail=_catalog_hint(exc)) from exc
         finally:
             conn.close()
 
