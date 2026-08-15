@@ -13,6 +13,9 @@ on:
       - "docs/**"
   pull_request:
     branches: [master]
+    # draft 期間不跑：標成 ready 或推上 master 才值得起全棧。長期停在 draft
+    # 的分支每推一次就燒 9 分鐘，是這個 workflow 最大的浪費來源。
+    types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
       - "**.md"
       - "**.svg"
@@ -20,11 +23,64 @@ on:
       - "docs/**"
   workflow_dispatch:
 
+# 連推三次只跑最後一次。master 不取消 —— 那裡每個 commit 的結果都要留存。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
 jobs:
+  # 哪些檔案動了，決定下面兩個 9 分鐘的 job 各自要不要跑。
+  # 這個 job 約 20 秒，換掉的是最多 18 分鐘。
+  changes:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    outputs:
+      access_plane: ${{ steps.filter.outputs.access_plane }}
+      telemetry: ${{ steps.filter.outputs.telemetry }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - id: filter
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            changed=$(git diff --name-only "origin/${BASE_REF}...HEAD")
+          elif [ -n "${BEFORE:-}" ] && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            changed=$(git diff --name-only "${BEFORE}" "${{ github.sha }}")
+          else
+            # 分支首推之類：比不出範圍就全跑，寧可多跑不可漏跑。
+            changed=$(git ls-files)
+          fi
+          echo "變更檔案："
+          echo "${changed}"
+
+          # access plane：admission／edge nginx／range core／receiver／UI 這條路徑。
+          access_plane=false
+          if echo "${changed}" | grep -qE '^(src/(admission|range_core|purple/receiver|purple/response)/|deploy/(edge|admission)/|tests/access_integration/|docker-compose\.yml|\.github/workflows/integration\.yml)'; then
+            access_plane=true
+          fi
+
+          # telemetry：Grafana→receiver→Core Event 這條管線與它的部署。
+          telemetry=false
+          if echo "${changed}" | grep -qE '^(src/purple/|deploy/(grafana|alloy|loki|prometheus|range-target|receiver)/|scenarios/|tests/integration/|docker-compose\.yml|\.github/workflows/integration\.yml)'; then
+            telemetry=true
+          fi
+
+          echo "access_plane=${access_plane}" >> "$GITHUB_OUTPUT"
+          echo "telemetry=${telemetry}" >> "$GITHUB_OUTPUT"
+          echo "→ access_plane=${access_plane} telemetry=${telemetry}"
+
   admission-access-e2e:
+    needs: changes
+    if: needs.changes.outputs.access_plane == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -87,6 +143,8 @@ jobs:
         run: docker compose --profile admission-e2e down -v
 
   compose-e2e:
+    needs: changes
+    if: needs.changes.outputs.telemetry == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
