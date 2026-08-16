@@ -198,6 +198,23 @@ ensure_service() {  # ensure_service <unit>；已跑就跳過，沒跑就試著�
 
 phase_start "Preflight（環境檢查）"
 
+# 硬體規格對照 #137 實測拍板的 Minimum／Recommended（docs/deployment/hardware-baseline.md）。
+# 純資訊，不阻斷部署——#137 的 headroom 數字是在對應規格下量出來的，規格不到不代表
+# 部署不了，只是餘裕可能比實測數字更薄（Low 4C/8G 那輪本身就已經摸到過一次短暫
+# CPU throttling）。三段都印，讓使用者自己判斷這台機器落在哪一段。
+HW_MIN_CPU=4; HW_MIN_RAM=8
+HW_REC_CPU=8; HW_REC_RAM=16
+CPU_CORES="$(nproc 2>/dev/null || echo 0)"
+RAM_GIB="$(awk '/MemTotal/ {printf "%.0f", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo 0)"
+echo "   主機規格：${CPU_CORES} vCPU / ${RAM_GIB} GiB RAM"
+if [ "$CPU_CORES" -lt "$HW_MIN_CPU" ] || [ "$RAM_GIB" -lt "$HW_MIN_RAM" ]; then
+  echo "   ⚠ 低於 #137 Minimum（4 vCPU/8 GiB）—— Low(4C/8G) 實測都已出現短暫 CPU throttling，這台更少，餘裕可能更薄"
+elif [ "$CPU_CORES" -lt "$HW_REC_CPU" ] || [ "$RAM_GIB" -lt "$HW_REC_RAM" ]; then
+  echo "   ℹ 達 #137 Minimum（4 vCPU/8 GiB），未達 Recommended（8 vCPU/16 GiB）"
+else
+  echo "   ✓ 達 #137 Recommended（8 vCPU/16 GiB）"
+fi
+
 # L1：docker —— 沒有它連觀測棧都起不了。
 if ! command -v docker >/dev/null 2>&1; then
   if [ "$INSTALL_DEPS" = 1 ]; then
