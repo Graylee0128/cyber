@@ -96,7 +96,7 @@ blockers」＝現行依賴 ＋「Preserved sub-tickets」＝歷史證據兩段�
 同日稍晚，**#65 decision gate 第二輪 grilling 十題全數拍板並關票**（詳見
 [WS8 spec §10.1](./.scratch/ws8-event-control/spec.md)）。**目前沒有任何 human gate 擋著。**
 
-Canonical open set（2 張，2026-08-16）：**#69／#144**。
+Canonical open set（1 張，2026-08-16）：**#69**（常駐 anchor，見下）。
 （[#138](https://github.com/Graylee0128/cyber/issues/138) Role × UI × Permission Matrix
 ＋三層文件體系已由 PR #139 交付關閉 —— 這正是 #69 票內描述的時序悖論：
 同步票自己必然遺留差一個，因為它得在自己 merge 之前寫下開放集合。）
@@ -155,8 +155,13 @@ Canonical open set（2 張，2026-08-16）：**#69／#144**。
 > 拍板 Minimum 4C/8G、Recommended 8C/16G，過程中連帶修好 `#62` 遺留的 seat provisioner
 > 接線缺口與三個真 bug（`blue-seat` image 從沒 build 過、Dockerfile COPY 路徑錯 context、
 > `cs0` veth peer 名孤兒擋住全部座位）。[#144](https://github.com/Graylee0128/cyber/issues/144)
-> Bootstrap First-Run UX 進行中（PR #149，draft）：真主機端到端跑出 D0 基準（10m14s，
-> READY），並在過程中發現並修好一個 `curl | sudo bash` 的經典 stdin 竊讀 bug。
+> Bootstrap First-Run UX 由 PR #149 交付關閉：phase timing、完成摘要（六個 UI 網址）、
+> READY／DEGRADED／FAILED 就緒判定、`bootstrap.sh`／`deploy.sh` 責任邊界（exit code
+> 不吞錯）。兩輪真主機驗證：第一輪 Full Range 完整跑通（10m14s），過程中發現並修好一個
+> `curl | sudo bash` 的經典 stdin 竊讀 bug；第二輪端到端重驗修法生效，並首次驗證
+> `--stack-only` 路徑（正確判成 DEGRADED）。**實作票再次全部清空，只剩 #69 這張常駐
+> anchor**——Cold run（全新機零快取）與 `--install-deps` 路徑因環境限制未測，記在票內
+> 留白，不當 blocker。
 
 - 對外契約 → [docs/p1-output-contract.md](./docs/p1-output-contract.md)｜執行導覽 → [archive/p1-output-contract-map.md](./archive/p1-output-contract-map.md)（P1 已結，存查）
 - 決策 spec → [WS1 遊戲規則](./.scratch/ws1-game-design/spec.md)｜[WS2 Scenario 內容規則](./.scratch/ws2-scenario-target/spec.md)｜[WS3 藍隊工作定義](./.scratch/ws3-blue-ops/spec.md)｜[WS5 Range Core](./.scratch/ws5-range-core/spec.md)｜[WS7 Console 邊界層](./.scratch/ws7-boundary/spec.md)｜[WS8 會議中控](./.scratch/ws8-event-control/spec.md)
@@ -164,10 +169,9 @@ Canonical open set（2 張，2026-08-16）：**#69／#144**。
 - 視覺提案（**已被上面取代**，保留為設計依據；全是零依賴單檔 mock、資料寫死）→ [中控畫面](./.scratch/ws8-event-control/demo.html)｜[Purple Console](./.scratch/purple-console-ui/demo.html)｜[Battleboard](./.scratch/battleboard-ui/demo.html)｜[Player Portal](./.scratch/product-ui/player-portal.html)｜[Blue SOC](./.scratch/product-ui/blue-soc.html)｜[Instructor Console](./.scratch/product-ui/instructor-console.html)
 - 所有票 → [GitHub Issues](https://github.com/Graylee0128/cyber/issues)
 
-| 目前 open（2 張） | 說明 |
+| 目前 open（1 張） | 說明 |
 |---|---|
 | [#69](https://github.com/Graylee0128/cyber/issues/69) Docs maintenance | canonical set 漂移同步、票關閉後的 stale 清理。**常駐 anchor，不因單次清理而關閉** —— 它同時是 `pr-contract.yml` 給純文件 PR 的唯一合法 target，關掉它之後每張文件 PR 都會被 metadata check 擋下 |
-| [#144](https://github.com/Graylee0128/cyber/issues/144) Bootstrap First-Run UX | 部署計時、階段進度、完成摘要（列出全部 UI 網址）、READY／DEGRADED／FAILED 就緒判定、`bootstrap.sh`／`deploy.sh` 責任邊界。進行中，PR #149（draft）——真主機 D0 基準已跑出（10m14s，READY），待再跑一輪確認 stdin 竊讀 bug 修法後才轉 ready |
 
 > ⚠️ 自動 enqueue 已由 [#48](https://github.com/Graylee0128/cyber/issues/48) 降級為「待處置建議」。
 > T4 的封鎖鏈若靠自動 enqueue 驅動會無聲變綠 —— 現行路徑是藍隊動作經 Range Core
