@@ -249,6 +249,7 @@ def _source_ip(request: Request) -> str:
 def create_app(
     catalog: ScenarioCatalog | None = None,
     *,
+    scenario_directory: Path | None = None,
     exercise_store: ExerciseStore | None = None,
     conn=None,
     flag_source: FlagSource | None = None,
@@ -280,8 +281,13 @@ def create_app(
     order, on every gameplay endpoint.
     """
 
+    # `scenario_directory` defaults to wherever `catalog` itself would have
+    # been loaded from -- tests that inject a catalog built from `tmp_path`
+    # must also pass the matching directory here, or `scenario_briefing`
+    # below would read the wrong `briefing.md` (real repo copy vs fixture).
+    resolved_scenario_directory = scenario_directory or DEFAULT_SCENARIO_DIRECTORY
     loaded_catalog = catalog or ScenarioCatalog.from_directory(
-        DEFAULT_SCENARIO_DIRECTORY
+        resolved_scenario_directory
     )
     resolved_flag_source: FlagSource = flag_source or SharedFileFlagSource()
     tokens = dict(
@@ -453,6 +459,35 @@ def create_app(
             del data["attack_chain"]
             sanitized.append(data)
         return sanitized
+
+    @application.get("/api/scenarios/{scenario_id}/briefing")
+    def scenario_briefing(scenario_id: str) -> dict:
+        """#153 Campaign — `ui/README.md` known gap #5: `scenarios/<id>/briefing.md`
+        is a file with no HTTP exit, so Player Portal could only ever show
+        scenario metadata. Same tier as `GET /api/scenarios`: any valid
+        identity may call it (not in `ENDPOINT_MIN_CLEARANCE`, so no
+        elevated clearance required) -- briefing.md is Red's own mission
+        brief, not detection/scoring data.
+
+        Serves the raw file content as-is; only `briefing.md` exists on disk
+        today (no per-role variant), so this returns exactly what Red already
+        sees when reading the file directly -- nothing new is exposed.
+        """
+        scenario = next(
+            (s for s in loaded_catalog.scenarios if s.id == scenario_id), None
+        )
+        if scenario is None:
+            raise HTTPException(status_code=404, detail="unknown scenario")
+        # Recomputed from scenario_id rather than stored on `Scenario`: the
+        # model is `extra="forbid"` and `list_scenarios()` dumps it wholesale,
+        # so a stray path field would leak. `_load_scenario` already proved
+        # this exact path exists at load time (missing briefing.md fails
+        # catalog load), so this read cannot 404 for a loaded scenario.
+        briefing_path = resolved_scenario_directory / scenario_id / "briefing.md"
+        return {
+            "scenario_id": scenario_id,
+            "content": briefing_path.read_text(encoding="utf-8"),
+        }
 
     @application.post(
         "/api/exercises/start",

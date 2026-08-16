@@ -7,6 +7,13 @@
 <link rel="stylesheet" href="../assets/base.css">
 <style>
   .mission-name { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+  .mission-briefing {
+    margin-top: 10px; padding: 10px 12px; background: #0d1220;
+    border: 1px solid var(--border); border-radius: 6px; font-size: 12px;
+    line-height: 1.6; white-space: pre-wrap; font-family: inherit;
+    max-height: 260px; overflow-y: auto;
+  }
+  .mission-briefing:empty { display: none; }
   .obj { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
   .obj:last-child { border-bottom: none; }
   .obj .check { font-size: 16px; width: 24px; flex-shrink: 0; }
@@ -52,6 +59,7 @@
         <div class="panel-title">Mission</div>
         <div class="mission-name" id="mission-name">—</div>
         <div class="sub" id="mission-meta"></div>
+        <pre class="mission-briefing" id="mission-briefing"></pre>
       </div>
 
       <div class="panel">
