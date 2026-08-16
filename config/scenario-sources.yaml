@@ -34,6 +34,11 @@ scenarios:
   - id: campus-poster-foothold
     expected_sources: [falco, alloy, response-agent]
 
+  # CH3 The Stolen Key（校園網址預覽 SSRF，#153 Campaign Pack v1）。走 app-log
+  # metric（ssrf_suspected），不需要 falco——與 shopdb 同款來源組合。
+  - id: campus-preview-metadata-pivot
+    expected_sources: [alloy, response-agent]
+
 # 這五個 id 不是 scenario —— 它們是驗證 pipeline／registry 機制用的測試載具
 # （sqli-01／bruteforce-01 只在 compose 存在；falco-* 是刻意的一鍵觸發端點）。
 # 見 #43：id 字串不改，只搬區塊，讓查詢 API 能區分「這是 scenario 還是 fixture」。

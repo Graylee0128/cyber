@@ -314,6 +314,71 @@ groups:
           query: '{job="falco"} |= `PurpleScope poster sudo find abuse`'
           threshold: "> 0 / 1m"
 
+      # CH3 The Stolen Key（校園網址預覽 SSRF，#153 Campaign Pack v1）：/preview
+      # 被拿去打內部／loopback／metadata 位址（app.py `_looks_like_ssrf` 標記
+      # ssrf_suspected=true）。走 app-log metric，不靠 Falco——SSRF 是應用層信任
+      # 邊界問題，syscall 層看不出「這次 connect() 是伺服器替攻擊者發的」與
+      # 「伺服器自己正常的 outbound」有什麼不同（都是同一個行程發起）。
+      #
+      # 刻意只覆蓋「SSRF 讀到 metadata」這一步（T1552）。第二步「拿憑證 pivot 到
+      # /internal/reports」（T1550）刻意留 intentional_gaps——讀到憑證有覆蓋，
+      # 但憑證被拿去用的證據較弱，作為 Purple 的證據落差討論案例（見 techniques.yaml
+      # T1552 的既有 note：讀取 ≠ 使用）。
+      - uid: egress-anomaly-target
+        title: EgressAnomalyTarget
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 60
+              to: 0
+            datasourceUid: loki
+            model:
+              refId: A
+              datasource:
+                type: loki
+                uid: loki
+              expr: 'sum by (source_ip) (count_over_time({app="range-target"} | json | ssrf_suspected=`true` [1m]))'
+              queryType: range
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+        labels:
+          event_type: attack.detected
+          technique: T1552
+          team: red
+          severity: high
+          scenario_id: campus-preview-metadata-pivot
+          service: range-target
+        annotations:
+          query: '{app="range-target"} | json | ssrf_suspected=`true`'
+          threshold: "> 0 / 1m"
+
       # Falco：靶機被生出 shell 直譯器（帶 PURPLESCOPE_EXEC 標記）→ T1059。
       # Falco 只提供事實（syscall 進 Loki），是否構成告警由這條 Grafana rule 決定
       # （ADR ③：Grafana 是唯一 alert engine，Falco 不直送 Event Service）。

@@ -47,3 +47,9 @@ techniques:
     name: Server Software Component
     tactic: persistence
     note: web shell 等伺服器端元件植入；子技術（.003 Web Shell）不另立，統一記父技術
+  # --- CH3 The Stolen Key（校園 SSRF，#153 Campaign Pack v1）新增 ---
+  - id: T1550
+    name: Use Alternate Authentication Material
+    tactic: lateral-movement
+    note: 用竊得的憑證/token 存取原本需要授權的資源；僅有 SSRF 讀到憑證不構成本技術，
+      需另有實際使用該憑證存取資源的證據

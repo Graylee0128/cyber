@@ -1,4 +1,4 @@
-"""靶機 VM 的受攻擊面（Slice 4 / 票 #9；CH2 Foothold 見 #153）—— 跑在 Z-TARGET(VLAN20) 的真 VM 內。
+"""靶機 VM 的受攻擊面（Slice 4 / 票 #9；CH2/CH3 見 #153）—— 跑在 Z-TARGET(VLAN20) 的真 VM 內。
 
 與 compose 的 vulnerable-app 不同：這支是給**紅隊容器隔著真 VLAN 打**的，而偵測靠
 同一台 VM 內的 Falco（modern-eBPF）看 syscall，不是靠 app 自己判斷。
@@ -8,6 +8,7 @@
 - `/readsecret`   讀 /etc/purplescope/secret.txt        → Falco 抓 open   → T1005（SA §7 Scenario 03）
 - `/healthz`      存活探測
 - `/poster/upload` `/poster/render`  海報上傳→自訂範本執行（CH2 計分攻擊面，見下方段落）
+- `/preview` `/internal/reports`     網址預覽 SSRF →竊取內部憑證→ API pivot（CH3，見下方段落）
 
 每個請求寫一行 JSON 到 app log（含 source_ip）。Alloy 把 app log 與 Falco events.json
 一起推到 Z-MGMT 的 Loki —— 那條 TARGET→MGMT :3100 就是契約 1 的實用。
@@ -21,6 +22,8 @@ import os
 import subprocess
 import threading
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -150,6 +153,86 @@ def _drop_privileges_to_posterrender():
     return _preexec
 
 
+# ── CH3 The Stolen Key（校園網址預覽 SSRF，#153 Campaign Pack v1）—— 第三個計分
+# 攻擊面。跟 CH1（DB）、CH2（檔案上傳）都不同：這裡打的是「伺服器替你發 outbound
+# 請求」這個信任邊界。
+#
+# `/preview` 是「幫你抓網址預覽」的功能：接受任意使用者提供的 URL，伺服器端直接
+# fetch 回傳內容 —— 完全沒有過濾目的地是不是內部位址（真 SSRF，不是模擬）。
+#
+# 靶機另外在 **127.0.0.1 專屬 port**（METADATA_PORT）跑一個小 HTTP 服務，模擬雲端
+# 常見的 instance metadata endpoint（IMDS 形狀）。這個 port 只 bind 在 loopback——
+# 外部網路連不到它，唯一能碰到它的是**靶機自己**。這正是 SSRF 之所以危險的原因：
+# 攻擊者透過 /preview 借伺服器的手，讓伺服器自己去打只有自己碰得到的位址。
+#
+# 讀到憑證後，`/internal/reports` 是一個「原本要授權才能進」的內部 API——帶對
+# 憑證的 `X-Internal-Token` 才放行，模擬「拿竊得的雲端憑證橫向 pivot 到別的內部
+# 服務」（T1550）。這一步在 CH3 v1 **沒有**掛計分 objective（見下方 §3 平台限制的
+# 說明），純粹是攻擊鏈敘事上的第三步，供 Purple 側看見完整故事。
+METADATA_PORT = int(os.environ.get("TARGET_METADATA_PORT", "8169"))
+METADATA_ROLE_NAME = os.environ.get("TARGET_METADATA_ROLE", "campus-portal-role")
+INTERNAL_API_TOKEN = os.environ.get("TARGET_INTERNAL_TOKEN", "campus-internal-9f2b7d")
+
+# 判定「這個 URL 看起來像 SSRF」的字串標記（同 SQLI_MARKERS 的作法：純函式抽出來，
+# 供測試釘住，不能只活在 handler 裡）。命中任一個代表目的地不是一般公開網址，
+# 而是內部／loopback／連結本地位址 —— 一般網址預覽功能不該碰得到這些。
+SSRF_MARKERS = ("127.0.0.1", "localhost", "169.254.", "10.", "172.16.", "172.17.",
+                "172.18.", "172.19.", "172.2", "172.30.", "172.31.", "192.168.",
+                f":{METADATA_PORT}")
+
+
+def _looks_like_ssrf(url: str) -> bool:
+    low = url.lower()
+    return any(m in low for m in SSRF_MARKERS)
+
+
+def _fetch_preview(url: str) -> tuple[int, bytes]:
+    """把 url 原封不動丟給 urllib 抓——沒有目的地白名單/黑名單，這正是漏洞本身。
+
+    抽成純函式的理由同 `build_product_query`：可利用性要被測試接住，不必連真的
+    metadata service。timeout 短是避免 SSRF 到不存在的位址把整個 handler 卡死；
+    這是穩定性考量，不是漏洞的一部分。
+    """
+    req = urllib.request.Request(url, headers={"User-Agent": "campus-link-preview/1.0"})
+    with urllib.request.urlopen(req, timeout=3) as resp:  # noqa: S310 — SSRF 是本章的計分攻擊面
+        return resp.status, resp.read()
+
+
+class _MetadataHandler(BaseHTTPRequestHandler):
+    """只 bind 127.0.0.1：外部網路連不到，唯一入口是靶機自己（也就是被 SSRF 借用）。"""
+
+    def do_GET(self) -> None:
+        if self.path == "/latest/meta-data/iam/security-credentials/":
+            self._text(200, METADATA_ROLE_NAME + "\n")
+            return
+        if self.path == f"/latest/meta-data/iam/security-credentials/{METADATA_ROLE_NAME}":
+            body = json.dumps({
+                "Code": "Success",
+                "Type": "AWS-HMAC",
+                "AccessKeyId": "CAMPUSEXERCISEONLY",
+                "SecretAccessKey": INTERNAL_API_TOKEN,
+                "Token": INTERNAL_API_TOKEN,
+            })
+            self._text(200, body)
+            return
+        self._text(404, "not found\n")
+
+    def _text(self, code: int, msg: str) -> None:
+        body = msg.encode()
+        self.send_response(code)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args) -> None:
+        return
+
+
+def _start_metadata_service() -> None:
+    server = ThreadingHTTPServer(("127.0.0.1", METADATA_PORT), _MetadataHandler)
+    server.serve_forever()
+
+
 _lock = threading.Lock()
 _seq = 0
 
@@ -268,9 +351,58 @@ class Handler(BaseHTTPRequestHandler):
             self._poster_render(source_ip)
             return
 
+        if path == "/preview":
+            self._preview(source_ip)
+            return
+
+        if path == "/internal/reports":
+            self._internal_reports(source_ip)
+            return
+
         _write_log({"ts": _now(), "app": "range-target", "path": path,
                     "source_ip": source_ip, "outcome": "not_found"})
         self._text(404, "not found\n")
+
+    def _preview(self, source_ip: str) -> None:
+        # 校園版「網址預覽」（CH3 計分攻擊面）：接受任意 url，伺服器端直接 fetch。
+        # 沒有目的地白名單/黑名單 —— 這正是漏洞：攻擊者能借伺服器的手打伺服器
+        # 自己碰得到、但外部連不到的位址（loopback 上的 metadata service）。
+        target_url = parse_qs(urlparse(self.path).query).get("url", [""])[0]
+        if not target_url:
+            self._text(400, "missing url\n")
+            return
+
+        suspected = _looks_like_ssrf(target_url)
+        try:
+            status, body = _fetch_preview(target_url)
+        except (urllib.error.URLError, ValueError, TimeoutError) as exc:
+            _write_log({"ts": _now(), "app": "range-target", "path": "/preview",
+                        "source_ip": source_ip, "target_url": target_url,
+                        "ssrf_suspected": suspected, "outcome": "fetch_error",
+                        "error": str(exc)})
+            self._text(502, f"fetch error: {exc}\n")
+            return
+
+        _write_log({"ts": _now(), "app": "range-target", "path": "/preview",
+                    "source_ip": source_ip, "target_url": target_url,
+                    "ssrf_suspected": suspected, "outcome": "fetched",
+                    "upstream_status": status})
+        self._text(200, body.decode(errors="replace"))
+
+    def _internal_reports(self, source_ip: str) -> None:
+        # 「原本要授權才能進」的內部 API（T1550 API pivot 的落地）。帶對憑證的
+        # X-Internal-Token 才放行 —— 憑證只能透過 /preview 打 metadata service 偷到，
+        # 平台本身不會把它交給一般使用者。CH3 v1 這一步不掛計分 objective
+        # （見 app.py 開頭 CH3 段落與 docs/campaign/README.md 的平台限制說明）。
+        token = self.headers.get("X-Internal-Token", "")
+        if token != INTERNAL_API_TOKEN:
+            _write_log({"ts": _now(), "app": "range-target", "path": "/internal/reports",
+                        "source_ip": source_ip, "outcome": "denied"})
+            self._text(403, "forbidden\n")
+            return
+        _write_log({"ts": _now(), "app": "range-target", "path": "/internal/reports",
+                    "source_ip": source_ip, "outcome": "pivot_success"})
+        self._text(200, "internal reports: campus enrollment figures q3...\n")
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
@@ -368,6 +500,9 @@ def main() -> None:
     # 開機寫一行，讓 Loki 一定有這個 stream（查詢不會因無 stream 報錯）。
     _write_log({"ts": _now(), "app": "range-target", "event": "startup"})
     threading.Thread(target=_alloy_heartbeat_loop, daemon=True).start()
+    # CH3：metadata service 只 bind 127.0.0.1，外部網路連不到——唯一入口是靶機
+    # 自己被 SSRF 借用去打它。
+    threading.Thread(target=_start_metadata_service, daemon=True).start()
     print(f"range-target app listening on :{PORT}", flush=True)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
 

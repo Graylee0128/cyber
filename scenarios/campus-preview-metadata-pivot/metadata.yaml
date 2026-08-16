@@ -1,0 +1,68 @@
+# CH3 The Stolen Key（校園網址預覽 SSRF，#153 Campaign Pack v1）—— Campaign 第三章。
+# 跑在真 range 的 golden 靶機（range-target）上，與 CH1/CH2 同一台主機、不同功能模組。
+# 攻擊鏈：
+#   /preview 網址預覽功能沒有目的地白名單 → 借伺服器的手打只有伺服器自己碰得到的
+#   loopback metadata service，讀出偽造的雲端 IAM 憑證 → 拿憑證當 X-Internal-Token
+#   打 /internal/reports，pivot 進原本需要授權的內部資源。
+#
+# 與 CH1（DB，唯讀）、CH2（檔案上傳，寫檔＋提權）刻意拉開差異：這裡打的是
+# 「伺服器替你發 outbound 請求」這個信任邊界，全程不寫檔（reset_scope=exercise）。
+#
+# 平台限制（沿用 CH2 #153 實作時的發現）：v1 只有一個全域 flag
+#（src/range_core/flags.py `SharedFileFlagSource`），CH3 因此同樣不設 submission
+# objective，只用 telemetry。
+id: campus-preview-metadata-pivot
+name: Campus Preview Metadata Pivot
+difficulty: intermediate
+duration: 25m
+
+objectives:
+  # 技術類：走遙測自動判定。/preview 打中 metadata service 就得分（ssrf_suspected
+  # 標記 by app.py），歸屬到個別 kali。telemetry_signal 指向 attack_chain 第二個
+  # 動作（真的讀到憑證那一步）——靠 action_id 關聯，不靠 technique＋時間窗鄰近性。
+  - id: detect-ssrf-metadata-theft
+    evaluation: telemetry
+    points: 150
+    telemetry_signal:
+      action_id: ssrf-metadata-theft
+
+# 攻擊面宣告（§3.2）。link-preview 是可計分面；internal-api 是攻擊鏈的第三步
+# （pivot），存在但本 v1 不掛計分 objective（見上方平台限制說明）。
+targets:
+  - host: range-target
+    surfaces: [link-preview, internal-api]
+
+# §2.1：走 app-log metric（ssrf_suspected 布林），不需要 falco —— SSRF 是應用層信任
+# 邊界問題，syscall 層看不出這次 connect() 是不是被攻擊者借用。
+expected_sources: [alloy, response-agent]
+
+# §2.2：只覆蓋「SSRF 讀到 metadata」這一步（T1552）。
+detection: [EgressAnomalyTarget]
+
+# §2.2：刻意無覆蓋的 technique。憑證被拿去打 /internal/reports（T1550）沒有任何
+# Grafana 規則——遙測看得到（app log 有 /internal/reports 的請求記錄）但沒有告警，
+# 呈現為偵測缺口而非可見性缺口。與 CH1 的 T1078 gap 同類型，這裡再示範一次。
+intentional_gaps: [T1550]
+
+attack_chain:
+  - id: ssrf-preview-request
+    technique: T1190
+    description: >-
+      Abuse the /preview link-preview feature, which issues an arbitrary
+      server-side outbound HTTP request with no destination allowlist.
+  - id: ssrf-metadata-theft
+    technique: T1552
+    description: >-
+      Point the preview request at the loopback-only instance-metadata
+      service and read back the fake IAM role credential — a resource only
+      the target host itself can normally reach.
+  - id: internal-api-pivot
+    technique: T1550
+    description: >-
+      Replay the stolen credential as the X-Internal-Token header against
+      /internal/reports to access an internal-only resource that would
+      otherwise require authorization.
+
+# §5.2：全程唯讀（preview 只 fetch，metadata service 只回靜態值，internal/reports
+# 只讀不寫）—— 不弄髒靶機，exercise 級重置即可，不必重建環境。
+reset_scope: exercise
