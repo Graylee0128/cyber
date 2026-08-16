@@ -80,8 +80,20 @@ echo "✓ Repository — ${REPO_ELAPSED}s"
 # `set -e` 這裡刻意暫停：deploy.sh 失敗時要能往下走到「存 exit code、印
 # bootstrap 總時間、原樣回傳」，不能讓失敗直接把整支 bootstrap 腰斬掉
 # （那樣使用者連 deploy.sh 到底跑了多久都看不到）。
+#
+# `</dev/null`：真主機實測（.89，2026-08-16）撞到的——這支腳本是
+# `curl ... | sudo bash` 讀進來的，bash 讀自己的 script 是從一條 pipe（不可
+# seek）讀，不是一次性讀完整份再執行。deploy.sh 一路往下會跑 docker
+# compose／`ollama exec`／range-up 這些長時間子行程，只要其中任何一個繼承了
+# 同一條 stdin 並讀了它，就會把「還沒被 bootstrap 自己讀到的那段 script」
+# 偷走——bash 讀到那裡直接見底，整支 bootstrap.sh 在 `bash deploy.sh` 那行
+# 之後就悄悄沒了下文，不會報錯，deploy.sh 本身照樣跑完成功，只是
+# `DEPLOY_EXIT=$?` 到 `exit "$DEPLOY_EXIT"` 這幾行完全沒被執行到（在 .89 上
+# 第一次真跑就是這樣：`Bootstrap total` 那行從沒印出來）。把 deploy.sh 的
+# stdin 明確接到 /dev/null，讓它與它 spawn 出來的所有子行程都碰不到那條
+# pipe，從根源切斷，不是治標地在下游各處補防禦。
 set +e
-bash "$REPO_DIR/deploy.sh" "$@"
+bash "$REPO_DIR/deploy.sh" "$@" </dev/null
 DEPLOY_EXIT=$?
 set -e
 
