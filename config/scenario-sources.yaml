@@ -29,6 +29,11 @@ scenarios:
   - id: shopdb-credential-pivot
     expected_sources: [alloy, response-agent]
 
+  # CH2 Foothold（校園海報上傳，#153 Campaign Pack v1）。比 shopdb 多 falco——
+  # 偵測靠 Falco 抓 syscall（webshell exec、sudo find 濫用），不是 app-log metric。
+  - id: campus-poster-foothold
+    expected_sources: [falco, alloy, response-agent]
+
 # 這五個 id 不是 scenario —— 它們是驗證 pipeline／registry 機制用的測試載具
 # （sqli-01／bruteforce-01 只在 compose 存在；falco-* 是刻意的一鍵觸發端點）。
 # 見 #43：id 字串不改，只搬區塊，讓查詢 API 能區分「這是 scenario 還是 fixture」。

@@ -60,8 +60,30 @@
 
 > 與 CH1 的差異刻意拉大：CH1 唯讀 / `exercise` reset / 走 app-log metric；CH2 寫檔 / `environment` reset / 走 Falco exec + 檔案完整性。attack surface、reset 語意、遙測來源三者都不同，不是同漏洞換皮。
 
-## 實作票 open questions（留給 CH2 子票驗證，Phase 2）
+## 實作定案（2026-08-16，CH2 落地時回填）
 
-- 提權向量的具體選擇（SUID vs sudo vs capability），需在單機上可重現且 reset 後乾淨。
-- web shell 落地路徑與 web 服務執行身分，需真的可執行且遙測抓得到。
-- 上傳繞過的具體漏洞（副檔名 / MIME / magic-byte / 路徑），需真漏洞非 mock。
+- **上傳繞過**：只查 `Content-Type` header（攻擊者自報），不驗副檔名或 magic bytes。
+  `.py` 檔偽裝成 `image/png` 一樣被存下來——`app.py` `_poster_upload_bypasses_content_check`。
+- **Web Shell 落地**：`/poster/render` 對 `.py` 副檔名的海報直接 `python3 <file>` 執行，
+  當成「進階自訂範本」功能。真 RCE，已用真 HTTP round-trip 驗證（見
+  `tests/deploy/test_range_target_webshell.py`）。
+- **提權向量：sudoers 誤設（GTFOBins find 型態）**，不是 SUID/capability。render 子行程
+  被 `preexec_fn` 降到低權限 `posterrender` 帳號（`app.py` `_drop_privileges_to_posterrender`），
+  該帳號持有 `posterrender ALL=(root) NOPASSWD: /usr/bin/find /var/lib/purplescope/posters *`
+  ——`sudo find <dir> -exec /bin/sh \; -quit` 即拿到 root。golden VM 由 `bake.sh` 建帳號
+  ＋裝 sudoers（`visudo -c` 驗證語法），且在**bake 期就真的走一次**上傳→執行→提權、
+  Falco 抓到才算 golden（`GOLDEN-CH2-STATE`），host 端 `build-golden-target.sh` 未過則
+  不產 golden。SUID script 被排除：現代 Linux kernel 對帶 shebang 的腳本會忽略 SUID bit，
+  不是真的可行路徑。
+- **reset_scope=environment**：上傳的檔案累積在 `POSTER_DIR`，非唯讀，靠重跑
+  `range-up`（golden 重新起一顆乾淨 VM）清除，不需要額外的 reset 腳本。
+- **⚠️ 平台限制，影響 CH3/CH4/FINAL**：v1 只有一個全域 flag
+  （`src/range_core/flags.py` `SharedFileFlagSource`，環境級輪換、非逐 scenario）。
+  CH2 因此**不設 submission objective**，只有一個 telemetry objective（render 執行）；
+  若也給 submission，Campaign 多場景併跑時玩家撈到 CH1 的 flag 就能直接拿去交
+  CH2，完全不用碰 CH2 的漏洞——真的評分漏洞，不是可接受的權宜。CH3/CH4/FINAL
+  實作前請先確認 #45（逐 scenario 獨立 flag）是否已落地，沒有就比照 CH2 只用
+  telemetry objective。
+- **偵測全覆蓋，無 intentional_gaps**：`detection: [WebShellUploadTarget, LocalPrivescTarget]`，
+  兩條都是真 Grafana rule（Loki 查 Falco 輸出）。與 CH1 的單點 gap、FINAL 的整條 gap
+  形成對照組。

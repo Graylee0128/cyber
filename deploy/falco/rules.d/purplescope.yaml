@@ -58,6 +58,37 @@
   priority: NOTICE
   tags: [purplescope, uncovered]
 
+# CH2 Foothold（校園海報上傳，#153 Campaign Pack v1）——「進階自訂範本」把 .py 副檔名
+# 的海報當程式碼執行。這裡抓的是**結果**：靶機本身（python3 -u app.py）又子行程
+# spawn 出一個 python3，且執行的檔案來自海報上傳目錄——這正是「網頁應用把使用者
+# 上傳的東西當程式碼跑」的典型 syscall 特徵，不看攻擊者傳了什麼內容，只看「從上傳
+# 目錄執行」這件事本身，才不會被 payload 花樣繞過。
+- rule: PurpleScope WebShell Exec
+  desc: T1505 - a python3 template execution spawned a python3 child running an uploaded poster
+  condition: >
+    evt.type=execve and
+    proc.name=python3 and
+    proc.cmdline contains "/var/lib/purplescope/posters/"
+  output: "PurpleScope webshell exec detected (cmd=%proc.cmdline pid=%proc.pid parent=%proc.pname)"
+  priority: WARNING
+  tags: [purplescope, T1505, persistence]
+
+# CH2 提權腳（T1548）：render 子行程已被 preexec_fn 降到低權限的 posterrender 帳號
+# 執行（見 app.py `_drop_privileges_to_posterrender`）。golden VM 的 sudoers.d 誤設
+# 放行 posterrender 以 root 執行 `find <posters目錄> <任意參數>`（見 bake.sh）——
+# 這是 GTFOBins 已知的 find 提權型態：`sudo find <path> -exec /bin/sh \; -quit`
+# 直接拿到 root shell。這條規則抓的正是這個 sudo 呼叫本身，不看之後那個 shell
+# 長什麼樣（那會是攻擊者自訂內容，不該當偵測依據）。
+- rule: PurpleScope Poster Sudo Find Abuse
+  desc: T1548 - posterrender escalated via an overly broad sudo find rule (GTFOBins pattern)
+  condition: >
+    evt.type=execve and
+    proc.name=sudo and
+    proc.cmdline contains "find /var/lib/purplescope/posters"
+  output: "PurpleScope poster sudo find abuse (cmd=%proc.cmdline pid=%proc.pid parent=%proc.pname)"
+  priority: WARNING
+  tags: [purplescope, T1548, privilege-escalation]
+
 # #62 WS8 spec §6.2：Z-BLUE 座位帳號的 sudo allowlist v1 刻意留空（見
 # deploy/blue-seat/sudoers.d/blue），所以**任何**一次 sudo 呼叫都值得記錄——
 # 不是「密碼打錯」這種噪音，是「帳號嘗試了 allowlist 之外的事」本身。

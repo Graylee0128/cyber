@@ -67,7 +67,7 @@ FINAL The Leak      全校學生的成績與個資，被一頁一頁搬走
 | Chapter | 校園外皮 | Surface（模組） | Attack chain | 父技術 | Blue 偵測焦點 | Detection 狀態 |
 |---|---|---|---|---|---|---|
 | **CH1 The Breach**（現有） | 福利社商城 | `product-sqli` / `mysql-3306` | SQLi → credential reuse / DB pivot → vault flag | T1190 → T1078 | DB / credential / pivot | 有覆蓋（`SQLInjectionBurstTarget`）+ 刻意 gap（T1078 無規則） |
-| **CH2 Foothold** | 海報/作業上傳 | `file-upload` | Upload bypass → Web Shell → Linux Privesc | T1190 → T1505 → T1548 | 檔案完整性 + auditd exec | 待實作票建 rule |
+| **CH2 Foothold**（已實作） | 海報上傳 | `poster-upload` / `poster-render` | Upload bypass → Web Shell → Linux Privesc | T1190 → T1505 → T1548 | Falco：webshell exec + sudo find 濫用 | 全覆蓋（`WebShellUploadTarget`＋`LocalPrivescTarget`），無 intentional gap |
 | **CH3 The Stolen Key** | 網址預覽/縮圖 | `outbound-request` | SSRF → Metadata Credential Theft → API Pivot | T1190 → T1552 → **T1550**★ | egress 異常 + metadata endpoint 存取 | 待實作票建 rule |
 | **CH4 Ghost in the System** | 系統報修/診斷 | `system-command` | Command Injection → Reverse Shell → Cron Persistence | T1190 → T1059 → T1053 | process / command-line telemetry | 待實作票建 rule |
 | **FINAL The Leak** | 成績/個資 API | `authenticated-api` | IDOR → Sensitive Data Access → Exfiltration | **T1087**★ → **T1213**★ → **T1567**★ | 行為 / 存取模式異常 | **刻意 detection gap 教學** |
@@ -130,6 +130,18 @@ Cyber Core → Scenario Pack → Campaign → Theme / Experience Pack
 Campus 是 v1。未來可延伸 Standard / Corporate、After Dark 等 edition，或 Season 01 / 02 的不同世界觀。Theme Pack 可含：world setting、chapter naming、role briefing、visual theme、copy / meme / easter eggs、BGM / SFX、Battleboard presentation。
 
 ---
+
+## ⚠️ 平台限制：v1 只有一個全域 flag（CH2 實作時發現，影響所有 submission objective）
+
+`src/range_core/flags.py` 的 `SharedFileFlagSource`：v1 只有**一個環境級 flag**
+（`current-flag.txt`），由 `range-up` 整場輪換一次，不是逐 scenario。Campaign 的整個
+賣點是多個 scenario 同場開——若兩條 scenario 都設 `submission` objective，玩家撈到
+任一條的 flag 就能直接拿去交另一條，完全不用碰它的漏洞。這是真的評分漏洞，不是
+可接受的權宜。
+
+**CH2 因此不設 submission objective**，只用 telemetry objective（見
+`chapters/CH2-foothold.md`）。**CH3/CH4/FINAL 實作前務必先確認 #45（逐 scenario 獨立
+flag）是否已落地**：沒有就比照 CH2 全走 telemetry；有了才能安全地加 submission。
 
 ## 交付邊界（本設計 epic）
 
