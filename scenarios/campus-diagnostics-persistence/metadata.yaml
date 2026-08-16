@@ -1,0 +1,69 @@
+# CH4 Ghost in the System（校園報修診斷工具，#153 Campaign Pack v1）—— Campaign
+# 第四章。跑在真 range 的 golden 靶機（range-target）上，與 CH1/CH2/CH3 同一台
+# 主機、不同功能模組。攻擊鏈：
+#   報修診斷工具把 host 直接組進 shell 指令字串（無跳脫）→ 用 `;` 等特殊字元斷句
+#   注入任意指令（T1059）→ 用同一個注入點把排程寫進 cron.d，讓存取在原本 session
+#   結束後依然能被觸發（T1053）。
+#
+# 與 CH1（DB，唯讀）、CH2（上傳，寫檔＋提權）、CH3（SSRF，唯讀）刻意拉開差異：
+# 這是四條裡**唯一會留下跨 session 存活狀態**的一條（cron 持久化），
+# reset_scope=environment 的必要性最強。
+#
+# 平台限制（沿用 CH2/CH3 #153 實作時的發現）：v1 只有一個全域 flag
+#（src/range_core/flags.py `SharedFileFlagSource`），CH4 因此同樣不設 submission
+# objective，只用 telemetry。
+id: campus-diagnostics-persistence
+name: Campus Diagnostics Persistence
+difficulty: intermediate
+duration: 30m
+
+objectives:
+  # 技術類：走遙測自動判定。指令注入寫進 cron.d 就得分，歸屬到個別 kali。
+  # telemetry_signal 指向 attack_chain 第三個動作（真的把持久化寫進去那一步）——
+  # 靠 action_id 關聯，不靠 technique＋時間窗鄰近性。
+  - id: detect-cron-persistence
+    evaluation: telemetry
+    points: 150
+    telemetry_signal:
+      action_id: cron-persistence-write
+
+# 攻擊面宣告（§3.2）。diagnostics-lookup 是唯一的可計分面；持久化是同一個注入點
+# 的延伸用法，不是獨立 surface。
+targets:
+  - host: range-target
+    surfaces: [diagnostics-lookup]
+
+# §2.1：兩段都有偵測覆蓋，指令注入走 app-log metric，持久化寫入走 Falco
+# （watch cron.d 固定路徑）。
+expected_sources: [falco, alloy, response-agent]
+
+# §2.2：全鏈都有偵測覆蓋，刻意當 FINAL 的對照組（比照 CH2 的「全覆蓋」設計）——
+# CH4 要證明的是「持久化被完整看見」，不是「看不見」。
+detection: [CommandInjectionTarget, CronPersistenceTarget]
+
+# 本章無刻意缺口——與 CH1（T1078 gap）、CH3（T1550 gap）、FINAL（整條 gap）
+# 刻意形成對照。
+intentional_gaps: []
+
+attack_chain:
+  - id: diagnostic-command-injection
+    technique: T1190
+    description: >-
+      Abuse the campus IT diagnostics tool, which interpolates the
+      user-supplied host value directly into a shell command string with no
+      escaping.
+  - id: interactive-shell-access
+    technique: T1059
+    description: >-
+      Break out of the intended "hostname" argument using shell metacharacters
+      (e.g. `;`) to execute arbitrary commands on the target, equivalent to
+      gaining an interactive/reverse shell.
+  - id: cron-persistence-write
+    technique: T1053
+    description: >-
+      Reuse the same injection point to write a scheduled-task entry under
+      /etc/cron.d, so access survives past the end of the current session.
+
+# §5.2：cron 檔會留在靶機上，跨 session 存活，非唯讀 —— 需環境級重置（重跑
+# range-up）才能清乾淨，是四條裡最需要環境級重置的一條。
+reset_scope: environment

@@ -89,6 +89,19 @@
   priority: WARNING
   tags: [purplescope, T1548, privilege-escalation]
 
+# CH4 Ghost in the System（校園報修診斷工具，#153 Campaign Pack v1）——攻擊者拿到
+# 指令注入後，把持久化寫進 cron.d。與 `PurpleScope Sensitive File Access` 同款寫法
+# （open/openat/openat2 命中固定路徑就算數）：這個路徑正常情況下**永遠不存在**，
+# 任何一次 open 都值得注意——不是等它「被誤改」，是它本來就不該出現。
+- rule: PurpleScope Cron Persistence Write
+  desc: T1053 - a scheduled-task file was written under the campus diagnostics cron path
+  condition: >
+    (evt.type in (open, openat, openat2)) and
+    fd.name=/etc/cron.d/campus-report
+  output: "PurpleScope cron persistence write (file=%fd.name proc=%proc.name cmd=%proc.cmdline pid=%proc.pid)"
+  priority: WARNING
+  tags: [purplescope, T1053, execution]
+
 # #62 WS8 spec §6.2：Z-BLUE 座位帳號的 sudo allowlist v1 刻意留空（見
 # deploy/blue-seat/sudoers.d/blue），所以**任何**一次 sudo 呼叫都值得記錄——
 # 不是「密碼打錯」這種噪音，是「帳號嘗試了 allowlist 之外的事」本身。

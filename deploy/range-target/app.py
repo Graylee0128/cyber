@@ -1,4 +1,4 @@
-"""靶機 VM 的受攻擊面（Slice 4 / 票 #9；CH2/CH3 見 #153）—— 跑在 Z-TARGET(VLAN20) 的真 VM 內。
+"""靶機 VM 的受攻擊面（Slice 4 / 票 #9；CH2/CH3/CH4 見 #153）—— 跑在 Z-TARGET(VLAN20) 的真 VM 內。
 
 與 compose 的 vulnerable-app 不同：這支是給**紅隊容器隔著真 VLAN 打**的，而偵測靠
 同一台 VM 內的 Falco（modern-eBPF）看 syscall，不是靠 app 自己判斷。
@@ -9,6 +9,7 @@
 - `/healthz`      存活探測
 - `/poster/upload` `/poster/render`  海報上傳→自訂範本執行（CH2 計分攻擊面，見下方段落）
 - `/preview` `/internal/reports`     網址預覽 SSRF →竊取內部憑證→ API pivot（CH3，見下方段落）
+- `/diagnostics/lookup`              報修診斷工具指令注入 → cron 持久化（CH4，見下方段落）
 
 每個請求寫一行 JSON 到 app log（含 source_ip）。Alloy 把 app log 與 Falco events.json
 一起推到 Z-MGMT 的 Loki —— 那條 TARGET→MGMT :3100 就是契約 1 的實用。
@@ -233,6 +234,43 @@ def _start_metadata_service() -> None:
     server.serve_forever()
 
 
+# ── CH4 Ghost in the System（校園報修診斷工具，#153 Campaign Pack v1）—— 第四個計分
+# 攻擊面。跟前三章都不同：這裡打的是「使用者輸入直接進 shell 指令字串」這個經典
+# 信任邊界，而且**會留下持久化狀態**（不像 CH1/CH3 唯讀）。
+#
+# `/diagnostics/lookup` 是「檢查這個主機名有沒有異常」的報修小工具：伺服器端組出
+# `sh -c "echo checking <host>"` 直接執行。`<host>` 完全沒有跳脫或白名單——正常
+# 使用（純主機名）時 sh 只會跑內建的 echo，不會 fork 出任何子行程；一旦帶 shell
+# 特殊字元（`;` `|` `` ` `` `$(` 等）斷句，sh 就會把後面的內容當成**新指令**執行，
+# 這就是指令注入成立那一刻（T1059）。
+#
+# 拿到指令執行後，攻擊者可以用同一個注入點把持久化寫進 cron.d（T1053）：讓一個
+# 排程任務在原本的 session 結束後依然會被觸發。CH4 v1 只驗證「持久化檔案被寫入」
+# 這個可觀測狀態，不驗證 cron daemon 真的在之後某分鐘觸發它（那需要真等一分鐘，
+# 且與此章的偵測/計分邏輯無關——藍隊要看見的是「排程被動過」這個動作本身）。
+DIAG_SHELL = os.environ.get("TARGET_SHELL", "/bin/sh")
+CRON_FILE = os.environ.get("TARGET_CRON_FILE", "/etc/cron.d/campus-report")
+
+# 判定「這個輸入看起來像指令注入」的字串標記（同 SQLI_MARKERS／SSRF_MARKERS 的
+# 作法）。命中任一個代表這不是一個單純主機名，而是想斷句塞進新指令。
+CMD_INJECTION_MARKERS = (";", "|", "&", "$(", "`", "\n", "||", "&&")
+
+
+def _looks_like_command_injection(raw: str) -> bool:
+    return any(m in raw for m in CMD_INJECTION_MARKERS)
+
+
+def _run_diagnostic(raw_host: str) -> tuple[int, str]:
+    """把 raw_host 原封不動組進 shell 指令字串——沒有跳脫、沒有參數化，這正是
+    漏洞本身。抽成純函式的理由同 `build_product_query`：可利用性要被測試接住。
+    """
+    result = subprocess.run(
+        [DIAG_SHELL, "-c", f"echo checking {raw_host}"],
+        capture_output=True, timeout=5, check=False, text=True,
+    )
+    return result.returncode, (result.stdout + result.stderr)
+
+
 _lock = threading.Lock()
 _seq = 0
 
@@ -359,9 +397,35 @@ class Handler(BaseHTTPRequestHandler):
             self._internal_reports(source_ip)
             return
 
+        if path == "/diagnostics/lookup":
+            self._diagnostics_lookup(source_ip)
+            return
+
         _write_log({"ts": _now(), "app": "range-target", "path": path,
                     "source_ip": source_ip, "outcome": "not_found"})
         self._text(404, "not found\n")
+
+    def _diagnostics_lookup(self, source_ip: str) -> None:
+        # 校園報修診斷工具（CH4 計分攻擊面）：把 host 直接組進 shell 指令字串，
+        # 沒有跳脫、沒有白名單。正常主機名只會跑到內建 echo；帶 shell 特殊字元
+        # 就能斷句注入新指令——這是漏洞本身，不是某個弱檢查被繞過。
+        raw_host = parse_qs(urlparse(self.path).query).get("host", [""])[0]
+        if not raw_host:
+            self._text(400, "missing host\n")
+            return
+
+        suspected = _looks_like_command_injection(raw_host)
+        try:
+            rc, output = _run_diagnostic(raw_host)
+        except Exception as exc:  # noqa: BLE001 — 指令執行失敗原文回給紅隊，是這一步的一部分
+            self._text(500, f"diagnostic error: {exc}")
+            return
+
+        _write_log({"ts": _now(), "app": "range-target", "path": "/diagnostics/lookup",
+                    "source_ip": source_ip, "host": raw_host,
+                    "cmd_injection_suspected": suspected, "outcome": "executed",
+                    "returncode": rc})
+        self._text(200, output)
 
     def _preview(self, source_ip: str) -> None:
         # 校園版「網址預覽」（CH3 計分攻擊面）：接受任意 url，伺服器端直接 fetch。

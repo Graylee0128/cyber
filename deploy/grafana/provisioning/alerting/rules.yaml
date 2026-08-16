@@ -379,6 +379,122 @@ groups:
           query: '{app="range-target"} | json | ssrf_suspected=`true`'
           threshold: "> 0 / 1m"
 
+      # CH4 Ghost in the System（校園報修診斷工具，#153 Campaign Pack v1）：注入
+      # 判定走 app-log（同 CH1 SQLi、CH3 SSRF 的作法），不靠 Falco——這一步偵測的
+      # 是「輸入帶了斷句字元」這個應用層信號，跟 CH1 一樣直接查 app log 的
+      # cmd_injection_suspected 布林。
+      - uid: command-injection-target
+        title: CommandInjectionTarget
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 60
+              to: 0
+            datasourceUid: loki
+            model:
+              refId: A
+              datasource:
+                type: loki
+                uid: loki
+              expr: 'sum by (source_ip) (count_over_time({app="range-target"} | json | cmd_injection_suspected=`true` [1m]))'
+              queryType: range
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+        labels:
+          event_type: attack.detected
+          technique: T1059
+          team: red
+          severity: high
+          scenario_id: campus-diagnostics-persistence
+          service: range-target
+        annotations:
+          query: '{app="range-target"} | json | cmd_injection_suspected=`true`'
+          threshold: "> 0 / 1m"
+
+      # CH4 提權後半（T1053）：cron.d 下那個永遠不該存在的路徑被寫入。Falco 只提供
+      # 事實，這條 Grafana rule 決定是否構成告警（ADR ③）。
+      - uid: cron-persistence-target
+        title: CronPersistenceTarget
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 60
+              to: 0
+            datasourceUid: loki
+            model:
+              refId: A
+              datasource:
+                type: loki
+                uid: loki
+              expr: '{job="falco"} |= `PurpleScope cron persistence write`'
+              queryType: range
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+        labels:
+          event_type: attack.detected
+          technique: T1053
+          team: red
+          severity: high
+          scenario_id: campus-diagnostics-persistence
+          service: range-target
+        annotations:
+          query: '{job="falco"} |= `PurpleScope cron persistence write`'
+          threshold: "> 0 / 1m"
+
       # Falco：靶機被生出 shell 直譯器（帶 PURPLESCOPE_EXEC 標記）→ T1059。
       # Falco 只提供事實（syscall 進 Loki），是否構成告警由這條 Grafana rule 決定
       # （ADR ③：Grafana 是唯一 alert engine，Falco 不直送 Event Service）。
