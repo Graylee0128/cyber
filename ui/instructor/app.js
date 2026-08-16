@@ -117,6 +117,19 @@ $("#btn-start").addEventListener("click", async () => {
     showBanner(banner, "演練已開始。", "info");
     refresh();
   } catch (error) {
+    // #160：這顆按鈕走的是「手打 IP」legacy 路徑，跟「預備＋Admission 領位」
+    // 互斥——409 且訊息提到 already prepared 時，不要照搬後端內部訊息，
+    // 直接告訴教官正確的下一步在哪裡，並重抓一次讓那顆按鈕現身。
+    if (error.status === 409 && error.detail?.includes("already prepared")) {
+      showBanner(
+        banner,
+        "這個 scenario 已經按過「預備」——手打 IP 這條路跟預備互斥。"
+        + "請改用下方「開始已預備的演練」，或先「取消預備」再重試這顆按鈕。",
+        "info",
+      );
+      refresh();
+      return;
+    }
     showBanner(banner, humanize(error));
   }
 });
@@ -169,17 +182,30 @@ $("#btn-prepare").addEventListener("click", async () => {
   }
 });
 
-/* ---------- 查詢／取消已 prepared 的場次（#163）----------
+/* ---------- 查詢／開始／取消已 prepared 的場次（#163、#160）----------
  * `prepare` 的 Banner 只顯示一次，教官忘記複製 exercise_id 或關掉分頁後就
  * 找不回來，之前唯一的救援手段是直接連資料庫。這裡在「沒有進行中的演練」
- * 時順便查一次目前是否卡著一筆 prepared，讓教官能看到它、也能主動放棄它。 */
+ * 時順便查一次目前是否卡著一筆 prepared，讓教官能看到它、取消它——
+ * 或者（#160）真的把它變成 running，這件事在這之前完全沒有 UI 入口：
+ * 唯一存在的「開始演練」按鈕走的是跟 `prepare` 互斥的另一條路
+ * （手打紅隊 IP，見上面 `#btn-start`），從來沒有任何按鈕會呼叫
+ * `start_prepared`（`POST /api/exercises/start {exercise_id}`）。 */
 async function loadPreparationStatus() {
   const host = $("#lifecycle");
   try {
     const prepared = await api.admission("/prepared");
+    // 兩條路徑互斥：既然已經預備了，手打 IP 那顆按鈕在這裡按下去只會 409，
+    // 直接關掉它比讓教官自己撞牆更清楚（#160 AC：互斥關係要對使用者可見）。
+    $("#btn-start").disabled = true;
     host.append(el("div", { class: "note", text:
       `已有預備中的演練：${prepared.exercise_id}（scenario ${prepared.scenario_id}）——`
-      + "在這筆被取消或開始之前，「預備」按鈕會一直回 409。" }));
+      + "上方「開始演練」（手打 IP）跟這筆預備互斥，已停用。玩家經 Admission 領位後，"
+      + "按下面「開始已預備的演練」即可，不用再輸入任何 IP。" }));
+    host.append(el("button", {
+      class: "primary",
+      text: "開始已預備的演練",
+      onclick: () => startPrepared(prepared.exercise_id, prepared.scenario_id),
+    }));
     host.append(el("button", {
       class: "danger",
       text: "取消預備",
@@ -190,6 +216,24 @@ async function loadPreparationStatus() {
     if (error.status !== 404) {
       host.append(el("div", { class: "note", text: `查詢預備狀態失敗：${humanize(error)}` }));
     }
+  }
+}
+
+async function startPrepared(exerciseId, scenarioId) {
+  // 不跳 prompt、不用手打 IP——紅隊名冊已經在 `admission_players` 裡了
+  // （玩家經 Admission 領位時寫入的），Range Core 的 `start_prepared` 會
+  // 自己去撈，這裡只需要帶 `exercise_id`（不能帶 `players`，見
+  // range_core/api.py::start_exercise 的驗證）。
+  try {
+    const exercise = await api.core("/api/exercises/start", {
+      method: "POST",
+      body: { exercise_id: exerciseId },
+    });
+    await freezeActionRegistry(exercise.exercise_id, scenarioId);
+    showBanner(banner, "演練已開始（已預備場次）。", "info");
+    refresh();
+  } catch (error) {
+    showBanner(banner, humanize(error));
   }
 }
 

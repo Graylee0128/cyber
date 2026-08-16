@@ -144,7 +144,10 @@ FALCO_MODE=vm sudo bash deploy.sh
 
 ## 4. 建立 Exercise
 
-在 **Instructor Console**（`/instructor/`，需先在 `/instructor-login/` 用教官 token 登入）：
+在 **Instructor Console**（`/instructor/`，需先在 `/instructor-login/` 用教官 token 登入），
+**兩條互斥的路徑，看要不要走 Admission 領位選一條**：
+
+### 4a. 手打紅隊 IP（不經 Admission 領位）
 
 1. 從 scenario 下拉選單選擇本場次的 scenario
 2. 按「**開始演練**」——會跳出提示要你填入紅隊來源 IP 清單（逗號分隔）
@@ -153,9 +156,18 @@ FALCO_MODE=vm sudo bash deploy.sh
 對應端點：`POST /api/exercises/start`，body 含 `scenario_id` 與 `players[]`
 （每個玩家的 `player_id` 與 `source_ip`）。
 
-> **「預備（供 Admission 領位）」按鈕會回 403。** 這是設計，不是故障——
-> `POST /api/exercises/prepare` 只接受 Admission 的服務身分，教官控台不是那條路徑的
-> 合法呼叫者。按鈕刻意保留並顯示說明。
+### 4b. 先「預備」，玩家經 Admission 領位（#160 之後才有 UI 入口）
+
+1. 選好 scenario 後按「**預備**」——這顆按鈕代教官打 `POST /admission/prepare`
+   （Admission 用自己的服務身分反代 `POST /api/exercises/prepare`；教官控台自己
+   直接打 Range Core 這條路必定 403，見 [technical-handbook §8](../technical-handbook/README.md)）。
+   拿到 `exercise_id` 後，接續 §5／§6 讓玩家經 Event Control 的邀請連結領位。
+2. 玩家都領完位（座位轉 `ready`）後，回 Instructor Console，畫面會顯示「開始已
+   預備的演練」按鈕——按下去即可，**不用再手打任何 IP**，紅隊名冊直接從
+   Admission 登記過的玩家撈。
+3. **這一步在按過「預備」之後，4a 的「開始演練」按鈕會被停用**——兩條路徑
+   互斥，同時間只能走一條；按下停用中的按鈕或直接打 API 撞上去都會是
+   `409 an exercise is already prepared`。想改走 4a，要先在畫面上按「取消預備」。
 
 ## 5. 建立 / 分配 Seats
 
