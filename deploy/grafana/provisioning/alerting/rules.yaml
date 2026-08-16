@@ -495,6 +495,70 @@ groups:
           query: '{job="falco"} |= `PurpleScope cron persistence write`'
           threshold: "> 0 / 1m"
 
+      # FINAL The Leak（校園學生資料自助查詢，#153 Campaign Pack v1）：短時間內對
+      # /students/token 打一連串不同 student_id 才算異常（單次核發是正常使用，
+      # 門檻沿用 SSHBruteForce 同款「> N / 1m」設計，不能是 > 0）。
+      #
+      # **本規則是本章唯一的偵測覆蓋**。真正有教學意義的兩步——同一個 token 讀
+      # 不屬於自己的資料（T1213）、批次帶走（T1567）——刻意零覆蓋：這些請求在
+      # log 裡長得跟正常使用一模一樣，沒有 payload signature，一個規則抓不到
+      # 「這個 id 不是這個 token 原本核發的」這種語意層事實。見
+      # scenarios/campus-student-records-idor/metadata.yaml 的 intentional_gaps。
+      - uid: account-discovery-target
+        title: AccountDiscoveryTarget
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 60
+              to: 0
+            datasourceUid: loki
+            model:
+              refId: A
+              datasource:
+                type: loki
+                uid: loki
+              expr: 'sum by (source_ip) (count_over_time({app="range-target"} | json | path=`/students/token` [1m]))'
+              queryType: range
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [5]
+        labels:
+          event_type: attack.detected
+          technique: T1087
+          team: red
+          severity: medium
+          scenario_id: campus-student-records-idor
+          service: range-target
+        annotations:
+          query: '{app="range-target"} | json | path=`/students/token`'
+          threshold: "> 5 / 1m"
+
       # Falco：靶機被生出 shell 直譯器（帶 PURPLESCOPE_EXEC 標記）→ T1059。
       # Falco 只提供事實（syscall 進 Loki），是否構成告警由這條 Grafana rule 決定
       # （ADR ③：Grafana 是唯一 alert engine，Falco 不直送 Event Service）。

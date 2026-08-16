@@ -1,7 +1,8 @@
 # Campaign Pack v1 — Campus Edition
 
-> 活契約。本目錄是 [#153](https://github.com/Graylee0128/cyber/issues/153) Phase 1 Content Design 的交付物。
-> **設計稿，不含任何可執行程式或可載入的 `metadata.yaml`**——漏洞 app code、Falco/Grafana rule、scenario package 都是各實作子票的產物（見 [#153](https://github.com/Graylee0128/cyber/issues/153) 子票拆分）。
+> 活契約。本目錄是 [#153](https://github.com/Graylee0128/cyber/issues/153) Phase 1 Content Design 的交付物，且各章節在落地後回填了「實作定案」段，記錄設計與實作對不上時實際怎麼解的（例如 CH2 發現的共享 flag 限制、FINAL 的零覆蓋悖論）。
+>
+> **五章 Scenario 已全數實作完成並 merge**（2026-08-16）：CH1（既有）＋ CH2/CH3/CH4/FINAL（[#157](https://github.com/Graylee0128/cyber/pull/157)／[#158](https://github.com/Graylee0128/cyber/pull/158)／[#159](https://github.com/Graylee0128/cyber/pull/159)／FINAL PR）。`scenarios/` 下五個真 scenario、對應 Falco/Grafana 規則、`config/techniques.yaml` 新增的四個父技術都已落地，全部有真 HTTP round-trip 測試佐證（不是斷言字串存在）。**尚未開始**：Experience Layer 實作、Campaign/UI 整合、`briefing.md` HTTP 端點、dry-run 執行——見 [#153](https://github.com/Graylee0128/cyber/issues/153) 子票拆分。
 
 ## 這份文件是什麼
 
@@ -70,17 +71,16 @@ FINAL The Leak      全校學生的成績與個資，被一頁一頁搬走
 | **CH2 Foothold**（已實作） | 海報上傳 | `poster-upload` / `poster-render` | Upload bypass → Web Shell → Linux Privesc | T1190 → T1505 → T1548 | Falco：webshell exec + sudo find 濫用 | 全覆蓋（`WebShellUploadTarget`＋`LocalPrivescTarget`），無 intentional gap |
 | **CH3 The Stolen Key**（已實作） | 網址預覽 | `link-preview` / `internal-api` | SSRF → Metadata Credential Theft → API Pivot | T1190 → T1552 → T1550 | app-log：`ssrf_suspected` | 部分覆蓋（`EgressAnomalyTarget`＝T1552；T1550 為 intentional gap） |
 | **CH4 Ghost in the System**（已實作） | 報修診斷工具 | `diagnostics-lookup` | Command Injection → Interactive Access → Cron Persistence | T1190 → T1059 → T1053 | app-log：`cmd_injection_suspected` + Falco：cron.d 寫入 | 全覆蓋（`CommandInjectionTarget`＋`CronPersistenceTarget`），無 intentional gap |
-| **FINAL The Leak** | 成績/個資 API | `authenticated-api` | IDOR → Sensitive Data Access → Exfiltration | **T1087**★ → **T1213**★ → **T1567**★ | 行為 / 存取模式異常 | **刻意 detection gap 教學** |
+| **FINAL The Leak**（已實作） | 學生資料自助查詢 | `student-records` | IDOR → Sensitive Data Access → Bulk Access（無對外 exfil 通道） | T1087 → T1213 → T1567 | app-log：token 核發速率（僅 T1087） | **兩個 gap**（T1213/T1567 零覆蓋，僅 T1087 有 `AccountDiscoveryTarget`）——結構限制見 `chapters/FINAL-the-leak.md` |
 
-★ = `config/techniques.yaml` 目前沒有、待 FINAL 實作票新增的父技術（`T1550` 已隨
-CH3 落地補上）：
+Campaign Pack v1 新增的父技術，全部已補進 `config/techniques.yaml`：
 
 | 新增父技術 | 名稱 | tactic | 用於 | 狀態 |
 |---|---|---|---|---|
 | `T1550` | Use Alternate Authentication Material | lateral-movement | CH3 API pivot | ✅ 已新增（CH3） |
-| `T1087` | Account Discovery | discovery | FINAL IDOR 列舉 | 待新增 |
-| `T1213` | Data from Information Repositories | collection | FINAL 敏感資料存取 | 待新增 |
-| `T1567` | Exfiltration Over Web Service | exfiltration | FINAL 外洩 | 待新增 |
+| `T1087` | Account Discovery | discovery | FINAL 帳號列舉 | ✅ 已新增（FINAL） |
+| `T1213` | Data from Information Repositories | collection | FINAL IDOR 讀取 | ✅ 已新增（FINAL） |
+| `T1567` | Exfiltration Over Web Service | exfiltration | FINAL 批次外洩 | ✅ 已新增（FINAL） |
 
 > **層級規則**：`techniques.yaml` 明令父子技術不可並存（否則 coverage 重複計數，載入時擋下）。票裡原本寫的 `.003 / .001 / .005 / .006` 子技術**一律折成父技術**（T1505 / T1548 / T1552 / T1213）。
 
@@ -144,9 +144,12 @@ Campus 是 v1。未來可延伸 Standard / Corporate、After Dark 等 edition，
 `chapters/CH2-foothold.md`）。**CH3/CH4/FINAL 實作前務必先確認 #45（逐 scenario 獨立
 flag）是否已落地**：沒有就比照 CH2 全走 telemetry；有了才能安全地加 submission。
 
-## 交付邊界（本設計 epic）
+## 交付邊界
 
-**做**：`docs/campaign/` 四類設計稿（本 README + experience-contract + chapters + dry-run-template）。
-**不做**：任何 app code、Falco/Grafana rule、`metadata.yaml`、UI 程式——全部是 [#153](https://github.com/Graylee0128/cyber/issues/153) 子票的產物。
+**Phase 1（設計稿）**：`docs/campaign/` 四類文件（本 README + experience-contract + chapters + dry-run-template）——已完成。
 
-技術護欄：`ScenarioCatalog.from_directory`（`src/range_core/scenarios.py`）會掃 `scenarios/<id>/metadata.yaml` 跑跨檔參照驗證；本 epic 因此**不放**任何可載入的 scenario package，維持 CI 綠。
+**Phase 2/3（Scenario 實作，CH2–FINAL）**：app code、Falco/Grafana rule、`metadata.yaml`——**已完成**（2026-08-16，四張 PR 全部 merge）。每條落地時都在對應 `chapters/*.md` 回填「實作定案」段，記錄設計期沒預見、實作時才浮現的限制（CH2 的共享 flag、FINAL 的零覆蓋悖論）。
+
+**尚未開始**：Experience Layer 實作、Campaign/UI 整合（chapter/phase 呈現、role briefing 渲染）、`briefing.md` HTTP 端點（既有已知缺口 #5）、dry-run 執行——見 [#153](https://github.com/Graylee0128/cyber/issues/153) 子票拆分。
+
+技術護欄回顧：Phase 1 設計稿階段刻意不放任何可載入的 scenario package（`ScenarioCatalog.from_directory` 會跑跨檔參照驗證），維持 CI 綠；Phase 2/3 落地後，五個 scenario 都通過完整的 loader 驗證與真 HTTP round-trip 測試。
