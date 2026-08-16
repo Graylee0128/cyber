@@ -4,6 +4,8 @@ Gamified Red-Blue-Purple 攻防訓練平台。不是 observability lab，也不�
 是可計分、可重播、可產出演練報告的攻防訓練產品。
 
 > Agent 設定見 [CLAUDE.md](./CLAUDE.md)。本檔是人看的入口。
+>
+> 常見問題（角色、Scenario、計分、部署對象……）先看 [FAQ](./docs/FAQ.md)。
 
 ## 一鍵部署 ／ 一鍵測試
 

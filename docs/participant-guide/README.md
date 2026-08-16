@@ -3,7 +3,8 @@
 > 給紅隊與藍隊玩家。你不需要懂平台怎麼做的，這份文件只講你會用到的東西。
 >
 > 現場工作人員請看 [Operator Guide](../operator-guide/README.md)；
-> 想知道系統怎麼運作請看 [Technical Handbook](../technical-handbook/README.md)。
+> 想知道系統怎麼運作請看 [Technical Handbook](../technical-handbook/README.md)；
+> 常見問題（不確定該去哪找答案時先看這裡）見 [FAQ](../FAQ.md)。
 
 ## 1. 演練是什麼
 
