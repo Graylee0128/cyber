@@ -73,6 +73,13 @@ function renderLifecycle() {
   }
   $("#btn-reset").disabled = false;
   $("#btn-start").disabled = true;
+  // #143 item 5：光把「開始演練」disable 掉不夠顯眼——教官忘記按重置時，
+  // 危險的不是他自己再按一次開始（那顆按鈕本來就按不下去），是**玩家**不知情
+  // 地對著這場舊演練繼續操作，flag／hint 就此歸屬到錯的場次。這則提示要讓
+  // 教官在打算開新場的那一刻，看得到「現在還卡著哪一場、要按哪顆才能清掉」。
+  host.append(el("div", { class: "note", text:
+    `已有演練在跑（${exercise.exercise_id}）。要開新場請先按下方「結束並重置」—— `
+    + "忘記這一步，玩家會不知情地繼續對著這場舊的操作，flag／hint 歸屬到它身上。" }));
   for (const [key, value] of [
     ["exercise_id", exercise.exercise_id],
     ["scenario", exercise.scenario_id],
@@ -101,16 +108,46 @@ $("#btn-start").addEventListener("click", async () => {
     return;
   }
   try {
-    await api.core("/api/exercises/start", {
+    const exercise = await api.core("/api/exercises/start", {
       method: "POST",
       body: { scenario_id: scenarioId, players },
     });
+    await freezeActionRegistry(exercise.exercise_id, scenarioId);
     showBanner(banner, "演練已開始。", "info");
     refresh();
   } catch (error) {
     showBanner(banner, humanize(error));
   }
 });
+
+/* ---------- Action Registry（#143 item 2）----------
+ * register／freeze 是 P2 evaluation 的分母來源（`purple/evaluation/action_registry.py`
+ * 的 docstring：「the only source of the P2 denominator」）——沒有凍結，Battleboard
+ * 的攻防進度與 Purple Console 的涵蓋率就永遠拿不到資料。purple_platform_plan.md
+ * §Q5 早就拍板「不需要另建介面」：分母該隨演練開始自動產生，不是教官另外按的
+ * 一顆按鈕。所以掛在「開始演練」成功之後，不是新增獨立的 UI 元件。
+ *
+ * 用演練 exercise_id 而非某個獨立輸入 —— seed 用的是 scenario 自帶的
+ * `action_registry_seed()`，教官在這裡沒有東西要填。 */
+async function freezeActionRegistry(exerciseId, scenarioId) {
+  try {
+    await api.evaluation(`/api/exercises/${exerciseId}/actions`, {
+      method: "POST",
+      body: { scenario_id: scenarioId },
+    });
+    await api.evaluation(`/api/exercises/${exerciseId}/actions/freeze`, { method: "POST" });
+  } catch (error) {
+    // 分母沒凍成不該讓「演練已開始」看起來像失敗了——Range Core 那頭已經是
+    // 真的在跑，把這裡的失敗獨立講清楚，教官才知道是涵蓋率表會有問題，
+    // 不是演練沒開起來。
+    showBanner(
+      banner,
+      `演練已開始，但 Action Registry 凍結失敗（${humanize(error)}）——`
+      + "Battleboard 攻防進度與 Purple Console 涵蓋率暫時算不出來。",
+      "error",
+    );
+  }
+}
 
 $("#btn-prepare").addEventListener("click", async () => {
   // #143 項目 1：prepare 只收 Range Core 的 admission 服務身分，教官控台

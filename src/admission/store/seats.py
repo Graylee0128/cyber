@@ -8,6 +8,7 @@ from typing import Any
 
 import psycopg
 from psycopg.types.json import Jsonb
+from admission.store.db import SEAT_STATES
 from admission.store.pool import POOL_LOCK_NS
 
 # ---- 藍隊：座位已由 instructor 開場前 bulk-build 好，領號是「鎖既有 free 座位」----
@@ -250,12 +251,19 @@ class SeatStore:
         return [r[0] for r in self.conn.execute(query, params).fetchall()]
 
     def pool_snapshot(self, exercise_id: str, team: str) -> dict[str, int]:
-        """座位池總覽用（中控 UI §1.3 第一區塊）：各 state 各幾張。"""
+        """座位池總覽用（中控 UI §1.3 第一區塊）：各 state 各幾張。
+
+        **每個 state 一定有值，沒有座位的回 0，不是缺席。** `GROUP BY` 只會回
+        有列的 state，直接把結果交出去等於讓「零張」變成缺 key —— 而中控是
+        Jinja2 模板，缺 key 的預設行為是渲染成空字串。畫面上「已認領」那一格
+        空白會被讀成壞掉，不會被讀成零。零填在這裡而不是在模板上補
+        `| default(0)`：模板有五格，漏補一格就是同一個 bug 再來一次。
+        """
         rows = self.conn.execute(
             "SELECT state, count(*) FROM seat WHERE exercise_id = %s AND team = %s GROUP BY state",
             (exercise_id, team),
         ).fetchall()
-        return dict(rows)
+        return {state: 0 for state in SEAT_STATES} | dict(rows)
 
     def issue_remote_link(self, exercise_id: str, ttl_seconds: int) -> tuple[str, str]:
         token = secrets.token_urlsafe(32)
