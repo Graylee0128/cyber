@@ -31,8 +31,38 @@ class HttpRangePublisher:
         return self._request("POST", "/api/exercises/prepare", {"scenario_id": scenario_id},
                               read_response=True)
 
+    def current_preparation(self) -> dict | None:
+        """反代教官查詢目前是否有一筆 `prepared`（#163）——同 `prepare` 的身分
+        理由。沒有時 Range Core 回 404，這裡轉成 `None` 而不是往外拋——「沒有
+        prepared」本來就是合法狀態，不是錯誤。"""
+        try:
+            return self._request("GET", "/api/exercises/prepared", read_response=True)
+        except HTTPError as exc:
+            if exc.code == 404:
+                return None
+            raise
+
+    def cancel_preparation(self, exercise_id: str) -> bool:
+        """反代教官取消一筆 `prepared`（#163）。回傳是否真的有東西被取消——
+        404（早就不是 prepared 了）回 `False`，不當例外拋出，呼叫端可以照樣
+        把「取消」當成冪等操作用。
+
+        跟 `revoke_player` 不一樣：這裡刻意**不**吃 `_request` 對 DELETE 404
+        的預設吞掉行為（`idempotent_delete=False`）——那個吞掉是為了讓
+        `revoke_player` 靜默冪等，但這裡呼叫端需要知道「到底有沒有真的取消
+        到東西」才能決定要不要顯示「已經不是 prepared 了」這種提示。"""
+        try:
+            self._request(
+                "DELETE", f"/api/exercises/prepared/{exercise_id}", idempotent_delete=False
+            )
+            return True
+        except HTTPError as exc:
+            if exc.code == 404:
+                return False
+            raise
+
     def _request(self, method: str, path: str, body: dict | None = None,
-                 *, read_response: bool = False) -> dict | None:
+                 *, read_response: bool = False, idempotent_delete: bool = True) -> dict | None:
         data = json.dumps(body).encode() if body is not None else None
         request = Request(
             self.base_url + path, data=data, method=method,
@@ -44,6 +74,6 @@ class HttpRangePublisher:
                     raise RuntimeError(f"Range Core returned {response.status}")
                 return json.loads(response.read()) if read_response else None
         except HTTPError as exc:
-            if method == "DELETE" and exc.code == 404:
+            if method == "DELETE" and idempotent_delete and exc.code == 404:
                 return None
             raise

@@ -36,7 +36,7 @@ from disclosure import (
 from disclosure.detection_rules import load_rule_titles
 from disclosure.fields import FIELD_MASKING
 from disclosure import build_label_map
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -351,9 +351,18 @@ def create_app(
             raise HTTPException(
                 status_code=403, detail="this endpoint requires a higher clearance"
             )
-        admission_lifecycle = request.url.path == "/api/exercises/prepare" or (
-            request.url.path.startswith("/api/exercises/")
-            and "/players/" in request.url.path
+        admission_lifecycle = (
+            request.url.path == "/api/exercises/prepare"
+            # #163: querying/cancelling the one `prepared` row is the same
+            # lifecycle-publication scope as `prepare` itself, not a general
+            # gameplay read -- an instructor token must not be able to peek
+            # at or clear another exercise's prepared reservation.
+            or request.url.path == "/api/exercises/prepared"
+            or request.url.path.startswith("/api/exercises/prepared/")
+            or (
+                request.url.path.startswith("/api/exercises/")
+                and "/players/" in request.url.path
+            )
         )
         if admission_lifecycle and identity != "admission":
             raise HTTPException(
@@ -513,6 +522,36 @@ def create_app(
             return store.prepare(scenario)
         except ExerciseAlreadyRunning as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @application.get(
+        "/api/exercises/prepared",
+        response_model=PrepareExercise,
+    )
+    def get_current_preparation(
+        store: ExerciseStore = Depends(provide_exercise_store),
+    ) -> PrepareExercise:
+        """The one `prepared` exercise, if any (#163) -- recovers an `exercise_id`
+        the caller lost (UI reload, closed tab) without querying the database
+        directly. Same admission-only gate as `prepare`/`start_prepared`."""
+        prepared = store.current_preparation()
+        if prepared is None:
+            raise HTTPException(status_code=404, detail="no exercise is currently prepared")
+        return prepared
+
+    @application.delete(
+        "/api/exercises/prepared/{exercise_id}",
+        status_code=204,
+    )
+    def cancel_preparation(
+        exercise_id: str,
+        store: ExerciseStore = Depends(provide_exercise_store),
+    ) -> Response:
+        """Abandon a `prepared` exercise (#163), freeing the unique-prepared lock
+        for a new `prepare` call. No-ops (404) once it's been consumed by
+        `start_prepared` -- that's history, not a lock to release."""
+        if not store.cancel_preparation(exercise_id):
+            raise HTTPException(status_code=404, detail="exercise is not prepared")
+        return Response(status_code=204)
 
     @application.get(
         "/api/exercises/{exercise_id}/players/{player_id}",

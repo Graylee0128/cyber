@@ -14,6 +14,8 @@ class RangePublisher(Protocol):
     def publish_player(self, **player: Any) -> None: ...
     def revoke_player(self, exercise_id: str, player_id: str) -> None: ...
     def prepare(self, scenario_id: str) -> dict[str, Any]: ...
+    def current_preparation(self) -> dict[str, Any] | None: ...
+    def cancel_preparation(self, exercise_id: str) -> bool: ...
 
 
 class Alerter(Protocol):
@@ -28,6 +30,14 @@ class NullRangePublisher:
         # 選項，呼叫端需要 Range Core 真的生成的 exercise_id 才能繼續，吞掉等於
         # 把「沒接 Range Core」偽裝成「已經準備好了」，寧可噴出去讓教官看到。
         raise RuntimeError("range core publication not configured")
+    def current_preparation(self) -> dict[str, Any] | None:
+        # 這裡可以老實回 None（#163）：「沒接 Range Core」跟「沒有 prepared」
+        # 對呼叫端是同一種可接受結果——UI 忘記 exercise_id 時最多是查不到，
+        # 不像 `prepare` 那樣會讓呼叫端誤以為場次已經準備好了。
+        return None
+    def cancel_preparation(self, exercise_id: str) -> bool:
+        del exercise_id
+        return False
 
 
 class NullAlerter:
@@ -71,6 +81,14 @@ class AdmissionService:
         自己的 seat/pool 狀態不需要跟著這一步改變，exercise_id 由 Range Core
         決定，這裡不寫回任何 Admission 表。"""
         return self.publisher.prepare(scenario_id)
+
+    def current_preparation(self) -> dict[str, Any] | None:
+        """代教官查詢目前是否有一筆 `prepared`（#163）。純轉發，同 `prepare`。"""
+        return self.publisher.current_preparation()
+
+    def cancel_preparation(self, exercise_id: str) -> bool:
+        """代教官取消一筆 `prepared`（#163）。純轉發，同 `prepare`。"""
+        return self.publisher.cancel_preparation(exercise_id)
 
     def bind_session(self, seat_id: str) -> str:
         if self.session_ttl_seconds is None:
