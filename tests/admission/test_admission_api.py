@@ -47,6 +47,27 @@ def test_claim_reconnect_and_full_pool(pg_connection):
     assert full.json()["detail"] == {"code": "team_full", "team": "red", "waitlist": False}
 
 
+def test_claim_reconnect_rejects_a_different_team_instead_of_silently_returning_the_old_seat(pg_connection):
+    """pre-UAT 2026-08-16 撞到的靜默失效：reconnect 分支原本只比對 exercise_id，
+    不比對 team，於是已經是紅隊的瀏覽器用一把全新、未消費過的藍隊憑證再送一次，
+    會被靜默接回舊的紅隊座位（200，看起來像成功），那把藍隊憑證完全沒被檢查也
+    沒被消費。這裡驗證修法：team 不符時明確 409，且藍隊席次／連結沒有被動到。"""
+    PoolConfigStore(pg_connection).set_caps("EX", 1, 1)
+    c = client(pg_connection)
+    red = claim(c)
+    assert red.status_code == 201
+    _, blue_token = SeatStore(pg_connection).issue_remote_link("EX", 600)
+    mismatch = c.post("/admission/EX/claims", json={"team": "blue", "remote_token": blue_token})
+    assert mismatch.status_code == 409
+    assert mismatch.json()["detail"]["code"] == "team_mismatch"
+    assert mismatch.json()["detail"]["team"] == "red"
+    # 藍隊那把連結沒被消費：`consume_remote_link` 是它唯一的消費入口，再呼叫一次
+    # 應該還能成功（若舊行為的 bug 還在，這把連結早就在 reconnect 分支裡被無視，
+    # 但也沒被標記已用，這個斷言本身測不出那個情況——所以上面才直接斷言 409／
+    # team_mismatch，這裡只補一個「沒有被誤消費」的獨立訊號）。
+    assert SeatStore(pg_connection).consume_remote_link("EX", blue_token) is True
+
+
 def test_remote_link_is_consumed_once_atomically(pg_connection):
     PoolConfigStore(pg_connection).set_caps("EX", 2, 0)
     c = client(pg_connection)

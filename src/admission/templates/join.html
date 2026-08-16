@@ -1,16 +1,48 @@
 <!doctype html>
 <html lang="zh-Hant">
-<head><meta charset="utf-8"><title>選擇隊伍</title></head>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>選擇隊伍</title>
+<style>
+  /* 這頁是真玩家第一次點開這個平台看到的畫面（一次性連結／現場進場碼落地頁）—
+     裸 HTML 沒有任何樣式，跟其餘教官頁面（event_control.html 這份 inline
+     style）與 ui/assets/base.css 的視覺語彙對不上。自成一份 inline style，
+     跟 event_control.html 同一個理由：這頁是 Admission 自己 serve 的模板，
+     不共用 Product UI 的靜態根目錄，沒有路徑能載到 ui/assets/base.css。 */
+  :root {
+    --bg:#0d0e14; --panel:#161826; --border:#2a2d42;
+    --text:#eef0f7; --muted:#8489a5; --red:#ff5c6c; --blue:#4da6ff;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         font-family:-apple-system,"Segoe UI","Noto Sans TC",sans-serif;
+         background:var(--bg); color:var(--text); padding:24px; }
+  main { max-width:360px; width:100%; background:var(--panel); border:1px solid var(--border);
+         border-radius:10px; padding:24px; }
+  h1 { font-size:20px; margin:0 0 8px; }
+  p { color:var(--muted); font-size:13px; line-height:1.6; }
+  label { display:flex; align-items:center; gap:8px; padding:10px 0; font-size:14px; }
+  #onsite-code-field { margin:8px 0 16px; }
+  #onsite-code-field label { flex-direction:column; align-items:stretch; gap:6px; }
+  input[type="text"] { background:#0f1120; color:var(--text); border:1px solid var(--border);
+         border-radius:6px; padding:8px 10px; font-size:14px; font-family:inherit; }
+  button { width:100%; margin-top:8px; background:var(--blue); color:#06070d; border:none;
+         border-radius:6px; padding:10px 14px; font-size:14px; font-weight:700; cursor:pointer; }
+  button:hover { filter:brightness(1.1); }
+  #status { min-height:1.2em; }
+</style>
+</head>
 <body data-portal-base-url="{{ portal_base_url }}">
   <main>
     <h1>選擇隊伍</h1>
     <p>名額由伺服器再次確認；此頁狀態僅供選擇。</p>
     <form id="join-form">
-      <label>紅隊
+      <label>🔴 紅隊
         <input type="radio" name="team" value="red" {{ 'disabled' if teams.red.disabled }} checked>
         剩餘 {{ teams.red.remaining }} 席
       </label>
-      <label>藍隊
+      <label>🔵 藍隊
         <input type="radio" name="team" value="blue" {{ 'disabled' if teams.blue.disabled }}>
         剩餘 {{ teams.blue.remaining }} 席
       </label>
@@ -63,10 +95,18 @@
         return;
       }
       if (!response.ok) {
-        const detail = await response.json().catch(() => ({}));
-        statusEl.textContent = response.status === 409
-          ? "這隊名額已滿。"
-          : (typeof detail.detail === "string" ? detail.detail : "領位失敗，代碼或連結可能已失效。");
+        const body = await response.json().catch(() => ({}));
+        const detail = body.detail;
+        // 409 現在有兩種不同意思（team_full／team_mismatch），不能再靠純
+        // status code 判斷——那樣會把「你已經是紅隊了」講成「這隊名額已滿」，
+        // 讀起來像叫你去試試看別隊，實際上換哪隊都一樣會被拒絕。
+        if (detail && typeof detail === "object" && detail.code === "team_full") {
+          statusEl.textContent = "這隊名額已滿。";
+        } else if (detail && typeof detail === "object" && detail.code === "team_mismatch") {
+          statusEl.textContent = `這個瀏覽器在這場演練已經是${detail.team === "blue" ? "藍隊" : "紅隊"}，不能再用別的憑證改領其他隊。`;
+        } else {
+          statusEl.textContent = typeof detail === "string" ? detail : "領位失敗，代碼或連結可能已失效。";
+        }
         return;
       }
       const seat = await response.json();

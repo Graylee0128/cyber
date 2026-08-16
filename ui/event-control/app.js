@@ -68,7 +68,11 @@ async function loadAvailability() {
     for (const [key, value] of Object.entries(availability)) {
       host.append(el("div", { class: "kv-row" }, [
         el("span", { class: "k", text: key }),
-        el("span", { text: String(value) }),
+        // `teams` 是巢狀物件（{red: {remaining, disabled, reason}, blue: {...}}）——
+        // 這個迴圈原本假設每個值都能直接 `String()`，物件會被印成 `[object Object]`，
+        // 讀不出剩餘席次。JSON.stringify 不是最漂亮的呈現，但至少讓資料看得見；
+        // 這裡刻意不寫死 teams 的欄位形狀，避免 schema 改了又要跟著改這段渲染。
+        el("span", { text: typeof value === "object" && value !== null ? JSON.stringify(value) : String(value) }),
       ]));
     }
     if (typeof availability.red_cap === "number") $("#red-cap").value = availability.red_cap;

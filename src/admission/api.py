@@ -192,6 +192,23 @@ def create_app(
             raise HTTPException(status_code=503, detail="ADMISSION_SESSION_TTL_SECONDS is required")
         existing = svc.resolve_session(request.cookies.get(SESSION_COOKIE))
         if existing is not None and existing["exercise_id"] == exercise_id:
+            # 這個分支是給「玩家重新整理領位頁」用的 reconnect，不是二次領位——
+            # 但它原本只比對 exercise_id，沒比對 team。同一瀏覽器已經是紅隊時，
+            # 用一把全新、未消費過的藍隊憑證再送一次，會被靜默接回舊的紅隊座位：
+            # 200、看起來像成功、body.remote_token／onsite_code 完全沒被檢查，
+            # 教官也看不出那把藍隊連結其實從未被消費（pre-UAT 2026-08-16 撞到，
+            # 兩個不同的人共用一台裝置時尤其危險：第二個人會被接回第一個人的
+            # 身分與計分）。這裡不裁決「能不能換隊」——那是產品決策——只是把
+            # 現況的靜默行為換成看得見的拒絕，fail closed。
+            if existing["team"] != body.team:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "team_mismatch",
+                        "message": f"this browser already holds a {existing['team']} seat in this exercise",
+                        "team": existing["team"],
+                    },
+                )
             response.status_code = 200
             return {k: existing[k] for k in ("seat_id", "player_id", "state", "team")}
         if body.onsite_code is not None:
