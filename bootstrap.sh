@@ -2,14 +2,35 @@
 # 一鍵部署入口：curl -fsSL https://raw.githubusercontent.com/Graylee0128/cyber/master/bootstrap.sh | sudo bash
 #
 # 已經是 root（sudo bash 進來的），下面不再另外 sudo。
-# clone/更新 repo 到 $CYBER_DIR，然後呼叫 deploy.sh。
+# clone/更新 repo 到 $CYBER_DIR（預設是呼叫 sudo 那個使用者的家目錄下的
+# cyber/，不是 root 的——見下方 default_repo_dir），然後呼叫 deploy.sh。
 # 想帶 deploy.sh 的參數（例如 --install-deps）：
 #   curl -fsSL <url>/bootstrap.sh | sudo bash -s -- --install-deps
 set -euo pipefail
 
 REPO_URL="https://github.com/Graylee0128/cyber.git"
-REPO_DIR="${CYBER_DIR:-$HOME/cyber}"
 BRANCH="${CYBER_REF:-master}"
+
+# 預設 clone 位置（#144 D4，真主機實測抓到的 bug，見 .scratch/144-bootstrap-ux/
+# test-report.md）：檔頭示範的用法是 `curl ... | sudo bash`，**不帶** `-H`。
+# `sudo` 不帶 `-H` 時不會改變 `$HOME`——它繼續是呼叫者（`SUDO_USER`）登入時的
+# `$HOME`，不是 root 的。但這支腳本原本一律信任 `$HOME`，於是在某些
+# shell／發行版組合下（環境變數繼承方式不同）曾經解析成 root 家目錄，
+# repo 因此落在 `/root/cyber`，跟使用者從自己家目錄找 `~/cyber` 的直覺對不上。
+# 這裡改成優先問「呼叫 sudo 的那個使用者」的家目錄；沒有 `SUDO_USER`（例如
+# 直接以 root 身分登入跑，不經 sudo）才退回 `$HOME`。
+default_repo_dir() {
+  if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    local sudo_home
+    sudo_home="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)"
+    if [ -n "$sudo_home" ]; then
+      echo "$sudo_home/cyber"
+      return
+    fi
+  fi
+  echo "$HOME/cyber"
+}
+REPO_DIR="${CYBER_DIR:-$(default_repo_dir)}"
 
 # 責任邊界（#144 D4）：這支腳本只管「repo 怎麼來的、花了多久」，部署本身的
 # phase timing／readiness／完成摘要全部是 deploy.sh 的事——直接執行
@@ -32,6 +53,10 @@ command -v git >/dev/null 2>&1 || {
   echo "❌ 找不到 git，先裝 git 再跑一次" >&2
   exit 1
 }
+
+# 獨立一行、不跟 clone／更新的 banner 混在一起——真主機實測時這個路徑被
+# 埋在後面一大串 git／docker 輸出裡沒被注意到，這裡先單獨講一次。
+echo "repo 目錄：$REPO_DIR（想換位置：CYBER_DIR=/path/to/dir curl ... | sudo bash）"
 
 REPO_START="$(date +%s)"
 if [ -d "$REPO_DIR/.git" ]; then
