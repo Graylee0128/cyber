@@ -319,11 +319,20 @@ healthcheck 只驗「server 有回應」（`ollama list` 成功），**不等模
 
 旗標：`--install-deps` / `--stack-only` / `--reset`。
 
-compose profile：**預設**（遙測棧）、`falco`、`admission-e2e`（Admission ＋ UI ＋ evaluation-api）。
-**`deploy.sh` 預設不會起 UI**——UI 在 `admission-e2e`。
+compose profile：**預設**（遙測棧）、`falco`（依 kernel 自動判斷）、`admission-e2e`
+（Admission ＋ Product UI ＋ evaluation-api ＋ Range Core，[#144](https://github.com/Graylee0128/cyber/issues/144)
+起**一律**帶上，不再是選配——沒有它，部署完成摘要要導去的 Product UI 網址會是連不上的
+死連結）。`--reset` 的 compose 拆除同步改成不帶 `--profile` 篩選，避免上次帶什麼 profile
+部署、這次 reset 才清得掉什麼的隱性耦合。
 
-> ⚠️ 兩個 profile 各有自己的 Postgres，access plane 的 event id 對預設 profile 的
-> `evaluation-engine` 不可見。
+> ⚠️ `admission-e2e` 與預設 profile 各有自己的 Postgres，access plane 的 event id 對預設
+> profile 的 `evaluation-engine` 不可見。
+
+`deploy.sh` 完成後會印 phase timing、READY／DEGRADED／FAILED 狀態、以及每個對人畫面的
+網址（Product UI／Battleboard／Instructor Login／Event Control／Purple Console），
+不需要另外查 port 對照表。`bootstrap.sh` 不再用 `exec` 呼叫 `deploy.sh`——換成一般呼叫
+＋ 顯式 `exit "$DEPLOY_EXIT"`，才能在 repo 更新之外量出「repo 更新 + 部署」的總時間，
+同時保證 `bootstrap.sh` 的 exit code 恆等於 `deploy.sh` 的 exit code。
 
 實際操作步驟見 [Operator Guide §3](../operator-guide/README.md#3-deploy-cyber)。
 

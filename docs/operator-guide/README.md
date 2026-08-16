@@ -97,19 +97,22 @@ sudo bash deploy.sh
 | `sudo bash deploy.sh --reset` | 先拆乾淨再部署——**演練之間回到已知狀態就用這個** |
 
 `deploy.sh` 分兩層：**L1 觀測／評估平面**（compose：Postgres / Loki / Prometheus / Grafana /
-Alloy / receiver / evaluation-engine）永遠會起；**L2 Range**（OVS VLAN 四區 ＋ nftables 方向性
-防火牆 ＋ 靶機 VM ＋ 紅隊容器）需要 KVM / libvirt / OVS，缺了會自動跳過並說明原因。
+Alloy / receiver / evaluation-engine ＋ Product UI／Admission／Range Core，見下）永遠會起；
+**L2 Range**（OVS VLAN 四區 ＋ nftables 方向性防火牆 ＋ 靶機 VM ＋ 紅隊容器）需要 KVM /
+libvirt / OVS，缺了會自動跳過並說明原因。
 
-### 起 Product UI 與 Admission
+### Product UI 與 Admission
 
-**`deploy.sh` 預設不會起 UI**——UI 與 Admission 在 `admission-e2e` profile：
+**`deploy.sh` 預設就會一併帶起 Product UI 與 Admission**（`--profile admission-e2e`，
+[#144](https://github.com/Graylee0128/cyber/issues/144)）——完成摘要會直接印出畫面網址，
+不需要另外手動起。部署完看到 `✅ Cyber deployment ready` 就代表 `http://<host>:8090/` 可以開了。
+
+只想單獨重啟／迭代 UI 這一塊（不重跑整個 `deploy.sh`）才需要手動下這行：
 
 ```bash
 docker compose --profile admission-e2e up -d --build \
   ui evaluation-api admission-range-core admission admission-receiver
 ```
-
-畫面在 `http://<host>:8090/`。
 
 Blue SOC 的 Grafana 分頁與 Evidence 查詢還需要**預設 profile 也起著**：
 
