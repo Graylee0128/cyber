@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import os
 import secrets
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.error import HTTPError
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.templating import Jinja2Templates
@@ -102,6 +104,11 @@ class PoolRequest(BaseModel):
     blue_cap: int = Field(ge=0)
 
 
+class PrepareRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    scenario_id: str = Field(min_length=1)
+
+
 class InstructorLoginRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     token: str = Field(min_length=1)
@@ -120,6 +127,8 @@ def create_app(
             def publish_player(self, **_player):
                 raise RuntimeError("ADMISSION_RANGE_CORE_URL and ADMISSION_RANGE_CORE_TOKEN are required")
             def revoke_player(self, exercise_id, player_id):
+                raise RuntimeError("ADMISSION_RANGE_CORE_URL and ADMISSION_RANGE_CORE_TOKEN are required")
+            def prepare(self, scenario_id):
                 raise RuntimeError("ADMISSION_RANGE_CORE_URL and ADMISSION_RANGE_CORE_TOKEN are required")
         resolved_publisher = MissingRangePublisher()
     application = FastAPI(title="Admission Service")
@@ -348,6 +357,24 @@ def create_app(
         except KeyError:
             raise HTTPException(status_code=404, detail="pool config not found")
         return Response(status_code=204)
+
+    @application.post("/admission/prepare", status_code=201)
+    def prepare(body: PrepareRequest, _actor: str = Depends(instructor),
+                svc: AdmissionService = Depends(service)) -> dict:
+        """#143 項目 1：教官控台自己打 `/api/exercises/prepare` 必定 403
+        （Range Core 的 `require_identity` 只認 `admission` 服務身分）。這裡代打——
+        Admission 本來就持有那個身分的 token。exercise_id 由 Range Core 生成
+        並原樣回傳，不在這裡另外編號（見 ADR 0003）。"""
+        try:
+            return svc.prepare(body.scenario_id)
+        except HTTPError as exc:
+            detail = exc.reason
+            try:
+                payload = json.loads(exc.read())
+                detail = payload.get("detail", detail)
+            except (ValueError, AttributeError):
+                pass
+            raise HTTPException(status_code=exc.code, detail=detail) from exc
 
     @application.post("/admission/maintenance/expire", status_code=200)
     def expire(_actor: str = Depends(instructor), svc: AdmissionService = Depends(service)) -> dict:

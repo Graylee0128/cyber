@@ -9,9 +9,12 @@ from admission.store.seats import SeatStore
 
 
 class RangeFake:
-    def __init__(self): self.published = []; self.revoked = []
+    def __init__(self): self.published = []; self.revoked = []; self.prepared = []
     def publish_player(self, **value): self.published.append(value)
     def revoke_player(self, exercise_id, player_id): self.revoked.append(player_id)
+    def prepare(self, scenario_id):
+        self.prepared.append(scenario_id)
+        return {"exercise_id": "ex-fake", "scenario_id": scenario_id, "state": "prepared"}
 
 
 def client(pg_connection, *, timeout=10):
@@ -98,6 +101,30 @@ def test_pending_and_active_require_instructor_token_and_reflect_seat_state(pg_c
     active = c.get("/admission/seats/active?team=red", headers=headers)
     assert active.status_code == 200
     assert set(active.json()) == {waiting_seat, ready_seat}
+
+
+def test_prepare_relays_to_range_core_as_admission_identity(pg_connection):
+    # #143 項目 1：教官控台自己打 Range Core 的 /api/exercises/prepare 必定
+    # 403（只認 admission 服務身分）。這裡驗證 Admission 代打的路徑：exercise_id
+    # 由下游（RangeFake 模擬 Range Core）決定，Admission 原樣回傳，不自己編號。
+    fake = RangeFake()
+    c = TestClient(create_app(conn=pg_connection, publisher=fake, settings=AdmissionSettings(
+        onsite_secret="site-secret", instructor_tokens={"svc-token": "teacher"},
+        request_timeout_seconds=10, session_ttl_seconds=3600,
+        remote_link_ttl_seconds=600, instructor_session_ttl_seconds=3600,
+    )), base_url="https://testserver")
+
+    resp = c.post("/admission/prepare", json={"scenario_id": "scn-1"},
+                   headers={"Authorization": "Bearer svc-token"})
+    assert resp.status_code == 201
+    assert resp.json()["exercise_id"] == "ex-fake"
+    assert fake.prepared == ["scn-1"]
+
+
+def test_prepare_requires_instructor_token(pg_connection):
+    c = client(pg_connection)
+    resp = c.post("/admission/prepare", json={"scenario_id": "scn-1"})
+    assert resp.status_code == 401
 
 
 def test_unset_production_timeout_is_not_invented(monkeypatch):
