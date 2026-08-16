@@ -191,6 +191,26 @@ END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS blue_actions_one_judgement_idx
     ON exercise_blue_actions (exercise_id, event_id)
     WHERE action IN ('classify', 'dismiss');
+
+-- Campaign/Experience Layer state (#153). One row per exercise, inserted in
+-- the same transaction as `exercises` (`start`/`start_prepared` below) so it
+-- is never NULL for a running exercise -- callers never special-case "no
+-- row yet". `ON DELETE CASCADE` so `reset_current`'s hard delete of the
+-- `exercises` row clears this too; stale chapter/phase state must not leak
+-- into the next run the way `exercise_players` etc. already don't.
+CREATE TABLE IF NOT EXISTS exercise_campaign_state (
+    exercise_id  text        PRIMARY KEY
+                 REFERENCES exercises(exercise_id) ON DELETE CASCADE,
+    chapter      text,
+    phase        text        NOT NULL DEFAULT 'briefing'
+                 CHECK (phase IN ('briefing','initial','escalation','critical','final','debrief')),
+    bgm_phase    text,
+    paused       boolean     NOT NULL DEFAULT false,
+    paused_at    timestamptz,
+    pause_accumulated_s integer NOT NULL DEFAULT 0,
+    updated_at   timestamptz NOT NULL DEFAULT now(),
+    CHECK ((paused AND paused_at IS NOT NULL) OR (NOT paused AND paused_at IS NULL))
+);
 """
 
 SCHEMA_LOCK_KEY = 0x52414E47  # "RANG"
@@ -289,6 +309,21 @@ class AdmissionPlayerRegistration(BaseModel):
         return self
 
 
+class CampaignState(BaseModel):
+    """Read-only projection of `exercise_campaign_state` (#153 Experience
+    Layer). Written only through `range_core.campaign_store.CampaignStateStore`
+    -- this model is how the rest of the app (and `GET /api/exercises/current`)
+    sees it, not how it's mutated."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    chapter: str | None = None
+    phase: Literal["briefing", "initial", "escalation", "critical", "final", "debrief"]
+    bgm_phase: str | None = None
+    paused: bool
+    paused_at: datetime | None = None
+
+
 class Exercise(BaseModel):
     """One immutable view of an exercise and its exercise-scoped roster."""
 
@@ -301,6 +336,12 @@ class Exercise(BaseModel):
     ends_at: datetime
     ended_at: datetime | None = None
     players: tuple[PlayerRegistration, ...]
+    # `start`/`start_prepared` always insert the matching
+    # `exercise_campaign_state` row in the same transaction as `exercises`,
+    # so this is only ever `None` for an exercise that was started before
+    # #153 shipped (no backfill migration) -- callers still must not assume
+    # non-`None`.
+    campaign: CampaignState | None = None
 
 
 def parse_duration(value: str) -> timedelta:
@@ -326,7 +367,8 @@ def ensure_schema(conn: psycopg.Connection) -> None:
 def truncate_all(conn: psycopg.Connection) -> None:
     conn.execute(
         "TRUNCATE exercise_blue_actions, exercise_hint_usages, "
-        "exercise_objective_completions, exercise_players, exercises, "
+        "exercise_objective_completions, exercise_campaign_state, "
+        "exercise_players, exercises, "
         "admission_players, exercise_preparations"
     )
 
@@ -372,6 +414,10 @@ class ExerciseStore:
                     VALUES (%s, %s, 'running', %s, %s)
                     """,
                     (exercise_id, scenario.id, started_at, ends_at),
+                )
+                self._conn.execute(
+                    "INSERT INTO exercise_campaign_state (exercise_id) VALUES (%s)",
+                    (exercise_id,),
                 )
                 with self._conn.cursor() as cur:
                     cur.executemany(
@@ -592,6 +638,10 @@ class ExerciseStore:
                     (exercise_id, scenario.id, started_at, ends_at),
                 )
                 self._conn.execute(
+                    "INSERT INTO exercise_campaign_state (exercise_id) VALUES (%s)",
+                    (exercise_id,),
+                )
+                self._conn.execute(
                     """
                     INSERT INTO exercise_players (exercise_id, player_id, source_ip)
                     SELECT exercise_id, player_id, source_ip
@@ -678,6 +728,14 @@ class ExerciseStore:
             """,
             (row[0],),
         ).fetchall()
+        campaign_row = self._conn.execute(
+            """
+            SELECT chapter, phase, bgm_phase, paused, paused_at
+            FROM exercise_campaign_state
+            WHERE exercise_id = %s
+            """,
+            (row[0],),
+        ).fetchone()
         return Exercise(
             exercise_id=row[0],
             scenario_id=row[1],
@@ -689,4 +747,9 @@ class ExerciseStore:
                 PlayerRegistration(player_id=player_id, source_ip=source_ip)
                 for player_id, source_ip in players
             ),
+            campaign=CampaignState(
+                chapter=campaign_row[0], phase=campaign_row[1],
+                bgm_phase=campaign_row[2], paused=campaign_row[3],
+                paused_at=campaign_row[4],
+            ) if campaign_row is not None else None,
         )
