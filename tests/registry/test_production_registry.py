@@ -63,7 +63,8 @@ class TestScenarioCatalog:
 
     def test_shipped_catalog_has_the_expected_v1_scenario_set(self):
         # #47 落地 WS2 v1 的唯一一個真 scenario（spec §6.3）；在此之前刻意是零個。
-        # #153 Campaign Pack v1 起改為多條（CH2/CH3/CH4）。
+        # #153 Campaign Pack v1 起改為多條，FINAL 落地後完整五章到齊
+        # （CH1 shopdb + CH2/CH3/CH4/FINAL 校園四章）。
         # fixture 與 scenario 語意分開（#43），fixture 不算進 scenarios。
         catalog = load_catalog()
 
@@ -72,6 +73,7 @@ class TestScenarioCatalog:
             "campus-poster-foothold",
             "campus-preview-metadata-pivot",
             "campus-diagnostics-persistence",
+            "campus-student-records-idor",
         }
         assert {fixture.id for fixture in catalog.fixtures} == {
             "sqli-01",

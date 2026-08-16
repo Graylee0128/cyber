@@ -76,9 +76,40 @@
 
 這讓 FINAL 不只是「第五題」，而是整個 Campaign 對 Purple / Blue 最有教學價值的一章：把「visibility gap ≠ detection gap」「signature 偵測的極限」講清楚。
 
-## 實作票 open questions（Phase 2）
+## ⚠️ 實作時發現的結構性限制與拍板（2026-08-16，gray 選 (1)）
 
-- IDOR 端點的認證模型（要先有 login → 這牽涉平台目前 target 無 auth，實作票須加最小認證面）。
-- behavioral 判定 objective 的門檻（跨幾個非自有物件、多長時間窗）。
-- exfil 目標的模擬方式與 `reset_scope`。
-- 三個新父技術（T1087/T1213/T1567）的 tactic 歸屬與 `techniques.yaml` note。
+Scenario 的 telemetry objective 只能靠真的有 Grafana rule 產生 Core Event 才會
+完成；若 FINAL 真的「零覆蓋」，schema 要求至少一個 objective 就無法被滿足
+（submission objective 又被 CH2 發現的「v1 只有一個全域 flag」擋死——FINAL 會
+跟其他章節同場開，不能用 submission）。也就是說**「零覆蓋」和「有 objective
+能通過」在目前平台上互斥**。
+
+兩個選項擺上桌：(1) 留一個「無聊」的早期步驟有覆蓋，真正有教學意義的步驟維持
+零覆蓋；(2) FINAL 先不做，等 #45（逐 scenario 獨立 flag）落地後用 submission
+objective 重新設計。**gray 選 (1)**——理由與 CH2 撞到共享 flag 限制時一致：
+平台限制是真的，但不必因此讓整章開天窗，退一步保住教學核心主張就好。
+
+## 實作定案（2026-08-16，FINAL 落地時回填）
+
+- **認證模型：輕量自助 token，不是完整登入系統**。`/students/token?student_id=<raw>`
+  宣告身分就核發，不驗證真實身分（沒有密碼、沒有任何身分證明）。這不是妥協，
+  是刻意的設計——真實世界最常見的 IDOR 成因正是「認證存在，但只驗證『有沒有
+  憑證』，不驗證『這個憑證是不是你的』」，一個完整登入系統反而會模糊焦點。
+- **偵測覆蓋（gray 拍板 (1) 的落地）**：T1087（列舉核發）留 `AccountDiscoveryTarget`
+  覆蓋，門檻 `> 5/1m`（同 `SSHBruteForce` 的「> N」設計，單次核發是正常使用）。
+  T1213（IDOR 讀取）與 T1567（批次外洩）刻意零覆蓋——`intentional_gaps:
+  [T1213, T1567]`。兩者都走同一個 `/students/<id>/records` 端點，技術上不需要
+  分開，差別只在「用同一個 token 打幾個不同 id」。
+- **behavioral 判定門檻**：objective 完成的判定不是「讀了幾個不同物件」，而是
+  「短時間內核發了幾個不同身分的 token」（AccountDiscoveryTarget 的門檻）——
+  這是 gray 拍板 (1) 之後唯一有覆蓋的可判定信號。真正的 IDOR 行為模式判定
+  （behavioral access-pattern anomaly）留給零覆蓋的兩步，本 v1 不建規則。
+- **exfil 目標的模擬方式：沒有獨立外傳端點**。VLAN20 無對外網路（無法真的送到
+  外部服務），T1567 因此實現成「同一個已認證管道的批次存取模式」，不是另開
+  一個對外連線——`bulk-record-exfiltration` 這個 attack_chain 動作與
+  `idor-record-read` 共用同一個端點，只是「用幾次」的差別。
+- **`reset_scope=exercise`**：token 只存在記憶體（`_ISSUED_TOKENS`，程序重啟即
+  清空），讀取端點不寫任何檔案——全程對檔案系統唯讀，四條裡最輕量的一條。
+- **三個新父技術**已補進 `config/techniques.yaml`：`T1087`（discovery）、
+  `T1213`（collection）、`T1567`（exfiltration），tactic 歸屬與 note 見該檔。
+- **⚠️ 沿用 CH2/CH3/CH4 的平台限制**：FINAL 同樣不設 submission objective。

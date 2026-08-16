@@ -1,0 +1,83 @@
+# FINAL The Leak（校園學生資料自助查詢，#153 Campaign Pack v1）—— Campaign 第五章，
+# 也是刻意的 detection-gap 教學案例。跑在真 range 的 golden 靶機（range-target）上，
+# 與 CH1–CH4 同一台主機、不同功能模組。攻擊鏈：
+#   自助登入端點宣告身分就核發 token，不驗證真實身分（T1087 帳號列舉）→ 讀取端點
+#   只驗 token 是否曾核發過、不驗是否核發給這個 id（IDOR，T1213）→ 用同一個 token
+#   批次讀走多筆資料（T1567）。
+#
+# 與前四章刻意拉開差異：這是**唯一沒有 payload、沒有異常 exec、沒有異常 egress**
+# 的一條——所有請求在 log 裡都長得像正常使用，差別只在語意層（這個 id 是不是這個
+# token 的主人），signature-based 規則抓不到。
+#
+# 平台結構限制（#153 FINAL 實作時發現，2026-08-16 gray 拍板 (1)）：
+#   Scenario 的 telemetry objective 只能靠真的有 Grafana rule 產生 Core Event 才會
+#   完成；若本章「零覆蓋」，schema 要求至少一個 objective 就無法被滿足
+#  （submission objective 又被 CH2 發現的「v1 只有一個全域 flag」擋死，見下方）。
+#   拍板結果：留 T1087（列舉核發，教學上較不重要的早期偵察步驟）有覆蓋，真正有
+#   教學意義的 T1213／T1567（讀取＋外洩）維持零覆蓋——FINAL 因此是「兩個 gap」
+#   而非「完全零覆蓋」，但仍是四條新章節裡 gap 最重的一條，核心教學主張
+#  （重點動作沒有告警）不變。
+#
+# 平台限制（沿用 CH2/CH3/CH4 #153 實作時的發現）：v1 只有一個全域 flag
+#（src/range_core/flags.py `SharedFileFlagSource`），FINAL 因此同樣不設 submission
+# objective，只用 telemetry。
+id: campus-student-records-idor
+name: Campus Student Records IDOR
+difficulty: intermediate
+duration: 25m
+
+objectives:
+  # 技術類：走遙測自動判定。短時間內對 /students/token 打一連串不同 student_id
+  # 就得分（AccountDiscoveryTarget 門檻 > 5/1m），歸屬到個別 kali。telemetry_signal
+  # 指向 attack_chain 第一個動作（列舉核發那一步）——靠 action_id 關聯。
+  - id: detect-account-discovery
+    evaluation: telemetry
+    points: 100
+    telemetry_signal:
+      action_id: token-self-issue-enumeration
+
+# 攻擊面宣告（§3.2）。student-records 是唯一的可計分面；token 核發與 IDOR 讀取
+# 共用同一個功能模組，不算獨立 surface。
+targets:
+  - host: range-target
+    surfaces: [student-records]
+
+# §2.1：純 HTTP 應用層信號（token 核發速率），不需要 falco，也不涉及檔案/行程。
+expected_sources: [alloy, response-agent]
+
+# §2.2：只覆蓋列舉核發這一步（T1087）。真正有教學意義的兩步（讀取＋外洩）刻意
+# 零覆蓋，見下方 intentional_gaps 與檔案開頭的平台限制說明。
+detection: [AccountDiscoveryTarget]
+
+# §2.2：刻意無覆蓋的兩個 technique。IDOR 讀取（T1213）與批次外洩（T1567）遙測都
+# 看得到（每次請求都寫進 app log，含 idor_cross_id_access 稽核欄位）——但沒有
+# 任何 Grafana 規則會為它們告警，因為這些請求在 log 裡長得跟正常使用一模一樣。
+# 這是 DETECTION_GAP（看得到卻認不出），不是 VISIBILITY_GAP（根本沒看到）；
+# ADR ③ 要能分辨的正是這件事，FINAL 是四條新章節裡示範得最徹底的一條。
+intentional_gaps: [T1213, T1567]
+
+attack_chain:
+  - id: token-self-issue-enumeration
+    technique: T1087
+    description: >-
+      Request self-service tokens for a range of claimed student ids in
+      quick succession to discover which ids exist and obtain valid (but
+      not properly scoped) authentication tokens.
+  - id: idor-record-read
+    technique: T1213
+    description: >-
+      Reuse any valid token to read a student record for an id other than
+      the one it was issued for. The endpoint checks only that the token
+      was issued by this server, never that it belongs to the requested id.
+  - id: bulk-record-exfiltration
+    technique: T1567
+    description: >-
+      Iterate the same IDOR across many student ids with the same token,
+      collecting records in bulk over the same authenticated channel —
+      no separate exfiltration channel exists on this air-gapped VLAN, so
+      "exfiltration" here is realized as sustained bulk access rather than
+      egress to an external service.
+
+# §5.2：token 只存在記憶體（_ISSUED_TOKENS，程序重啟即清空），讀取端點不寫檔——
+# 全程對檔案系統唯讀，exercise 級重置即可。
+reset_scope: exercise

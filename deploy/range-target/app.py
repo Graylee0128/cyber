@@ -1,4 +1,4 @@
-"""靶機 VM 的受攻擊面（Slice 4 / 票 #9；CH2/CH3/CH4 見 #153）—— 跑在 Z-TARGET(VLAN20) 的真 VM 內。
+"""靶機 VM 的受攻擊面（Slice 4 / 票 #9；CH2/CH3/CH4/FINAL 見 #153）—— 跑在 Z-TARGET(VLAN20) 的真 VM 內。
 
 與 compose 的 vulnerable-app 不同：這支是給**紅隊容器隔著真 VLAN 打**的，而偵測靠
 同一台 VM 內的 Falco（modern-eBPF）看 syscall，不是靠 app 自己判斷。
@@ -10,6 +10,7 @@
 - `/poster/upload` `/poster/render`  海報上傳→自訂範本執行（CH2 計分攻擊面，見下方段落）
 - `/preview` `/internal/reports`     網址預覽 SSRF →竊取內部憑證→ API pivot（CH3，見下方段落）
 - `/diagnostics/lookup`              報修診斷工具指令注入 → cron 持久化（CH4，見下方段落）
+- `/students/token` `/students/<id>/records`  自助登入 token → IDOR → 批次外洩（FINAL，見下方段落）
 
 每個請求寫一行 JSON 到 app log（含 source_ip）。Alloy 把 app log 與 Falco events.json
 一起推到 Z-MGMT 的 Loki —— 那條 TARGET→MGMT :3100 就是契約 1 的實用。
@@ -18,8 +19,10 @@ app log 裡的 source_ip 也是「六台紅隊 source IP 可分辨」在真環�
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import secrets
 import subprocess
 import threading
 import time
@@ -271,6 +274,68 @@ def _run_diagnostic(raw_host: str) -> tuple[int, str]:
     return result.returncode, (result.stdout + result.stderr)
 
 
+# ── FINAL The Leak（校園學生資料自助查詢，#153 Campaign Pack v1）—— 第五個計分
+# 攻擊面，也是刻意的 detection-gap 教學案例。跟前四章都不同：這裡沒有 payload、
+# 沒有異常 exec、沒有異常 egress，只有一連串「看起來完全正常」的已認證請求。
+#
+# `/students/token?student_id=<raw>` 是自助登入：宣告自己是哪個學生，就核發一組
+# token——**不驗證你是不是真的那個學生**（沒有密碼、沒有任何身分證明）。
+# `/students/<id>/records?token=<t>` 只檢查 token 是不是「曾經核發過的某個 token」，
+# **不檢查這個 token 原本是核發給誰的**——這就是 IDOR：認證存在（有沒有 token），
+# 但物件層授權不存在（這筆資料是不是你的）。
+#
+# T1087（帳號列舉）：短時間內對 /students/token 打一連串不同 student_id，核發
+# 一堆「合法但不屬於自己」的 token。這一步**有偵測覆蓋**（見 detection 段）。
+# T1213／T1567（實際讀取＋批次外洩）：拿其中任一 token 打不同 id 的 /records，
+# 一筆一筆讀走。這兩步**刻意零覆蓋**——遙測看得到（每次請求都寫進 app log），
+# 但沒有任何 Grafana 規則會為它告警，因為這些請求在 log 裡長得跟正常使用一模
+# 一樣（差別只在「這個 id 不是這個 token 原本核發的那個」，一個規則抓不到的
+# 語意層事實）。
+_token_lock = threading.Lock()
+_ISSUED_TOKENS: dict[str, str] = {}  # token -> 核發時宣告的 student_id（只供稽核，不用來授權）
+
+
+def _issue_student_token(claimed_id: str) -> str:
+    token = secrets.token_hex(16)
+    with _token_lock:
+        _ISSUED_TOKENS[token] = claimed_id
+    return token
+
+
+def _token_is_valid(token: str) -> bool:
+    """唯一的授權檢查：token 是不是「曾經核發過的某個」。不檢查跟哪個 id 綁定——
+    這正是 IDOR 成立的原因，不是弱檢查被繞過，是這層檢查本身就不存在。"""
+    with _token_lock:
+        return token in _ISSUED_TOKENS
+
+
+def _looks_like_idor_access(requested_id: str, token: str) -> bool:
+    """純函式：這次讀取的 id 是不是跟 token 原本核發的 id 不同。只供**稽核 log**
+    使用——app 仍然放行（漏洞的一部分），但至少把這個語意層事實寫進遙測，讓
+    Purple 側能討論「看得到卻沒有規則能認出來」是什麼意思（ADR ③）。"""
+    with _token_lock:
+        issued_for = _ISSUED_TOKENS.get(token)
+    return issued_for is not None and issued_for != requested_id
+
+
+def _fake_student_record(student_id: str) -> dict:
+    """合成資料，非真人資訊。用 id 做 deterministic 生成，讓同一個 id 每次讀到
+    的內容一致（真實感），但整份資料表都是演練用的假值。
+
+    用 `hashlib` 而非內建 `hash()`：後者對 str 預設有 per-process 隨機種子
+    （PYTHONHASHSEED），同一個 id 換一次程序重啟就會讀到不同數字，「每次讀到的
+    內容一致」這個宣稱就不成立了。`hashlib` 給的是真正跨程序穩定的雜湊。
+    """
+    digest = int(hashlib.sha256(student_id.encode()).hexdigest()[:4], 16)
+    return {
+        "student_id": student_id,
+        "name": f"Student {student_id}",
+        "email": f"{student_id}@minghu-demo.edu",
+        "gpa": round(2.0 + (digest % 200) / 100, 2),
+        "note": "PurpleScope 演練用合成資料，非真人資訊",
+    }
+
+
 _lock = threading.Lock()
 _seq = 0
 
@@ -401,9 +466,54 @@ class Handler(BaseHTTPRequestHandler):
             self._diagnostics_lookup(source_ip)
             return
 
+        if path == "/students/token":
+            self._students_token(source_ip)
+            return
+
+        # `/students/<id>/records` —— 路徑帶變動的 id 片段，用切割比對而非整段
+        # 字串相等（其餘端點都是固定路徑，這是唯一一個需要解析路徑參數的）。
+        parts = path.strip("/").split("/")
+        if len(parts) == 3 and parts[0] == "students" and parts[2] == "records":
+            self._student_records(source_ip, parts[1])
+            return
+
         _write_log({"ts": _now(), "app": "range-target", "path": path,
                     "source_ip": source_ip, "outcome": "not_found"})
         self._text(404, "not found\n")
+
+    def _students_token(self, source_ip: str) -> None:
+        # 自助登入（FINAL 攻擊鏈第一步，T1087 帳號列舉的落地）：宣告 student_id
+        # 就核發 token，不驗證身分。
+        claimed_id = parse_qs(urlparse(self.path).query).get("student_id", [""])[0]
+        if not claimed_id:
+            self._text(400, "missing student_id\n")
+            return
+        token = _issue_student_token(claimed_id)
+        _write_log({"ts": _now(), "app": "range-target", "path": "/students/token",
+                    "source_ip": source_ip, "claimed_student_id": claimed_id,
+                    "outcome": "issued"})
+        self._text(201, token + "\n")
+
+    def _student_records(self, source_ip: str, requested_id: str) -> None:
+        # IDOR 讀取（FINAL 攻擊鏈第二/三步，T1213 讀取 + T1567 批次外洩的落地，
+        # 兩者共用同一個端點——差別只在「用同一個 token 打幾個不同 id」，技術上
+        # 不需要分開兩支端點）。
+        token = parse_qs(urlparse(self.path).query).get("token", [""])[0]
+        if not _token_is_valid(token):
+            _write_log({"ts": _now(), "app": "range-target", "path": "/students/records",
+                        "source_ip": source_ip, "requested_id": requested_id,
+                        "outcome": "denied"})
+            self._text(401, "invalid or missing token\n")
+            return
+
+        # 認證通過（token 有效）；**沒有檢查這筆 id 是不是這個 token 的主人**——
+        # 這就是漏洞本身。仍然把這個語意層事實寫進 log（遙測看得到），只是沒有
+        # Grafana 規則會為它告警（見本檔開頭 FINAL 段落）。
+        cross_id = _looks_like_idor_access(requested_id, token)
+        _write_log({"ts": _now(), "app": "range-target", "path": "/students/records",
+                    "source_ip": source_ip, "requested_id": requested_id,
+                    "idor_cross_id_access": cross_id, "outcome": "read"})
+        self._text(200, json.dumps(_fake_student_record(requested_id), ensure_ascii=False) + "\n")
 
     def _diagnostics_lookup(self, source_ip: str) -> None:
         # 校園報修診斷工具（CH4 計分攻擊面）：把 host 直接組進 shell 指令字串，

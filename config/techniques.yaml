@@ -53,3 +53,19 @@ techniques:
     tactic: lateral-movement
     note: 用竊得的憑證/token 存取原本需要授權的資源；僅有 SSRF 讀到憑證不構成本技術，
       需另有實際使用該憑證存取資源的證據
+  # --- FINAL The Leak（校園 IDOR，#153 Campaign Pack v1）新增 ---
+  - id: T1087
+    name: Account Discovery
+    tactic: discovery
+    note: 短時間內對帳號/憑證核發端點打一連串不同身分聲明，藉此列舉哪些帳號存在
+      並取得屬於它們的合法憑證；單次核發屬正常使用，不構成本技術
+  - id: T1213
+    name: Data from Information Repositories
+    tactic: collection
+    note: 透過已認證但缺乏物件層授權的介面讀取不屬於呼叫者的資料；本身無 payload
+      特徵，僅遙測可見存取模式異常，signature-based 規則無法辨識
+  - id: T1567
+    name: Exfiltration Over Web Service
+    tactic: exfiltration
+    note: 沿用既有已認證管道批次帶走資料，不另開對外連線；在無對外網路的拓撲下
+      以「同一管道大量存取」作為外洩的可觀測落地，而非真的對外傳輸
