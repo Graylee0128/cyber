@@ -7,6 +7,14 @@ VISIBILITY_BY_EVENT_TYPE = {
     "detection.miss": "purple",
     "response.executed": "blue",
     "response.failed": "purple",
+    # #153 Experience Layer (range_core/campaign_events.py). All three
+    # deliberately `public`: it is the floor of VISIBILITY_RANK, so every
+    # open SSE subscriber (Battleboard/Blue SOC/Purple/Instructor) receives
+    # them regardless of clearance; each surface renders its own
+    # presentation from the same event (experience-contract.md).
+    "campaign.phase_transition": "public",
+    "campaign.announcement": "public",
+    "campaign.objective_complete": "public",
 }
 
 #: Core Events that represent a detection starting point. Shared by P2

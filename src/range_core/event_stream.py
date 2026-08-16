@@ -21,7 +21,11 @@ P1 receiver 會並行處理 webhook，所以單靠 sequence 還不夠：sequence
 
 `range_core` 讀 `core_events` 是**唯讀的已發布表契約**，與 `telemetry.py` 的
 `CoreEventFeed` 同一個手法：不 import `purple`（`tests/range_core/test_boundary.py`
-機械檢查）。
+機械檢查）。這條 SSE 讀取路徑本身沒變——#153 讓 `range_core` 多一個**例外的
+寫入方**（`campaign_events.py`，同樣不 import `purple`，走 raw SQL），發
+`campaign.*` 事件疊上這條既有 bus，不是另開一條。`purple/store/db.py` 的
+`seq` allocation 本來就設計成「serialized for every writer, including direct
+SQL writers」，這個例外在 schema 層就被預期到了。
 """
 
 from __future__ import annotations

@@ -25,6 +25,7 @@ import time
 from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 import psycopg
 from disclosure import (
@@ -49,6 +50,18 @@ from range_core.blue_action_store import (
 )
 from range_core.blue_actions import BlueActionRejected, BlueActionType, MappingTechniqueTruth
 from range_core.blue_scoring import BlueScoringConfig, derive_blue_scores
+from range_core.campaign_events import (
+    append_campaign_event,
+    build_announcement_event,
+    build_objective_complete_event,
+    build_phase_transition_event,
+)
+from range_core.campaign_store import (
+    AlreadyPaused,
+    CampaignStateNotFound,
+    CampaignStateStore,
+    NotPaused,
+)
 from range_core.response_dispatch import HttpResponseDispatcher, ResponseDispatcher
 from range_core.event_stream import (
     CoreEventStream,
@@ -130,6 +143,14 @@ ENDPOINT_MIN_CLEARANCE: dict[tuple[str, str], int] = {
     # always the team). Gating the endpoint at blue clearance is therefore
     # the *only* enforcement that a red player's token can't submit them.
     ("POST", "/api/blue-actions"): CALLER_CLEARANCE["blue"],
+    # #153 Experience Layer — Instructor-as-Game-Master (experience-contract.md).
+    # Every gameplay-visible cue (phase transitions, announcements) is
+    # instructor-authored, same clearance floor as start/reset.
+    ("POST", "/api/campaign/phase"): CALLER_CLEARANCE["instructor"],
+    ("POST", "/api/campaign/announcement"): CALLER_CLEARANCE["instructor"],
+    ("POST", "/api/campaign/bgm"): CALLER_CLEARANCE["instructor"],
+    ("POST", "/api/campaign/pause"): CALLER_CLEARANCE["instructor"],
+    ("POST", "/api/campaign/resume"): CALLER_CLEARANCE["instructor"],
 }
 
 
@@ -173,6 +194,36 @@ class BlueActionRequest(BaseModel):
     event_id: str = Field(min_length=1)
     action: str = Field(min_length=1)
     technique: str | None = None
+
+
+#: #153 Instructor-as-Game-Master requests (experience-contract.md).
+class CampaignPhaseRequest(BaseModel):
+    """Covers Reveal/advance Chapter, Final countdown, and End/result reveal
+    -- all the same operation with a different `phase` (see
+    `campaign_events.build_phase_transition_event`)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    phase: Literal["briefing", "initial", "escalation", "critical", "final", "debrief"]
+    chapter: str | None = None
+    # Public-safe copy: this is exactly the de-identified text Battleboard
+    # shows the whole room, so it must never carry payload/technique/answer.
+    label: str = Field(min_length=1, max_length=120)
+    bgm_phase: str | None = Field(default=None, min_length=1)
+    animation: str | None = Field(default=None, min_length=1)
+
+
+class CampaignAnnouncementRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    text: str = Field(min_length=1, max_length=280)
+    severity: Literal["info", "warning", "critical"] = "info"
+
+
+class CampaignBgmRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    bgm_phase: str = Field(min_length=1)
 
 
 #: Header carrying the seat's real source IP, set by the Product UI gateway
@@ -256,6 +307,7 @@ def create_app(
     token_map: Mapping[str, str] | None = None,
     max_stream_seconds: float = DEFAULT_MAX_STREAM_SECONDS,
     action_clock: ActionClock | None = None,
+    campaign_clock: ActionClock | None = None,
     response_dispatcher_factory: Callable[[psycopg.Connection], ResponseDispatcher] | None = None,
 ) -> FastAPI:
     """Create the WS5 application with an injected or on-disk catalog.
@@ -312,6 +364,9 @@ def create_app(
     # 與 tokens／detection_labels 同一個理由：這份設定在演練期間不該變動。
     blue_scoring_config = BlueScoringConfig.load()
     resolved_action_clock = action_clock or ActionSystemClock()
+    # #153: same injection seam as resolved_action_clock -- tests need to
+    # control "now" to assert resume() shifts ends_at by an exact duration.
+    resolved_campaign_clock = campaign_clock or ActionSystemClock()
     # #51：contain 落地後怎麼派送到 Z-MGMT 的 response queue。留給測試換成
     # 假的 dispatcher（不必真的打 HTTP），production 預設用真的
     # `HttpResponseDispatcher`（讀 `RANGE_CORE_RESPONSE_TOKEN`／
@@ -648,6 +703,123 @@ def create_app(
         if store.reset_current() is None:
             raise HTTPException(status_code=404, detail="no running exercise")
 
+    # ---- #153 Instructor-as-Game-Master (experience-contract.md) ----------
+    # Five endpoints covering the MVP's Instructor list: Reveal/advance
+    # Chapter + Final countdown + End/result reveal (all `campaign/phase`,
+    # just a different `phase`), Announcement, BGM switch, Pause/resume.
+    # Deliberately absent: Override Score, Inject arbitrary Event -- the
+    # contract's own "out of scope" list, kept out so Experience Layer
+    # cannot become a second source of truth for gameplay state.
+
+    @application.post("/api/campaign/phase", status_code=201)
+    def advance_campaign_phase(
+        request: CampaignPhaseRequest,
+        store: ExerciseStore = Depends(provide_exercise_store),
+        conn=Depends(provide_conn),
+    ) -> dict:
+        exercise, scenario = _running_exercise_and_scenario(store)
+        try:
+            state = CampaignStateStore(conn, clock=resolved_campaign_clock).advance_phase(
+                exercise.exercise_id,
+                phase=request.phase, chapter=request.chapter, bgm_phase=request.bgm_phase,
+            )
+        except CampaignStateNotFound as exc:
+            raise HTTPException(status_code=404, detail="no campaign state for this exercise") from exc
+        appended = append_campaign_event(
+            conn,
+            build_phase_transition_event(
+                exercise.exercise_id, scenario.id,
+                chapter=state.chapter, phase=state.phase, label=request.label,
+                bgm_phase=state.bgm_phase, animation=request.animation,
+                now=resolved_campaign_clock.now(),
+            ),
+        )
+        return {
+            "exercise_id": exercise.exercise_id,
+            "chapter": state.chapter,
+            "phase": state.phase,
+            "bgm_phase": state.bgm_phase,
+            "event_id": appended[0] if appended else None,
+            "seq": appended[1] if appended else None,
+        }
+
+    @application.post("/api/campaign/announcement", status_code=201)
+    def post_campaign_announcement(
+        request: CampaignAnnouncementRequest,
+        store: ExerciseStore = Depends(provide_exercise_store),
+        conn=Depends(provide_conn),
+    ) -> dict:
+        exercise, scenario = _running_exercise_and_scenario(store)
+        appended = append_campaign_event(
+            conn,
+            build_announcement_event(
+                exercise.exercise_id, scenario.id,
+                text=request.text, severity=request.severity,
+                now=resolved_campaign_clock.now(),
+            ),
+        )
+        return {
+            "event_id": appended[0] if appended else None,
+            "seq": appended[1] if appended else None,
+        }
+
+    @application.post("/api/campaign/bgm")
+    def set_campaign_bgm(
+        request: CampaignBgmRequest,
+        store: ExerciseStore = Depends(provide_exercise_store),
+        conn=Depends(provide_conn),
+    ) -> dict:
+        """No Core Event: experience-contract.md wants BGM switching manual
+        and non-reactive by design, not chained off another event. Callers
+        see the change only via the next `GET /api/exercises/current` poll."""
+        exercise, _ = _running_exercise_and_scenario(store)
+        try:
+            state = CampaignStateStore(conn, clock=resolved_campaign_clock).set_bgm(
+                exercise.exercise_id, request.bgm_phase
+            )
+        except CampaignStateNotFound as exc:
+            raise HTTPException(status_code=404, detail="no campaign state for this exercise") from exc
+        return {"exercise_id": exercise.exercise_id, "bgm_phase": state.bgm_phase}
+
+    @application.post("/api/campaign/pause")
+    def pause_campaign(
+        store: ExerciseStore = Depends(provide_exercise_store),
+        conn=Depends(provide_conn),
+    ) -> dict:
+        exercise, _ = _running_exercise_and_scenario(store)
+        try:
+            state = CampaignStateStore(conn, clock=resolved_campaign_clock).pause(exercise.exercise_id)
+        except CampaignStateNotFound as exc:
+            raise HTTPException(status_code=404, detail="no campaign state for this exercise") from exc
+        except AlreadyPaused as exc:
+            raise HTTPException(status_code=409, detail="campaign is already paused") from exc
+        return {
+            "exercise_id": exercise.exercise_id,
+            "paused": state.paused,
+            "paused_at": state.paused_at.isoformat() if state.paused_at else None,
+        }
+
+    @application.post("/api/campaign/resume")
+    def resume_campaign(
+        store: ExerciseStore = Depends(provide_exercise_store),
+        conn=Depends(provide_conn),
+    ) -> dict:
+        exercise, _ = _running_exercise_and_scenario(store)
+        try:
+            state = CampaignStateStore(conn, clock=resolved_campaign_clock).resume(exercise.exercise_id)
+        except CampaignStateNotFound as exc:
+            raise HTTPException(status_code=404, detail="no campaign state for this exercise") from exc
+        except NotPaused as exc:
+            raise HTTPException(status_code=409, detail="campaign is not paused") from exc
+        # ends_at moved -- read it back so the caller doesn't have to poll
+        # /api/exercises/current separately to know the new deadline.
+        refreshed = store.current()
+        return {
+            "exercise_id": exercise.exercise_id,
+            "paused": state.paused,
+            "ends_at": refreshed.ends_at.isoformat() if refreshed is not None else None,
+        }
+
     @application.post("/api/submissions")
     def submit_flag(
         request: Request,
@@ -675,9 +847,21 @@ def create_app(
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         if not correct:
             return {"accepted": False}
-        ObjectiveStore(conn).complete_by_submission(
+        newly_completed = ObjectiveStore(conn).complete_by_submission(
             exercise.exercise_id, player_id, objective.id, objective=objective
         )
+        # #153: same idempotency guard as the telemetry path in
+        # telemetry.py's sync_telemetry_objectives -- a resubmitted-but-
+        # already-completed flag must not replay the cue.
+        if newly_completed:
+            append_campaign_event(
+                conn,
+                build_objective_complete_event(
+                    exercise.exercise_id, scenario.id,
+                    objective_id=objective.id, evaluation="submission",
+                    now=resolved_campaign_clock.now(),
+                ),
+            )
         return {"accepted": True, "objective_id": objective.id, "player_id": player_id}
 
     @application.get("/api/hints")

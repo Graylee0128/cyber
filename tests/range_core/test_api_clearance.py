@@ -40,6 +40,16 @@ class TestLifecycleNeedsInstructor:
     def test_red_cannot_start_an_exercise(self):
         assert _client("red").post("/api/exercises/start", json=START_BODY).status_code == 403
 
+    def test_red_cannot_advance_the_campaign_phase(self):
+        """#153: the room's story is Instructor-authored, not player-driven."""
+        body = {"phase": "initial", "label": "Initial Access"}
+        assert _client("red").post("/api/campaign/phase", json=body).status_code == 403
+
+    def test_blue_cannot_post_a_campaign_announcement(self):
+        assert _client("blue").post(
+            "/api/campaign/announcement", json={"text": "hi"}
+        ).status_code == 403
+
     def test_instructor_clearance_satisfies_every_row(self):
         """instructor 一定過得了門 —— 真正打通端點的證據在 test_api_scoring.py 的
         `start()`（帶 instructor token、對真 PG 開演練、期望 201）。"""
@@ -61,4 +71,12 @@ class TestPolicyIsData:
             ("POST", "/api/exercises/start"),
             ("POST", "/api/exercises/reset"),
             ("POST", "/api/blue-actions"),
+            # #153 Instructor-as-Game-Master (experience-contract.md) --
+            # every campaign/experience mutation is instructor-only, same
+            # clearance floor as start/reset.
+            ("POST", "/api/campaign/phase"),
+            ("POST", "/api/campaign/announcement"),
+            ("POST", "/api/campaign/bgm"),
+            ("POST", "/api/campaign/pause"),
+            ("POST", "/api/campaign/resume"),
         }
