@@ -51,6 +51,18 @@ class AdmissionSettings:
     #: 這裡看畫面；`join.html` 是 Admission 自己 serve 的模板，跟 Product UI
     #: 是不同 origin，沒有這個值就無從構造導頁連結（#143 item 3）。
     player_portal_base_url: str = ""
+    #: session cookie 要不要帶 `Secure`。預設 `True`，且**不該為了方便而改掉**——
+    #: 沒有 `Secure` 的 session cookie 會跟著明文 HTTP 一起走，任何在路徑上的人
+    #: 都能抄走教官或玩家的 session。
+    #:
+    #: 之所以還是做成開關：`Secure` 的 cookie 只有在 secure context 才會被瀏覽器
+    #: 存下來，而 `http://<區網 IP>:8090` 不是 secure context（只有 `localhost`
+    #: 例外）。也就是說在明文 HTTP 遠端部署下，登入會回 204 但 cookie 直接被丟掉，
+    #: `/instructor/`、`/purple/`、`/event-control/` 與領位流程全部**結構性**打不開，
+    #: 而且沒有任何錯誤訊號——只有一個裸的 403。deploy.sh 的 demo 部署沒有 TLS，
+    #: 因此明確設 `ADMISSION_COOKIE_SECURE=0` 並在完成摘要印警告：把降級變成一個
+    #: 看得見的選擇，而不是預設值裡一個沒人注意到的洞。
+    cookie_secure: bool = True
 
     @classmethod
     def from_env(cls) -> "AdmissionSettings":
@@ -86,6 +98,7 @@ class AdmissionSettings:
             instructor_session_ttl_seconds=instructor_session_ttl,
             public_base_url=os.environ.get("ADMISSION_PUBLIC_BASE_URL", ""),
             player_portal_base_url=os.environ.get("ADMISSION_PLAYER_PORTAL_BASE_URL", ""),
+            cookie_secure=os.environ.get("ADMISSION_COOKIE_SECURE", "1") != "0",
         )
 
 
@@ -195,7 +208,8 @@ def create_app(
         if result is None:
             raise HTTPException(status_code=403, detail="invalid or used remote credential")
         token = svc.bind_session(result["seat_id"])
-        response.set_cookie(SESSION_COOKIE, token, httponly=True, secure=True, samesite="strict")
+        response.set_cookie(SESSION_COOKIE, token, httponly=True,
+                            secure=configured.cookie_secure, samesite="strict")
         return {k: result[k] for k in ("seat_id", "player_id", "state", "team")}
 
     @application.post("/admission/logout", status_code=204)
@@ -203,7 +217,8 @@ def create_app(
                svc: AdmissionService = Depends(service)) -> Response:
         if not svc.logout(request.cookies.get(SESSION_COOKIE)):
             raise HTTPException(status_code=401, detail="active session required")
-        response.delete_cookie(SESSION_COOKIE, secure=True, httponly=True, samesite="strict")
+        response.delete_cookie(SESSION_COOKIE, secure=configured.cookie_secure,
+                               httponly=True, samesite="strict")
         response.status_code = 204
         return response
 
@@ -236,7 +251,7 @@ def create_app(
         )
         response.set_cookie(
             INSTRUCTOR_SESSION_COOKIE, session_token,
-            httponly=True, secure=True, samesite="strict",
+            httponly=True, secure=configured.cookie_secure, samesite="strict",
         )
         response.status_code = 204
         return response
@@ -244,7 +259,8 @@ def create_app(
     @application.post("/admission/instructor/logout", status_code=204)
     def instructor_logout(request: Request, response: Response, c=Depends(provide_conn)) -> Response:
         InstructorSessionStore(c).revoke(request.cookies.get(INSTRUCTOR_SESSION_COOKIE))
-        response.delete_cookie(INSTRUCTOR_SESSION_COOKIE, secure=True, httponly=True, samesite="strict")
+        response.delete_cookie(INSTRUCTOR_SESSION_COOKIE, secure=configured.cookie_secure,
+                               httponly=True, samesite="strict")
         response.status_code = 204
         return response
 
@@ -319,7 +335,8 @@ def create_app(
             token = svc.rebind(seat_id, actor=actor)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="active seat not found") from exc
-        response.set_cookie(SESSION_COOKIE, token, httponly=True, secure=True, samesite="strict")
+        response.set_cookie(SESSION_COOKIE, token, httponly=True,
+                            secure=configured.cookie_secure, samesite="strict")
         response.status_code = 204
         return response
 
