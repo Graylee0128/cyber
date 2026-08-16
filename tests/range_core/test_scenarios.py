@@ -302,9 +302,11 @@ def test_flat_scenario_yaml_is_rejected_with_migration_instruction(tmp_path: Pat
         ScenarioCatalog.from_directory(tmp_path)
 
 
-def test_production_scenario_catalog_ships_the_one_v1_scenario():
-    # #47 交了 WS2 v1 的唯一一個真 scenario。在此之前這裡刻意是空的（WS2 從零起）；
-    # 現在恰好一個，多一個就違反「v1 只交一個做完整」（spec §6.3）。
+def test_production_scenario_catalog_loads_without_error():
+    # #47 交了 WS2 v1 的唯一一個真 scenario（在此之前這裡刻意是空的，WS2 從零起）。
+    # #153 Campaign Pack v1 起改為多條，「恰好一個」不再成立；這裡改成只證
+    # catalog 載入不出錯，且 CH1 仍在——每加一條 Campaign chain 在其專屬測試檔
+    # 另外釘住它自己在不在（見 tests/scenarios/test_ch2_campus_poster_foothold.py）。
     catalog = ScenarioCatalog.from_directory(REPO_ROOT / "scenarios")
 
-    assert [s.id for s in catalog.scenarios] == ["shopdb-credential-pivot"]
+    assert "shopdb-credential-pivot" in [s.id for s in catalog.scenarios]

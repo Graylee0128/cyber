@@ -1,12 +1,13 @@
-"""靶機 VM 的受攻擊面（Slice 4 / 票 #9）—— 跑在 Z-TARGET(VLAN20) 的真 VM 內。
+"""靶機 VM 的受攻擊面（Slice 4 / 票 #9；CH2 Foothold 見 #153）—— 跑在 Z-TARGET(VLAN20) 的真 VM 內。
 
 與 compose 的 vulnerable-app 不同：這支是給**紅隊容器隔著真 VLAN 打**的，而偵測靠
 同一台 VM 內的 Falco（modern-eBPF）看 syscall，不是靠 app 自己判斷。
 
-三個端點：
-- `/exec`       生一個帶 PURPLESCOPE_EXEC 標記的 shell → Falco 抓 execve → T1059
-- `/readsecret` 讀 /etc/purplescope/secret.txt        → Falco 抓 open   → T1005（SA §7 Scenario 03）
-- `/healthz`    存活探測
+端點：
+- `/exec`         生一個帶 PURPLESCOPE_EXEC 標記的 shell → Falco 抓 execve → T1059
+- `/readsecret`   讀 /etc/purplescope/secret.txt        → Falco 抓 open   → T1005（SA §7 Scenario 03）
+- `/healthz`      存活探測
+- `/poster/upload` `/poster/render`  海報上傳→自訂範本執行（CH2 計分攻擊面，見下方段落）
 
 每個請求寫一行 JSON 到 app log（含 source_ip）。Alloy 把 app log 與 Falco events.json
 一起推到 Z-MGMT 的 Loki —— 那條 TARGET→MGMT :3100 就是契約 1 的實用。
@@ -87,6 +88,66 @@ def _query_products(raw_id: str) -> list[tuple]:
             return list(cur.fetchall())
     finally:
         conn.close()
+
+
+# ── CH2 Foothold（校園海報上傳，#153 Campaign Pack v1）——「真的要打進去」的第二個計分
+# 攻擊面，與上面的 SQLi 分屬不同 surface：這裡打的是檔案上傳信任鏈，不是 SQL 拼接。
+#
+# 平台把上傳限制做成「只查 Content-Type header」——這個 header 是**攻擊者自報**的，
+# 伺服器完全沒有驗證副檔名或檔案內容（magic bytes）。攻擊者送 `Content-Type: image/png`
+# 就能把任何內容（含 .py）放進 POSTER_DIR，繞過形同虛設。
+#
+# 光是放上去還不夠：`/poster/render` 才是真正的執行點。它支援「進階自訂範本」——
+# 檔名以 .py 結尾的海報會被當成範本腳本，直接 `python3 <file>` 執行。這就是
+# Upload bypass（T1190）→ Web Shell（T1505）的落地：攻擊者用一次上傳＋一次 render
+# 請求就拿到程式碼執行。
+POSTER_DIR = os.environ.get("TARGET_POSTER_DIR", "/var/lib/purplescope/posters")
+# render 子行程改丟給這個低權限帳號執行（preexec_fn setuid/setgid）——即使模板真的被
+# 執行，也不該直接是 range-target-app 本身的 root。golden VM 由 bake.sh 建立這個帳號；
+# 本機測試/CI 沒有這個系統帳號時 `_drop_privileges_to_posterrender()` 回 None，子行程
+# 沿用呼叫者權限，讓「上傳→執行」這段邏輯不因缺帳號被整段跳過（見 tests/deploy）。
+POSTER_RENDER_USER = os.environ.get("TARGET_POSTER_RENDER_USER", "posterrender")
+ALLOWED_POSTER_CONTENT_TYPES = ("image/png", "image/jpeg", "image/gif")
+
+
+def _poster_upload_bypasses_content_check(content_type: str, filename: str) -> bool:
+    """True＝這次上傳會被現行檢查放行，但其實是可執行內容 —— 繞過成立。
+
+    現行檢查只認 Content-Type 落在允許清單就放行，不管副檔名、不開檔驗證 magic
+    bytes。純函式抽出來是同一個理由（見 `_looks_like_sqli`）：漏洞的判定邏輯要被
+    測試釘住，不能只活在 handler 裡靠人工檢查。若哪天有人「順手」把檢查改成同時
+    驗證副檔名或內容，這條測試會紅，逼他面對「這就是要拿掉的漏洞」。
+    """
+    passes_check = content_type in ALLOWED_POSTER_CONTENT_TYPES
+    is_executable_template = filename.lower().endswith(".py")
+    return passes_check and is_executable_template
+
+
+def _is_safe_poster_name(name: str) -> bool:
+    """檔名必須是單一檔名成分，不含路徑分隔字元——這裡刻意擋掉的是路徑穿越，
+    不是本章要展示的漏洞（那是 content-type/副檔名信任鏈），兩者不該混在一起。"""
+    return bool(name) and name not in (".", "..") and "/" not in name and "\\" not in name
+
+
+def _drop_privileges_to_posterrender():
+    """回傳一個 preexec_fn，讓 render 子行程改以 POSTER_RENDER_USER 身分執行。
+
+    找不到這個系統帳號（本機開發機／CI，golden VM 尚未烤過）就回 None，交由呼叫者
+    自行決定要不要仍然執行子行程——這讓「上傳→執行」這段邏輯不必依賴真 VM 也能被
+    測試覆蓋；真正的權限邊界（sudoers 誤設放行 root，見 `deploy/range-target/RUNBOOK
+    -attack-chain.md` CH2 段）只能在大主機 golden VM 上驗證（T4）。
+    """
+    try:
+        import pwd  # noqa: PLC0415 — 只有真的要 setuid 時才需要，且 Windows 開發機沒有這個模組
+        pw = pwd.getpwnam(POSTER_RENDER_USER)
+    except (KeyError, ImportError):
+        return None
+
+    def _preexec() -> None:
+        os.setgid(pw.pw_gid)
+        os.setuid(pw.pw_uid)
+
+    return _preexec
 
 
 _lock = threading.Lock()
@@ -203,9 +264,94 @@ class Handler(BaseHTTPRequestHandler):
             self._text(200, f"read {size} bytes from {SECRET_PATH}\n")
             return
 
+        if path == "/poster/render":
+            self._poster_render(source_ip)
+            return
+
         _write_log({"ts": _now(), "app": "range-target", "path": path,
                     "source_ip": source_ip, "outcome": "not_found"})
         self._text(404, "not found\n")
+
+    def do_POST(self) -> None:
+        path = urlparse(self.path).path
+        source_ip = self.client_address[0]
+
+        if path == "/poster/upload":
+            self._poster_upload(source_ip)
+            return
+
+        _write_log({"ts": _now(), "app": "range-target", "path": path,
+                    "source_ip": source_ip, "outcome": "not_found"})
+        self._text(404, "not found\n")
+
+    def _poster_upload(self, source_ip: str) -> None:
+        # 校園海報／作業上傳（CH2 計分攻擊面）。`filename` 由呼叫端指定 —— 這是真實
+        # 上傳表單常見的作法（表單另帶檔名欄位），不是本章要展示的漏洞本身。
+        filename = parse_qs(urlparse(self.path).query).get("filename", [""])[0]
+        content_type = self.headers.get("Content-Type", "")
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        body = self.rfile.read(length) if length else b""
+
+        if not _is_safe_poster_name(filename):
+            self._text(400, "invalid filename\n")
+            return
+
+        # 唯一的檢查：Content-Type 落在允許清單。這正是漏洞 —— 沒有驗證副檔名，
+        # 也沒開檔看 magic bytes，攻擊者只要送對 header，.py 一樣被存下來。
+        if content_type not in ALLOWED_POSTER_CONTENT_TYPES:
+            _write_log({"ts": _now(), "app": "range-target", "path": "/poster/upload",
+                        "source_ip": source_ip, "filename": filename,
+                        "content_type": content_type, "outcome": "rejected_content_type"})
+            self._text(415, "unsupported content type\n")
+            return
+
+        os.makedirs(POSTER_DIR, exist_ok=True)
+        dest = os.path.join(POSTER_DIR, os.path.basename(filename))
+        with open(dest, "wb") as f:
+            f.write(body)
+
+        bypassed = _poster_upload_bypasses_content_check(content_type, filename)
+        _write_log({"ts": _now(), "app": "range-target", "path": "/poster/upload",
+                    "source_ip": source_ip, "filename": filename,
+                    "content_type": content_type, "outcome": "stored",
+                    "upload_check_bypassed": bypassed})
+        self._text(201, f"stored {filename}\n")
+
+    def _poster_render(self, source_ip: str) -> None:
+        name = parse_qs(urlparse(self.path).query).get("name", [""])[0]
+        if not _is_safe_poster_name(name):
+            self._text(400, "invalid name\n")
+            return
+
+        target = os.path.join(POSTER_DIR, os.path.basename(name))
+        if not os.path.isfile(target):
+            self._text(404, "poster not found\n")
+            return
+
+        if not name.lower().endswith(".py"):
+            # 一般圖片：本 v1 不做真的縮圖處理，只回應「已渲染」——這不是計分攻擊面。
+            _write_log({"ts": _now(), "app": "range-target", "path": "/poster/render",
+                        "source_ip": source_ip, "name": name, "outcome": "rendered_static"})
+            self._text(200, f"rendered {name}\n")
+            return
+
+        # 「進階自訂範本」：.py 副檔名的海報被當成 render pipeline 的腳本直接執行。
+        # 這裡完全沒有再驗證內容 —— 上傳時只查過 Content-Type，執行時只看副檔名。
+        # 兩層都只信任攻擊者能控制的欄位，這正是 Web Shell 這一步成立的原因。
+        try:
+            result = subprocess.run(
+                ["python3", target],
+                capture_output=True, timeout=5, check=False,
+                preexec_fn=_drop_privileges_to_posterrender(),
+            )
+        except Exception as exc:  # noqa: BLE001 — 範本執行失敗原文回給紅隊，是這一步的一部分
+            self._text(500, f"render error: {exc}")
+            return
+
+        _write_log({"ts": _now(), "app": "range-target", "path": "/poster/render",
+                    "source_ip": source_ip, "name": name, "outcome": "executed_template"})
+        output = result.stdout.decode(errors="replace") + result.stderr.decode(errors="replace")
+        self._text(200, output)
 
     def _text(self, code: int, msg: str) -> None:
         body = msg.encode()

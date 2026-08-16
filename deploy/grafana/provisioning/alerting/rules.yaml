@@ -198,6 +198,122 @@ groups:
           query: 'sum(increase(ssh_failed_logins_total[1m]))'
           threshold: "> 10 / 1m"
 
+      # CH2 Foothold（校園海報上傳，#153 Campaign Pack v1）：靶機自己（python3 app.py）
+      # 又 spawn 出一個 python3 執行海報上傳目錄裡的檔案 —— Web Shell 成立那一刻。
+      # Falco 只提供事實，這條 Grafana rule 決定是否構成告警（ADR ③）。
+      - uid: webshell-upload-target
+        title: WebShellUploadTarget
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 60
+              to: 0
+            datasourceUid: loki
+            model:
+              refId: A
+              datasource:
+                type: loki
+                uid: loki
+              expr: '{job="falco"} |= `PurpleScope webshell exec detected`'
+              queryType: range
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+        labels:
+          event_type: attack.detected
+          technique: T1505
+          team: red
+          severity: high
+          scenario_id: campus-poster-foothold
+          service: range-target
+        annotations:
+          query: '{job="falco"} |= `PurpleScope webshell exec detected`'
+          threshold: "> 0 / 1m"
+
+      # CH2 提權（T1548）：低權限 posterrender 帳號透過誤設的 sudo find 規則
+      # （GTFOBins 型態）拿到 root。見 deploy/falco/rules.d/purplescope.yaml 同名規則
+      # 的說明，以及 deploy/range-target/RUNBOOK-attack-chain.md CH2 段。
+      - uid: local-privesc-target
+        title: LocalPrivescTarget
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 60
+              to: 0
+            datasourceUid: loki
+            model:
+              refId: A
+              datasource:
+                type: loki
+                uid: loki
+              expr: '{job="falco"} |= `PurpleScope poster sudo find abuse`'
+              queryType: range
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+        labels:
+          event_type: attack.detected
+          technique: T1548
+          team: red
+          severity: high
+          scenario_id: campus-poster-foothold
+          service: range-target
+        annotations:
+          query: '{job="falco"} |= `PurpleScope poster sudo find abuse`'
+          threshold: "> 0 / 1m"
+
       # Falco：靶機被生出 shell 直譯器（帶 PURPLESCOPE_EXEC 標記）→ T1059。
       # Falco 只提供事實（syscall 進 Loki），是否構成告警由這條 Grafana rule 決定
       # （ADR ③：Grafana 是唯一 alert engine，Falco 不直送 Event Service）。

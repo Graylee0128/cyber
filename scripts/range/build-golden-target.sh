@@ -173,7 +173,7 @@ if [ "$ok" != 1 ]; then
   echo "❌ 沒等到烤完+關機。看 console：sudo cat $CONSOLE"
   exit 1
 fi
-grep -E "GOLDEN-(BAKE|FALCO|ALLOY|APP|RESPONSE|RULE)" "$CONSOLE" || true
+grep -E "GOLDEN-(BAKE|FALCO|ALLOY|APP|RESPONSE|RULE|CH2)" "$CONSOLE" || true
 
 # bake 期自證：三個 service active、兩條 rule 各命中至少一次。任一不成立就別產 golden ——
 # 產出壞 golden 只會把問題推遲到上線後更難查。
@@ -189,6 +189,16 @@ if grep -qE "GOLDEN-RULE-HITS: exec=[1-9][0-9]* secret=[1-9][0-9]* uncovered=[1-
   echo "   ✅ Falco 三條 rule（T1059 exec / T1005 敏感檔 / uncovered）在 VM 內實際命中"
 else
   echo "❌ Falco rule 未全部命中（看 GOLDEN-RULE-HITS）"; bake_fail=1
+fi
+# CH2 Foothold（校園海報上傳，#153）：不是只驗規則檔存在，是真的走一次
+# 上傳→執行→提權，兩件事都要成立——Falco 抓到 webshell exec，且 posterrender
+# 真的透過誤設的 sudo find 拿到 root（whoami=root）。任一沒成立，golden 上線後
+# CH2 這條 chain 就是壞的，寧可在這裡擋下重烤，不要留到演練現場才發現。
+if grep -qE "GOLDEN-CH2-STATE: webshell_hits=[1-9][0-9]* .*privesc_whoami=root " "$CONSOLE"; then
+  echo "   ✅ CH2 webshell exec 被 Falco 抓到，posterrender 透過 sudo find 誤設拿到 root"
+else
+  echo "❌ CH2 自證未通過（看 GOLDEN-CH2-STATE：webshell_hits 需 ≥1 且 privesc_whoami 需為 root）"
+  bake_fail=1
 fi
 # uncovered 這條的意義是「有遙測、但刻意沒有 Grafana 規則覆蓋」——決定性測試（ADR ③）
 # 的真環境素材。它在 bake 期就要證明 Falco 抓得到，否則上線後那條測試會分不出

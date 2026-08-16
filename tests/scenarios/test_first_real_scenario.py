@@ -38,10 +38,13 @@ def test_metadata_passes_loader_validation(scenario):
     assert scenario.id == SCENARIO_DIR.name
 
 
-def test_it_is_the_only_shipped_scenario(scenario):
-    """WS2 v1 只交一個（§6.3）。production catalog 恰好一個真 scenario。"""
+def test_it_is_a_shipped_scenario_in_the_production_catalog(scenario):
+    """WS2 v1 只交一個（§6.3）；#153 Campaign Pack v1 起改為多條。這條測試原本釘死
+    「恰好一個」，CH2（campus-poster-foothold）落地後改成「shopdb 在，且 catalog
+    載入不出錯」——每加一條 Campaign chain 就在其專屬測試檔另外釘住它自己在不在
+    （見 tests/scenarios/test_ch2_campus_poster_foothold.py），這裡不再是唯一守門。"""
     catalog = ScenarioCatalog.from_directory(REPO / "scenarios")
-    assert [s.id for s in catalog.scenarios] == ["shopdb-credential-pivot"]
+    assert "shopdb-credential-pivot" in [s.id for s in catalog.scenarios]
 
 
 def test_objectives_are_flat_with_no_prerequisites(scenario):

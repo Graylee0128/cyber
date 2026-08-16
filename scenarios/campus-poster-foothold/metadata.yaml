@@ -1,0 +1,80 @@
+# CH2 Foothold（校園海報上傳，#153 Campaign Pack v1）—— Campaign 第二章，5 條之一。
+# 跑在真 range 的 golden 靶機（range-target）上。攻擊鏈是單機縱深：
+#   海報上傳只查 Content-Type（攻擊者自報）→ render 只憑副檔名決定要不要當程式碼跑
+#   （Web Shell 成立）→ render 子行程被降到低權限 posterrender → 該帳號透過誤設的
+#   sudo find 規則（GTFOBins 型態）拿到 root（Local Privesc 成立）。
+#
+# 與 CH1（shopdb-credential-pivot）刻意拉開差異，不是同漏洞換皮：
+#   CH1 打 DB（唯讀 SELECT）、CH2 打檔案上傳信任鏈（寫檔＋執行）；
+#   CH1 reset_scope=exercise、CH2=environment（上傳的檔案會弄髒靶機）；
+#   CH1 只查 SQLi 這一段、CH2 全鏈（T1190→T1505→T1548）都有偵測覆蓋（見下方 §detection）。
+#
+# 平台限制（#153 CH2 實作時發現，非本檔漏改）：v1 只有一個全域 flag
+#（src/range_core/flags.py `SharedFileFlagSource`，環境級輪換、非逐 scenario）。
+# Campaign 會讓多個 scenario 同時開，若 CH2 也設 submission objective，玩家撈到 CH1
+# 的 flag 就能直接拿去交 CH2、完全不用碰 CH2 的漏洞——這是真的評分漏洞，不是可接受
+# 的權宜。因此 CH2 v1 只設 telemetry objective，不設 submission；逐 scenario 獨立
+# flag 是 #45 的既定 follow-up，那個做出來後才適合幫 CH2 加 submission objective。
+# 這個限制不只影響 CH2：CH3/CH4/FINAL 若也想要 submission objective，會撞到同一個
+# 問題，實作前请先確認 #45 是否已落地。
+id: campus-poster-foothold
+name: Campus Poster Foothold
+difficulty: intermediate
+duration: 30m
+
+objectives:
+  # 技術類：走遙測自動判定。render 真的執行了上傳的 .py 就得分，歸屬到個別 kali
+  # （WS1 §1.3，source_ip 可分辨）。telemetry_signal 指向 attack_chain 的第二個動作
+  # （render 執行那一步）——靠 action_id 關聯，不靠 technique＋時間窗鄰近性。
+  - id: detect-webshell-render
+    evaluation: telemetry
+    points: 150
+    telemetry_signal:
+      action_id: webshell-render-exec
+
+# 攻擊面宣告（§3.2）。poster-upload / poster-render 都是可計分面（真漏洞）；
+# 既有 fixture 端點（/exec /readsecret /uncovered /healthz）刻意不列，維持二分不變。
+targets:
+  - host: range-target
+    surfaces: [poster-upload, poster-render]
+
+# §2.1：這條 scenario 期望哪些遙測來源活著。比 CH1 多 falco——CH2 的偵測靠 Falco
+# 抓 syscall（python3 子行程從上傳目錄執行、sudo find 濫用），不是走 app-log metric。
+expected_sources: [falco, alloy, response-agent]
+
+# §2.2：全鏈都有偵測覆蓋，刻意當 FINAL 的「完全 detection gap」對照組——CH2 要證明
+# 的是「攻擊被完整看見」，不是「看不見」。WebShellUploadTarget 對應 T1505（render 執行
+# 上傳內容），LocalPrivescTarget 對應 T1548（sudo find GTFOBins 濫用）。兩條都是
+# 真 Grafana rule（deploy/grafana/provisioning/alerting/rules.yaml）。
+detection: [WebShellUploadTarget, LocalPrivescTarget]
+
+# 本章無刻意缺口——與 CH1（T1078 gap）、FINAL（整條 gap）刻意形成對照。
+intentional_gaps: []
+
+attack_chain:
+  - id: upload-bypass-content-type
+    technique: T1190
+    description: >-
+      Upload a Python "poster" while claiming an allow-listed image
+      Content-Type; the server checks only that header and never inspects
+      the actual file extension or byte content, so a .py payload is stored
+      unmodified.
+  - id: webshell-render-exec
+    technique: T1505
+    description: >-
+      Request /poster/render on the uploaded .py file. The render pipeline
+      treats any .py-named poster as an executable "custom template" and
+      runs it via `python3 <file>` — the uploaded content becomes code
+      execution on the target host.
+  - id: sudo-find-privesc
+    technique: T1548
+    description: >-
+      The render subprocess runs as the low-privilege posterrender account
+      (privilege drop in app.py), which holds an overly broad sudoers rule
+      (`find <posters dir> *`, NOPASSWD). Abusing it via the well-known
+      GTFOBins find pattern (`sudo find <dir> -exec /bin/sh \; -quit`)
+      yields a root shell.
+
+# §5.2：上傳的檔案會弄髒靶機檔案系統（POSTER_DIR 累積內容），非唯讀 —— 需環境級
+# 重置（重跑 range-up，golden 重新起一顆乾淨 VM）才能清乾淨，不是 exercise 級夠用。
+reset_scope: environment
