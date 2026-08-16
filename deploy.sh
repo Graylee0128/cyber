@@ -149,6 +149,9 @@ print_completion_summary() {  # print_completion_summary <mode>；mode = "Full R
     echo
     echo "  這台機器偵測到的候選位址（SSH 部署到遠端主機時用這個，換成 localhost 打不到）："
     echo "  http://$lan_ip:8090/ ——猜的，不保證外部網段連得到，連不到請改 tunnel／VPN"
+    echo "  ⚠️  走這個網址時 Instructor Login／Purple／Event Control 需要 session cookie，"
+    echo "     compose 預設 ADMISSION_COOKIE_SECURE=0（配合這個 http 位址關掉 Secure）——"
+    echo "     這是明文 cookie，只適合 demo／內網。要對外開放前先補 TLS，見 ui/README.md。"
   fi
   echo
   echo "Observability:"

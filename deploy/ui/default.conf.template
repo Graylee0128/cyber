@@ -72,7 +72,17 @@ server {
         allow ${UI_PRIVILEGED_CIDR};
         deny all;
         auth_request /_auth_instructor;
+        error_page 403 = @not_authorized;
         try_files $uri $uri/ =404;
+    }
+
+    # 裸的 nginx 403 頁不會告訴使用者「兩層防線」裡是哪一層擋的（CIDR 還是
+    # 沒登入），也不會提到 /instructor-login/ 存在。這裡換成一頁説明，狀態碼
+    # 仍是 403（不能用 redirect：CIDR 擋下的人導去登入頁一樣會失敗，那樣的
+    # 導頁反而是誤導）。
+    location @not_authorized {
+        default_type text/html;
+        return 403 '<!doctype html><meta charset="utf-8"><title>403 — 沒有教官權限</title><body style="font-family:system-ui,sans-serif;max-width:32em;margin:4em auto;line-height:1.6"><h1>沒有教官權限</h1><p>可能原因：這個瀏覽器還沒登入教官 session，或這台機器的網段不在允許清單內。</p><p><a href="/instructor-login/">前往教官登入</a></p></body>';
     }
 
     location = /_auth_instructor {

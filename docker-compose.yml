@@ -62,6 +62,11 @@ services:
       ADMISSION_REQUEST_TIMEOUT_SECONDS: "300"
       ADMISSION_RANGE_CORE_URL: http://admission-range-core:8000
       ADMISSION_RANGE_CORE_TOKEN: e2e-admission-token
+      # 本機 demo 沒有 TLS，`http://<區網 IP>:8090` 不是 secure context——`Secure`
+      # cookie 在那裡會被瀏覽器直接丟掉，教官／玩家登入回 204 但下一個請求仍是
+      # 403，沒有任何錯誤訊號（2026-08-16 .89 實測撞到）。這裡明確關閉，讓降級
+      # 是看得見的選擇。**真的對外開放時必須刪掉這一行、補 TLS**，見 ui/README.md。
+      ADMISSION_COOKIE_SECURE: "0"
     ports:
       - "8002:8000"
     networks:
