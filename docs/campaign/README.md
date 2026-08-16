@@ -68,18 +68,19 @@ FINAL The Leak      全校學生的成績與個資，被一頁一頁搬走
 |---|---|---|---|---|---|---|
 | **CH1 The Breach**（現有） | 福利社商城 | `product-sqli` / `mysql-3306` | SQLi → credential reuse / DB pivot → vault flag | T1190 → T1078 | DB / credential / pivot | 有覆蓋（`SQLInjectionBurstTarget`）+ 刻意 gap（T1078 無規則） |
 | **CH2 Foothold**（已實作） | 海報上傳 | `poster-upload` / `poster-render` | Upload bypass → Web Shell → Linux Privesc | T1190 → T1505 → T1548 | Falco：webshell exec + sudo find 濫用 | 全覆蓋（`WebShellUploadTarget`＋`LocalPrivescTarget`），無 intentional gap |
-| **CH3 The Stolen Key** | 網址預覽/縮圖 | `outbound-request` | SSRF → Metadata Credential Theft → API Pivot | T1190 → T1552 → **T1550**★ | egress 異常 + metadata endpoint 存取 | 待實作票建 rule |
+| **CH3 The Stolen Key**（已實作） | 網址預覽 | `link-preview` / `internal-api` | SSRF → Metadata Credential Theft → API Pivot | T1190 → T1552 → T1550 | app-log：`ssrf_suspected` | 部分覆蓋（`EgressAnomalyTarget`＝T1552；T1550 為 intentional gap） |
 | **CH4 Ghost in the System** | 系統報修/診斷 | `system-command` | Command Injection → Reverse Shell → Cron Persistence | T1190 → T1059 → T1053 | process / command-line telemetry | 待實作票建 rule |
 | **FINAL The Leak** | 成績/個資 API | `authenticated-api` | IDOR → Sensitive Data Access → Exfiltration | **T1087**★ → **T1213**★ → **T1567**★ | 行為 / 存取模式異常 | **刻意 detection gap 教學** |
 
-★ = `config/techniques.yaml` 目前沒有、實作子票須新增的父技術：
+★ = `config/techniques.yaml` 目前沒有、待 FINAL 實作票新增的父技術（`T1550` 已隨
+CH3 落地補上）：
 
-| 新增父技術 | 名稱 | tactic | 用於 |
-|---|---|---|---|
-| `T1550` | Use Alternate Authentication Material | lateral-movement | CH3 API pivot |
-| `T1087` | Account Discovery | discovery | FINAL IDOR 列舉 |
-| `T1213` | Data from Information Repositories | collection | FINAL 敏感資料存取 |
-| `T1567` | Exfiltration Over Web Service | exfiltration | FINAL 外洩 |
+| 新增父技術 | 名稱 | tactic | 用於 | 狀態 |
+|---|---|---|---|---|
+| `T1550` | Use Alternate Authentication Material | lateral-movement | CH3 API pivot | ✅ 已新增（CH3） |
+| `T1087` | Account Discovery | discovery | FINAL IDOR 列舉 | 待新增 |
+| `T1213` | Data from Information Repositories | collection | FINAL 敏感資料存取 | 待新增 |
+| `T1567` | Exfiltration Over Web Service | exfiltration | FINAL 外洩 | 待新增 |
 
 > **層級規則**：`techniques.yaml` 明令父子技術不可並存（否則 coverage 重複計數，載入時擋下）。票裡原本寫的 `.003 / .001 / .005 / .006` 子技術**一律折成父技術**（T1505 / T1548 / T1552 / T1213）。
 

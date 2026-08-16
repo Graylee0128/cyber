@@ -60,8 +60,26 @@
 
 > 與前兩章差異：CH1 打 DB、CH2 打檔案系統，CH3 打的是**網路 egress + 雲端身分**，telemetry 焦點在 outbound / metadata，與前兩章不重疊。新增 T1550 是本章的技術前置。
 
-## 實作票 open questions（Phase 2）
+## 實作定案（2026-08-16，CH3 落地時回填）
 
-- metadata 服務在單機上怎麼模擬最真實（固定 link-local 位址 vs 本機服務），且不誤導成真雲。
-- SSRF 過濾繞過的具體漏洞形態（DNS rebinding 過度、blocklist 不全、redirect 跟隨）。
-- T1550 pivot 是否寫狀態 → 決定 `reset_scope`。
+- **metadata 服務模擬**：**本機服務，loopback-only（127.0.0.1 專屬 port）**，不是
+  link-local 位址。理由：靶機是單一容器/VM，沒有額外網卡可掛 169.254.169.254；
+  bind 在 127.0.0.1 的自訂 port 一樣能表達「只有靶機自己碰得到，外部網路連不到」
+  這個核心語意，且**不需要任何 zones.env/防火牆改動**——loopback 流量本來就不會
+  離開主機。回傳形狀模仿 AWS IMDS（`/latest/meta-data/iam/security-credentials/`），
+  值全是清楚標記的演練用假值，不誤導成真雲。
+- **SSRF 過濾繞過**：**完全沒有過濾**（不是繞過某個弱檢查，是漏洞本身＝毫無
+  目的地白名單/黑名單）。`/preview` 對任意使用者提供的 URL 直接 `urlopen`。這比
+  「弱檢查可繞過」更貼近真實世界最常見的 SSRF 成因（功能一開始就沒做防護），
+  也讓漏洞面單純、好測試。
+- **T1550 pivot 不寫狀態** → `reset_scope=exercise`（與 CH1 同款，唯讀）。
+  `/internal/reports` 只讀固定字串回應，不落地任何檔案。
+- **⚠️ 沿用 CH2 的平台限制**：CH3 同樣不設 submission objective，只有一個
+  telemetry objective（SSRF 讀到 metadata 那一步）。
+- **偵測設計：partial coverage**，介於 CH2（全覆蓋）與 FINAL（全 gap）之間——
+  `detection: [EgressAnomalyTarget]`（T1552，讀到憑證）＋
+  `intentional_gaps: [T1550]`（憑證被拿去 pivot，遙測在但無告警）。走 app-log
+  metric（`ssrf_suspected` 布林），不用 Falco：SSRF 是應用層信任邊界問題，
+  syscall 層看不出「這次 connect() 是不是被攻擊者借用」。
+- **新增父技術**：`T1550`（Use Alternate Authentication Material，tactic
+  lateral-movement）已補進 `config/techniques.yaml`。
