@@ -154,6 +154,10 @@ def create_app(
                 raise RuntimeError("ADMISSION_RANGE_CORE_URL and ADMISSION_RANGE_CORE_TOKEN are required")
             def prepare(self, scenario_id):
                 raise RuntimeError("ADMISSION_RANGE_CORE_URL and ADMISSION_RANGE_CORE_TOKEN are required")
+            def current_preparation(self):
+                raise RuntimeError("ADMISSION_RANGE_CORE_URL and ADMISSION_RANGE_CORE_TOKEN are required")
+            def cancel_preparation(self, exercise_id):
+                raise RuntimeError("ADMISSION_RANGE_CORE_URL and ADMISSION_RANGE_CORE_TOKEN are required")
         resolved_publisher = MissingRangePublisher()
     application = FastAPI(title="Admission Service")
 
@@ -427,6 +431,26 @@ def create_app(
             except (ValueError, AttributeError):
                 pass
             raise HTTPException(status_code=exc.code, detail=detail) from exc
+
+    @application.get("/admission/prepared")
+    def get_current_preparation(_actor: str = Depends(instructor),
+                                svc: AdmissionService = Depends(service)) -> dict:
+        """#163：教官忘記複製 `prepare` 回傳的 exercise_id 時，能查回目前是否
+        有一筆 `prepared`，不用直接連資料庫。同一把 admission 服務身分反代。"""
+        prepared = svc.current_preparation()
+        if prepared is None:
+            raise HTTPException(status_code=404, detail="no exercise is currently prepared")
+        return prepared
+
+    @application.delete("/admission/prepared/{exercise_id}", status_code=204)
+    def cancel_preparation(exercise_id: str, _actor: str = Depends(instructor),
+                           svc: AdmissionService = Depends(service)) -> Response:
+        """#163：讓教官能主動放棄一筆 `prepared`，不用直接連資料庫刪。冪等——
+        再取消一次已經被消費（`started`）或不存在的 exercise_id 一律 404，
+        不假裝成功。"""
+        if not svc.cancel_preparation(exercise_id):
+            raise HTTPException(status_code=404, detail="exercise is not prepared")
+        return Response(status_code=204)
 
     @application.post("/admission/maintenance/expire", status_code=200)
     def expire(_actor: str = Depends(instructor), svc: AdmissionService = Depends(service)) -> dict:

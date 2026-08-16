@@ -430,6 +430,45 @@ class ExerciseStore:
             prepared_at=row[3], started_at=row[4]
         ) if row is not None else None
 
+    def current_preparation(self) -> PrepareExercise | None:
+        """The single row still in ``state='prepared'``, if any (#163).
+
+        Exists because ``exercise_preparations_one_prepared_idx`` already
+        guarantees there is at most one -- callers who lost the `exercise_id`
+        (UI reload, closed tab) had no way back to it before this, other than
+        querying the database directly.
+        """
+        row = self._conn.execute(
+            """
+            SELECT exercise_id, scenario_id, state, prepared_at, started_at
+            FROM exercise_preparations WHERE state = 'prepared'
+            """
+        ).fetchone()
+        return PrepareExercise(
+            exercise_id=row[0], scenario_id=row[1], state=row[2],
+            prepared_at=row[3], started_at=row[4]
+        ) if row is not None else None
+
+    def cancel_preparation(self, exercise_id: str) -> bool:
+        """Abandon a still-`prepared` exercise, freeing the lock for a new one (#163).
+
+        Only deletes rows still in ``prepared`` -- once `start_prepared` has
+        consumed one (state='started'), it's history, not a lock to release,
+        and this call correctly reports "nothing to cancel" (returns False)
+        rather than silently deleting an audit trail.
+        """
+        with self._conn.transaction():
+            self._conn.execute("SELECT pg_advisory_xact_lock(%s)", (LIFECYCLE_LOCK_KEY,))
+            row = self._conn.execute(
+                """
+                DELETE FROM exercise_preparations
+                WHERE exercise_id = %s AND state = 'prepared'
+                RETURNING exercise_id
+                """,
+                (exercise_id,),
+            ).fetchone()
+        return row is not None
+
     def register_player(
         self,
         exercise_id: str,

@@ -211,6 +211,81 @@ def test_admission_lifecycle_scope_fails_closed(exercise_store, pg_connection) -
         "/api/exercises/prepare", json={"scenario_id": "admission-01"}
     ).status_code == 403
     assert TestClient(app, headers=ADMISSION_AUTH).get("/api/scenarios").status_code == 403
+    # #163: querying/cancelling `prepared` is the same admission-only scope
+    # as `prepare` itself -- an instructor token must not be able to peek at
+    # or clear another exercise's prepared reservation.
+    assert TestClient(app, headers={"Authorization": "Bearer instructor-secret"}).get(
+        "/api/exercises/prepared"
+    ).status_code == 403
+    assert TestClient(app, headers={"Authorization": "Bearer instructor-secret"}).delete(
+        "/api/exercises/prepared/ex-does-not-matter"
+    ).status_code == 403
+
+
+def test_current_preparation_recovers_a_lost_exercise_id(exercise_store, pg_connection) -> None:
+    """#163: the caller lost the `exercise_id` `prepare` returned (UI reload,
+    closed tab) -- there must be a way back to it other than the database."""
+    admission = client(exercise_store, pg_connection)
+
+    assert admission.get("/api/exercises/prepared").status_code == 404
+
+    prepared = prepare(admission)
+    recovered = admission.get("/api/exercises/prepared")
+
+    assert recovered.status_code == 200
+    assert recovered.json()["exercise_id"] == prepared["exercise_id"]
+    assert recovered.json()["scenario_id"] == "admission-01"
+
+
+def test_cancel_preparation_frees_the_lock_for_a_new_prepare(
+    exercise_store, pg_connection
+) -> None:
+    admission = client(exercise_store, pg_connection)
+    prepared = prepare(admission)
+
+    # Before cancelling: the unique-prepared lock still blocks a new prepare.
+    assert admission.post(
+        "/api/exercises/prepare", json={"scenario_id": "admission-01"}
+    ).status_code == 409
+
+    cancelled = admission.delete(f"/api/exercises/prepared/{prepared['exercise_id']}")
+    assert cancelled.status_code == 204
+
+    # After cancelling: the lock is free, and the cancelled id is gone.
+    assert admission.get("/api/exercises/prepared").status_code == 404
+    assert admission.post(
+        "/api/exercises/prepare", json={"scenario_id": "admission-01"}
+    ).status_code == 201
+
+
+def test_cancel_preparation_is_idempotent_and_404s_once_consumed_by_start(
+    exercise_store, pg_connection
+) -> None:
+    admission = client(exercise_store, pg_connection)
+    prepared = prepare(admission)
+
+    # Cancelling twice: the second call finds nothing left to cancel.
+    assert admission.delete(
+        f"/api/exercises/prepared/{prepared['exercise_id']}"
+    ).status_code == 204
+    assert admission.delete(
+        f"/api/exercises/prepared/{prepared['exercise_id']}"
+    ).status_code == 404
+
+    # Once `start_prepared` has consumed a preparation (state='started'),
+    # it's history, not a lock to release -- cancel must not delete it.
+    started_prep = prepare(admission)
+    assert admission.put(
+        f"/api/exercises/{started_prep['exercise_id']}/players/red-ready",
+        json={"team": "red", "source_ip": "10.167.30.11"},
+    ).status_code == 200
+    assert client(exercise_store, pg_connection, actor="instructor-secret").post(
+        "/api/exercises/start", json={"exercise_id": started_prep["exercise_id"]}
+    ).status_code == 201
+
+    assert admission.delete(
+        f"/api/exercises/prepared/{started_prep['exercise_id']}"
+    ).status_code == 404
 
 
 def test_prepare_cannot_replace_an_active_exercise(exercise_store, pg_connection) -> None:

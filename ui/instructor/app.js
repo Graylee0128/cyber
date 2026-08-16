@@ -38,6 +38,7 @@ async function refresh() {
       $("#subtitle").textContent = "目前沒有進行中的演練";
       clear($("#scores"));
       clear($("#chain"));
+      await loadPreparationStatus();
       return;
     }
     $("#subtitle").textContent =
@@ -162,8 +163,46 @@ $("#btn-prepare").addEventListener("click", async () => {
     refresh();
   } catch (error) {
     showBanner(banner, humanize(error));
+    // 409 = 已經有一筆 prepared（多半是上次忘記複製 exercise_id）。立刻重抓一次
+    // lifecycle 區塊，把既有那筆連同「取消預備」按鈕撈出來，教官不用自己查資料庫（#163）。
+    if (error.status === 409) refresh();
   }
 });
+
+/* ---------- 查詢／取消已 prepared 的場次（#163）----------
+ * `prepare` 的 Banner 只顯示一次，教官忘記複製 exercise_id 或關掉分頁後就
+ * 找不回來，之前唯一的救援手段是直接連資料庫。這裡在「沒有進行中的演練」
+ * 時順便查一次目前是否卡著一筆 prepared，讓教官能看到它、也能主動放棄它。 */
+async function loadPreparationStatus() {
+  const host = $("#lifecycle");
+  try {
+    const prepared = await api.admission("/prepared");
+    host.append(el("div", { class: "note", text:
+      `已有預備中的演練：${prepared.exercise_id}（scenario ${prepared.scenario_id}）——`
+      + "在這筆被取消或開始之前，「預備」按鈕會一直回 409。" }));
+    host.append(el("button", {
+      class: "danger",
+      text: "取消預備",
+      onclick: () => cancelPreparation(prepared.exercise_id),
+    }));
+  } catch (error) {
+    // 404 = 目前沒有 prepared，這是正常狀態，不用顯示任何東西。
+    if (error.status !== 404) {
+      host.append(el("div", { class: "note", text: `查詢預備狀態失敗：${humanize(error)}` }));
+    }
+  }
+}
+
+async function cancelPreparation(exerciseId) {
+  if (!window.confirm(`取消預備 ${exerciseId}？取消後才能重新按「預備」。`)) return;
+  try {
+    await api.admission(`/prepared/${encodeURIComponent(exerciseId)}`, { method: "DELETE" });
+    showBanner(banner, "已取消預備。", "info");
+    refresh();
+  } catch (error) {
+    showBanner(banner, humanize(error));
+  }
+}
 
 $("#btn-reset").addEventListener("click", async () => {
   if (!window.confirm("結束並重置目前這場演練？演練狀態會被清掉，稽核軌跡保留。")) return;
