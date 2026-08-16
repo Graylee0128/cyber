@@ -47,20 +47,26 @@
 
 ## 2. Hardware Requirements
 
-**待 [#137](https://github.com/Graylee0128/cyber/issues/137) 完成後填入。**
+由 [#137](https://github.com/Graylee0128/cyber/issues/137) 的三個硬體 profile × S0/S1/S2
+實測拍板（完整方法論、逐 profile 數據見 [Hardware Baseline](../deployment/hardware-baseline.md)）：
 
 | | Minimum | Recommended |
 |---|---|---|
-| CPU | `TBD → #137` | `TBD → #137` |
-| RAM | `TBD → #137` | `TBD → #137` |
-| Disk | `TBD → #137` | `TBD → #137` |
+| CPU | 4 vCPU | 8 vCPU |
+| RAM | 8 GiB | 16 GiB |
+| Disk | ≥100 GB SSD/NVMe | ≥100 GB SSD/NVMe |
 
-**在 #137 完成前，不要引用任何未經驗證的規格數字。**
+Minimum(4C/8G) 在典型演練負載（30 Red + 20 Blue，70 個動態 seat 容器）下 100% 建置成功，
+RAM headroom ≥20%（實測 22.4%），但**唯一在三個 profile 中出現過短暫 CPU throttling**
+（139ms，一個 cgroup period）——已驗證可用但餘裕較薄，資源緊繃的場地優先選 Recommended。
 
-目前唯一可引用的實測證據來自 [#78](https://github.com/Graylee0128/cyber/issues/78) 的
-capacity spike：6 核 / 10 GiB / 97 GB 的 VirtualBox VM 上，完整 stack ＋ 靶機 VM 共存時
-70 個容器約用 3.7 GiB RAM，推到 230 個容器才碰到 RAM 瓶頸。**這是承載上限的證據，
-不等於正式部署的最低規格**——#78 跑的 seat 容器還不是完整的 production seat workload。
+已驗證範圍：1 host + 1 target VM + 完整 stack + 上述典型負載。**未驗證**：multi-host、
+超過 30+20 人的演練規模、volumetric DDoS / heavy PCAP / malware detonation（見
+[Hardware Baseline §7](../deployment/hardware-baseline.md#7-validated-envelope)）。
+
+補充參考（承載上限，非 production minimum）：[#78](https://github.com/Graylee0128/cyber/issues/78)
+的 capacity spike——6 核 / 10 GiB / 97 GB 的 VirtualBox VM 上，完整 stack ＋ 靶機 VM 共存時
+70 個容器約用 3.7 GiB RAM，推到 230 個容器才碰到 RAM 瓶頸。
 
 硬性 prerequisite（與規格無關，缺了就不能跑）：
 

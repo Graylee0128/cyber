@@ -338,15 +338,19 @@ compose profile：**預設**（遙測棧）、`falco`（依 kernel 自動判斷�
 
 ## 12. Hardware / Capacity
 
-**Minimum / Recommended 規格待 [#137](https://github.com/Graylee0128/cyber/issues/137) 產出。**
-在那之前不要在任何文件寫死規格數字。
+[#137](https://github.com/Graylee0128/cyber/issues/137) 已拍板：**Minimum = 4 vCPU / 8 GiB**，
+**Recommended = 8 vCPU / 16 GiB**（Disk ≥100 GB SSD/NVMe）。完整方法論（單層 cgroup v2 圈禁，
+避免巢狀虛擬化損耗污染量測）、三個 profile 的 S0/S1/S2 逐項數據見
+[Hardware Baseline](../deployment/hardware-baseline.md)。
 
-已有的證據是 [#78](https://github.com/Graylee0128/cyber/issues/78) 的 capacity spike：
-6C / 10 GiB / 97 GB VirtualBox VM 上，完整 stack ＋ 靶機 VM 共存時 70 容器約 3.7 GiB RAM，
-推到 230 容器才碰 RAM 瓶頸（第一個瓶頸是 RAM，不是 CPU）。
+Minimum(4C/8G) 在典型演練負載（30 Red + 20 Blue，70 個動態 seat 容器）下 100% 建置成功，
+RAM headroom 22.4%，但這是三個 profile 中唯一出現過 CPU throttling 的一次（139ms，短暫）——
+已驗證可用，資源緊繃場地建議選 Recommended。
 
-**這是承載證據，不等於 production minimum**：#78 用 VirtualBox 巢狀虛擬化，且 seat 容器
-起的是 `sleep infinity`，約 0.5 秒只是網路掛載的下限，不是完整 seat provisioner 的真實開銷。
+補充參考（承載上限，非 production minimum）：[#78](https://github.com/Graylee0128/cyber/issues/78)
+的 capacity spike——6C / 10 GiB / 97 GB VirtualBox VM 上，完整 stack ＋ 靶機 VM 共存時 70 容器
+約 3.7 GiB RAM，推到 230 容器才碰 RAM 瓶頸（第一個瓶頸是 RAM，不是 CPU）。#78 用 VirtualBox
+巢狀虛擬化、seat 容器是 `sleep infinity`，跟 #137 的真 seat provisioner 量測是兩層不同證據。
 
 ## 13. Security Boundaries
 
