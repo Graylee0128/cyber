@@ -304,3 +304,36 @@ def test_prepare_cannot_replace_an_active_exercise(exercise_store, pg_connection
     )
 
     assert replacement.status_code == 409
+
+
+def test_instructor_console_start_prepared_button_needs_only_the_exercise_id(
+    exercise_store, pg_connection
+) -> None:
+    """#160: this is the exact chain Instructor Console's "開始已預備的演練"
+    button drives (`ui/instructor/app.js::startPrepared`) -- prepare, register
+    a red player through Admission the same way a real remote-link claim does,
+    then start with *only* `exercise_id` in the body (no `players`, no typed
+    IP). Before #160 this path had no UI caller; it's exercised here at the
+    HTTP contract level since there's no JS test harness for the static UI."""
+    admission = client(exercise_store, pg_connection)
+    prepared = prepare(admission)
+    assert admission.put(
+        f"/api/exercises/{prepared['exercise_id']}/players/red-ready",
+        json={"team": "red", "source_ip": "10.167.30.11"},
+    ).status_code == 200
+
+    started = client(exercise_store, pg_connection, actor="instructor-secret").post(
+        "/api/exercises/start", json={"exercise_id": prepared["exercise_id"]}
+    )
+
+    assert started.status_code == 201
+    assert started.json()["exercise_id"] == prepared["exercise_id"]
+    assert started.json()["state"] == "running"
+    direct = TestClient(
+        admission.app,
+        client=("10.167.30.11", 12345),
+        headers={"Authorization": "Bearer red-secret"},
+    )
+    assert direct.post(
+        "/api/submissions", json={"objective_id": "capture_flag", "flag": FLAG}
+    ).status_code == 200
