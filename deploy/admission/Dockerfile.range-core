@@ -4,7 +4,17 @@ COPY pyproject.toml /app/pyproject.toml
 COPY src /app/src
 COPY config /app/config
 COPY deploy/grafana/provisioning/alerting/rules.yaml /app/deploy/grafana/provisioning/alerting/rules.yaml
-COPY deploy/admission/scenarios /app/scenarios
+# 這個映像檔同時餵給 admission-range-core（遊戲狀態）與 evaluation-api（Purple
+# Console／Battleboard），兩者的 scenario catalog 都吃 /app/scenarios（見
+# range_core/api.py 的 DEFAULT_SCENARIO_DIRECTORY，寫死、無 env 可覆寫）。
+# 這裡曾經只 COPY deploy/admission/scenarios（只有 admission-e2e 一個）——campus-*
+# 系列場景（#153 Campaign Pack v1）落地後，教官控台的下拉選單依然只選得到
+# admission-e2e，即使 golden 靶機 VM 與 config/scenario-sources.yaml 都已經接好線
+# （pre-UAT 2026-08-16 撞到）。先 COPY 完整目錄拿到真場景，再疊上 admission-e2e——
+# 那顆是 e2e 測試專用、只存在於 deploy/admission/scenarios，不在頂層 scenarios/，
+# 疊法保留它既有的可選性，不影響任何依賴 admission-e2e 的既有測試／流程。
+COPY scenarios /app/scenarios
+COPY deploy/admission/scenarios/admission-e2e /app/scenarios/admission-e2e
 RUN pip install --no-cache-dir --timeout 120 --retries 10 -e . uvicorn
 EXPOSE 8000
 CMD ["uvicorn", "range_core.api:app", "--host", "0.0.0.0", "--port", "8000"]
