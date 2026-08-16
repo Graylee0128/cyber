@@ -29,6 +29,7 @@ const state = {
   hints: new Map(),     // objective_id -> [{hint_index, penalty_percent}]
   revealed: new Map(),  // `${objective_id}:${index}` -> text
   pendingHint: null,
+  briefing: null,        // { scenario_id, content } | null
 };
 
 /* ---------- 載入 ---------- */
@@ -71,10 +72,36 @@ function render() {
     `難度 ${scenario.difficulty}　·　時長 ${scenario.duration}　·　`
     + `目標主機 ${scenario.targets.map((t) => t.host).join("、")}`;
 
+  renderBriefing(scenario.id);
   renderObjectives();
   renderScore();
   renderFlagOptions();
   renderTerminal();
+}
+
+/* ---------- Briefing（#153，關 ui/README.md 已知缺口 #5）---------- */
+
+function renderBriefing(scenarioId) {
+  const target = $("#mission-briefing");
+  if (state.briefing?.scenario_id === scenarioId) {
+    target.textContent = state.briefing.content;
+    return;
+  }
+  target.textContent = "";  // 換場景時先清空，避免短暫顯示上一場的簡報
+  loadBriefing(scenarioId);
+}
+
+async function loadBriefing(scenarioId) {
+  try {
+    const briefing = await api.core(`/api/scenarios/${encodeURIComponent(scenarioId)}/briefing`);
+    // 拿到回應時使用者可能已經換場景（poll 交錯），只在還是同一場才落地渲染。
+    if (state.scenario?.id === scenarioId) {
+      state.briefing = briefing;
+      $("#mission-briefing").textContent = briefing.content;
+    }
+  } catch (error) {
+    console.error("briefing unavailable", scenarioId, error);
+  }
 }
 
 /* ---------- Objective ---------- */
