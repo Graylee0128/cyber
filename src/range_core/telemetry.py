@@ -9,6 +9,12 @@ package deliberately does not import from purple"). A duplicated ~10-line
 SELECT is the cheaper side of that trade — verified against `purple`
 imports repo-wide by `tests/range_core/test_boundary.py`.
 
+`sync_telemetry_objectives` below also *writes* a `campaign.objective_complete`
+Core Event on a genuinely new completion (#153) — via `campaign_events.py`,
+the one deliberate exception to "range_core only reads core_events" (see
+that module's docstring for why the write is safe). This module's own read
+path is unaffected: `CoreEventFeed` still only ever selects.
+
 Deployment reality (declared, not worked around): as of #33, no Grafana
 rule in `deploy/grafana/provisioning/alerting/rules.yaml` carries an
 `action_id` label, so every Core Event today has `action_id: null` and
@@ -22,10 +28,12 @@ silent.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 import psycopg
 
+from range_core.campaign_events import append_campaign_event, build_objective_complete_event
 from range_core.objectives import ObjectiveStore
 from range_core.scenarios import Scenario
 
@@ -147,7 +155,20 @@ def sync_telemetry_objectives(
     objectives_by_id = {objective.id: objective for objective in scenario.objectives}
     store = ObjectiveStore(conn)
     for player_id, objective_id, event_id in result.completions:
-        store.complete_by_telemetry(
+        newly_completed = store.complete_by_telemetry(
             exercise_id, player_id, objective_id, event_id, objective=objectives_by_id[objective_id]
         )
+        # #153: only cue on a genuinely new completion -- `complete_by_telemetry`
+        # is idempotent (ON CONFLICT DO NOTHING), and a re-scan finding the
+        # same already-completed objective must not replay the cue every
+        # time GET /api/score or POST /api/objectives/sync happens to run.
+        if newly_completed:
+            append_campaign_event(
+                conn,
+                build_objective_complete_event(
+                    exercise_id, scenario.id,
+                    objective_id=objective_id, evaluation="telemetry",
+                    now=datetime.now(timezone.utc),
+                ),
+            )
     return result
