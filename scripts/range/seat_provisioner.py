@@ -177,7 +177,13 @@ def _attach_container_to_vlan(
     subprocess.run(["mkdir", "-p", "/var/run/netns"], check=True)
     subprocess.run(["ln", "-sf", f"/proc/{pid}/ns/net", netns_link], check=True)
 
+    # `cs0` 是寫死的字面值（跨所有 seat 共用同一個 peer 名），不像 host_if 是
+    # 依 seat_id 算出來的——實測抓到：只要有一次失敗發生在這個 veth pair 建好、
+    # peer 端搬進 netns（下面的 `ip link set cs0 netns`）之前，"cs0" 就會孤兒
+    # 留在 host 的預設 netns，擋住**之後所有** seat（不分紅藍）的建置，因為
+    # 大家都在搶同一個名字。跟 host_if 一樣先無條件清一次再建，冪等。
     subprocess.run(["ip", "link", "del", host_if], capture_output=True, check=False)
+    subprocess.run(["ip", "link", "del", "cs0"], capture_output=True, check=False)
     subprocess.run(["ip", "link", "add", host_if, "type", "veth", "peer", "name", "cs0"], check=True)
     subprocess.run(["ovs-vsctl", "--if-exists", "del-port", bridge, host_if], check=True)
     subprocess.run(["ovs-vsctl", "add-port", bridge, host_if, f"tag={vlan}"], check=True)
@@ -222,6 +228,31 @@ def _next_free_ip(prefix: str, first: int, existing_ips: set[str], *, count: int
     raise RuntimeError(f"no free address left from {prefix}.{first} onward")
 
 
+_KNOWN_IMAGE_DOCKERFILES = {
+    "purplescope/red-attacker:latest": "deploy/red-attacker",
+    "purplescope/blue-seat:latest": "deploy/blue-seat",
+}
+
+
+def _ensure_image_built(image: str) -> None:
+    """實測抓到的真缺口：`attach-red.sh` 有自建 `purplescope/red-attacker`
+    的 fallback，但這支（provisioner 建座位容器的唯一路徑）本身沒有——藍隊
+    的 `purplescope/blue-seat:latest` 從來沒有任何腳本會去 build，
+    `docker run` 直接炸 exit 125（image 不存在，也不是可 pull 的公開
+    image）。只對已知的兩個內建 image 自動補 build，呼叫端自訂 image 就
+    不猜測，交給呼叫端自己準備好（同 attach-red.sh 的界線）。
+    """
+    dockerfile_dir = _KNOWN_IMAGE_DOCKERFILES.get(image)
+    if dockerfile_dir is None:
+        return
+    if subprocess.run(["docker", "image", "inspect", image],
+                       capture_output=True, check=False).returncode == 0:
+        return
+    repo_root = Path(__file__).resolve().parents[2]
+    log.info("image %s 不存在，自動 build（%s）", image, dockerfile_dir)
+    subprocess.run(["docker", "build", "-t", image, str(repo_root / dockerfile_dir)], check=True)
+
+
 def build_red_seat_container(
     seat_id: str, *, image: str, zones: dict[str, str], existing_ips: set[str],
 ) -> dict[str, Any]:
@@ -232,6 +263,7 @@ def build_red_seat_container(
     差別是**動態找下一個空位址**，不是像 attach-red.sh 那樣從 COUNT 固定重建
     整批——這正是 #62 的「pull 模式」與原本 G2 一次性腳本的不同之處。
     """
+    _ensure_image_built(image)
     prefix, _, first_str = zones["RED_IP_FIRST"].rpartition(".")
     (ip,) = _next_free_ip(prefix, int(first_str), existing_ips)
 
@@ -354,6 +386,7 @@ def build_blue_seat_container(
     集合裡的位址，b 永遠不在集合內。這是 build-range.sh 自己註解點名
     「由 #62 補」的那個缺口（見該檔 nft 區塊），現在補上。
     """
+    _ensure_image_built(image)
     prefix, _, first_str = zones["BLUE_IP_FIRST"].rpartition(".")
     ip_a, ip_b = _next_free_ip(prefix, int(first_str), existing_ips, count=2)
     bridge = zones["RANGE_BRIDGE"]
