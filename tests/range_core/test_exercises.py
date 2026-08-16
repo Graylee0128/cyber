@@ -104,6 +104,21 @@ def test_every_roster_row_keeps_its_exercise_id(
     assert exercise_ids == [(started.exercise_id,), (started.exercise_id,)]
 
 
+def test_start_prepared_also_inserts_campaign_state(
+    exercise_store: ExerciseStore,
+) -> None:
+    """#153: `start_prepared` is a separate insert path from `start` -- both
+    must create the matching `exercise_campaign_state` row, not just the
+    one exercised by `test_start_exercise_registers_roster_and_becomes_current`."""
+    prepared = exercise_store.prepare(scenario())
+
+    started = exercise_store.start_prepared(prepared.exercise_id, scenario())
+
+    assert started.campaign is not None
+    assert started.campaign.phase == "briefing"
+    assert started.campaign.chapter is None
+
+
 def test_roster_accepts_scaled_seats_and_rejects_non_seat_addresses() -> None:
     assert PlayerRegistration(
         player_id="red-sixty", source_ip="10.167.30.60"
@@ -160,6 +175,13 @@ def test_reset_deletes_exercise_scoped_state_and_allows_immediate_restart(
 
     assert exercise_store.current() is None
     assert exercise_store.get(first.exercise_id) is None
+    # #153: exercise_campaign_state cascades away with its exercises row,
+    # same as every other exercise-scoped table -- stale chapter/phase must
+    # not leak into whatever starts next.
+    assert pg_connection.execute(
+        "SELECT count(*) FROM exercise_campaign_state WHERE exercise_id = %s",
+        (first.exercise_id,),
+    ).fetchone() == (0,)
     assert pg_connection.execute(
         "SELECT count(*) FROM exercise_objective_completions"
     ).fetchone() == (0,)
