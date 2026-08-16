@@ -61,13 +61,13 @@ class TestPhaseTransition:
         assert body["seq"] is not None
 
         row = pg_connection.execute(
-            "SELECT event_type, visibility, event FROM core_events WHERE event_id = %s",
+            "SELECT event_type, event FROM core_events WHERE event_id = %s",
             (body["event_id"],),
         ).fetchone()
         assert row[0] == "campaign.phase_transition"
-        assert row[1] == "public"
-        assert row[2]["target"]["chapter"] == "CH1"
-        assert row[2]["target"]["label"] == "Initial Access Detected"
+        assert row[1]["visibility"] == "public"
+        assert row[1]["target"]["chapter"] == "CH1"
+        assert row[1]["target"]["label"] == "Initial Access Detected"
 
     def test_omitted_chapter_keeps_the_previous_one(
         self, api: TestClient, running_exercise_id: str
@@ -109,13 +109,13 @@ class TestAnnouncement:
 
         assert response.status_code == 201
         row = pg_connection.execute(
-            "SELECT event_type, visibility, event FROM core_events WHERE event_id = %s",
+            "SELECT event_type, event FROM core_events WHERE event_id = %s",
             (response.json()["event_id"],),
         ).fetchone()
         assert row[0] == "campaign.announcement"
-        assert row[1] == "public"
-        assert row[2]["target"]["text"] == "有人在正式環境開趴"
-        assert row[2]["severity"] == "warning"
+        assert row[1]["visibility"] == "public"
+        assert row[1]["target"]["text"] == "有人在正式環境開趴"
+        assert row[1]["severity"] == "warning"
 
     def test_severity_defaults_to_info(self, api: TestClient, running_exercise_id: str) -> None:
         response = api.post("/api/campaign/announcement", json={"text": "hello"})
@@ -203,7 +203,13 @@ class TestObjectiveCompleteCue:
             token_map={"instructor-secret": "instructor", "red-secret": "red"},
             campaign_clock=exercise_clock,
         )
-        api = TestClient(app, headers={"Authorization": "Bearer red-secret"})
+        # client= is the roster's own source IP (roster() in
+        # test_exercises.py): _player_or_403 needs a real, roster-matching
+        # inet-castable address -- TestClient's default fake peer
+        # ("testclient") isn't one.
+        api = TestClient(
+            app, client=("10.167.30.11", 12345), headers={"Authorization": "Bearer red-secret"}
+        )
 
         response = api.post(
             "/api/submissions", json={"objective_id": "capture_flag", "flag": flag}
@@ -212,13 +218,13 @@ class TestObjectiveCompleteCue:
         assert response.status_code == 200
         assert response.json()["accepted"] is True
         row = pg_connection.execute(
-            "SELECT event_type, visibility, event FROM core_events "
+            "SELECT event_type, event FROM core_events "
             "WHERE event_type = 'campaign.objective_complete'"
         ).fetchone()
         assert row[0] == "campaign.objective_complete"
-        assert row[1] == "public"
-        assert row[2]["target"]["objective_id"] == "capture_flag"
-        assert row[2]["target"]["evaluation"] == "submission"
+        assert row[1]["visibility"] == "public"
+        assert row[1]["target"]["objective_id"] == "capture_flag"
+        assert row[1]["target"]["evaluation"] == "submission"
 
     def test_resubmitting_an_already_completed_objective_does_not_replay_the_cue(
         self, exercise_store: ExerciseStore, pg_connection, exercise_clock
@@ -249,7 +255,9 @@ class TestObjectiveCompleteCue:
             token_map={"instructor-secret": "instructor", "red-secret": "red"},
             campaign_clock=exercise_clock,
         )
-        api = TestClient(app, headers={"Authorization": "Bearer red-secret"})
+        api = TestClient(
+            app, client=("10.167.30.11", 12345), headers={"Authorization": "Bearer red-secret"}
+        )
         body = {"objective_id": "capture_flag", "flag": flag}
 
         api.post("/api/submissions", json=body)
