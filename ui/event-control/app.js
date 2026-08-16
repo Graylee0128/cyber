@@ -8,7 +8,7 @@
  * 座位表，不如把那頁連出去；重複兩份座位狀態就是兩份會對不起來的真相。
  */
 
-import { Gateway, humanize, $, el, clear, renderEmpty, showBanner } from "../assets/api.js";
+import { Gateway, humanize, $, el, clear, renderEmpty, showBanner, poll } from "../assets/api.js";
 
 const api = new Gateway("instructor");
 const banner = $("#banner");
@@ -229,3 +229,15 @@ $("#btn-release").addEventListener("click", () =>
   seatAction("/release", "釋出", "釋出這個座位？佔用它的玩家會失去會話。"));
 
 renderLinks();
+
+/* ---------- 自動輪詢座位池彙總數字（#154 擋路點 3）----------
+ * 之前只在教官自己按按鈕（設定上限／鎖定／單一座位操作）時重抓一次，玩家
+ * 自己領位不會反映到這裡。5 秒輪詢一次，跟 Instructor Console 的 poll(8, refresh)
+ * 同一種模式——彙總數字本身沒有 JSON 端點可以做逐筆座位表，那份仍要靠
+ * 連出去的伺服器渲染頁面（見該頁 <meta refresh>），這裡只補「知道要去看」
+ * 那一層。沒載入 exercise_id 之前不打——`state.exerciseId` 是 null 時
+ * `loadAvailability` 會打出一個 `/undefined/availability`，白白噴錯誤。 */
+poll(5, async () => {
+  if (!state.exerciseId) return;
+  await loadAvailability();
+});

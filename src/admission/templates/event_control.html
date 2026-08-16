@@ -2,6 +2,13 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
+<!-- #154 擋路點 3：這頁是純伺服器渲染的快照，本來完全不會自己更新——玩家
+     領位後教官得手動 F5 才看得到最新座位狀態，沒有任何提示這是快照。這頁
+     本來就唯讀（見下方 boundary 說明），meta refresh 不需要保留任何前端
+     狀態，是這裡最小的修法；5 秒跟 Event Control SPA 的座位池輪詢頻率一致。
+     副作用：現場進場碼那個純前端倒數動畫會跟著重置（本來就是沒接 HMAC 的
+     假資料，見下方 script 註解），不影響任何真實功能。 -->
+<meta http-equiv="refresh" content="5">
 <title>會議中控 Event Control Console</title>
 <style>
   :root {
