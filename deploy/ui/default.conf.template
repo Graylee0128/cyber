@@ -15,6 +15,12 @@
 # 官方 nginx 映像的 entrypoint 會把 `/etc/nginx/templates/*.template` 做環境變數
 # 展開後放到 `/etc/nginx/conf.d/`。所以本檔只含 `server`／`map`，不含 `http {}`。
 
+# WebSocket 升級（ttyd 終端機走 `/terminal/`，見下方 location）。
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
 # token 表：身分 → 該身分在各服務的 token。**表以外沒有第二個地方決定誰是誰。**
 # 沒設到的身分拿到空字串 → 後端回 403（fail closed，不是預設放行）。
 map $gw_id $core_token {
@@ -43,6 +49,7 @@ server {
     set $evaluation   "${UI_EVALUATION_UPSTREAM}";
     set $evidence     "${UI_EVIDENCE_UPSTREAM}";
     set $admission    "${UI_ADMISSION_UPSTREAM}";
+    set $admission_edge "${UI_ADMISSION_EDGE_UPSTREAM}";
     set $grafana      "${UI_GRAFANA_UPSTREAM}";
 
     # 前端一律同源，不需要 CORS；順手擋掉點擊劫持與 MIME 猜測。
@@ -235,6 +242,34 @@ server {
     # 連結點下去是裸 404——玩家自助領位這條路實測前從未真的走通過。
     location ~ ^/admission/(?<join_path>[^/]+/(?:join|claims))$ {
         proxy_pass http://$admission/admission/$join_path$is_args$args;
+    }
+
+    # ---------- ttyd 終端機（玩家 Shell，轉給 Z-EDGE）----------
+    #
+    # `ui/player/app.js` 刻意用相對路徑 `/terminal/<id>`（同源，不是
+    # 寫死某個埠）——它的註解說「Z-EDGE 的 nginx 先打」，代表這條線本來就該
+    # 存在：玩家瀏覽器只認 :8090 這個 origin，ttyd 的 auth_request／Cookie
+    # 剝除仍然整段發生在 Z-EDGE（deploy/edge/nginx.conf）裡，這裡只是把
+    # bytes 轉進去，沒有另外驗證、沒有另外碰 Cookie——Z-EDGE 零憑證的邊界
+    # 沒有被這一層繞過。pre-UAT 2026-08-17 發現：這條線先前完全沒接，
+    # 玩家 Shell 面板打 `/terminal/<id>` 在 :8090 上只會撞 nginx 靜態根目錄
+    # 的裸 404。
+    # 路徑刻意比對「這個 terminal id 之後任意子路徑」，不是精準單一段——
+    # ttyd 開了 `--base-path /terminal/<id>` 之後，真正會被打到的不只
+    # `/terminal/<id>` 本身：先是 302 補上尾斜線、接著是 `.../token`
+    # （CSRF token）、`.../ws`（實際終端機的 WebSocket）。第一版這裡只比對
+    # 單一段、且 proxy_pass 帶了固定路徑（等於把尾斜線／子路徑一律砍掉），
+    # 結果是瀏覽器跟 ttyd 之間的尾斜線重導向來回無限跳
+    # （ERR_TOO_MANY_REDIRECTS，pre-UAT 2026-08-17 發現）。這裡改成不帶路徑
+    # 的 `proxy_pass`（只給 host:port），nginx 會把原始請求 URI 整段原封不動
+    # 轉過去——跟 deploy/edge/nginx.conf 自己那條 `/terminal/` location 對
+    # ttyd upstream 的作法完全一致。
+    location ~ ^/terminal/(?<terminal>[A-Za-z0-9_-]+)(?:/.*)?$ {
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_pass http://$admission_edge;
     }
 
     # ---------- Grafana（Blue SOC 的儀表板分頁）----------

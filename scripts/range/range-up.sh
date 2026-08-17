@@ -73,6 +73,16 @@ if [ "$WITH_FALCO" = 1 ]; then
   fi
 fi
 
+# admission-edge（玩家 ttyd 代理）：跟上面 attach-mgmt 一樣是 best-effort——
+# 只有起了 admission-e2e profile（有 admission-edge 容器）才有事可做，沒起就
+# 跳過，不擋 range-up。沒接這步的後果：玩家 Portal 的 Shell 面板打 /terminal/
+# 全部 502（admission-edge 連不到紅／藍隊容器，見 attach-edge.sh 開頭）。
+echo "▶ 把 compose 的 admission-edge 掛上 VLAN50（玩家 ttyd 代理走 Z-EDGE）"
+if ! bash "$DIR/attach-edge.sh"; then
+  echo "   ⚠ admission-edge 未掛上 VLAN50（admission-e2e profile 起了嗎？）——玩家 Shell 面板會打不通。"
+  echo "     先 docker compose --profile admission-e2e up -d，再單獨跑：sudo bash $DIR/attach-edge.sh"
+fi
+
 # Seat Provisioner Agent（#62 補接線）：host 側常駐，把 admission 的
 # requested 座位建成真容器。跟上面 attach-mgmt 一樣是 best-effort——
 # admission 沒起就跳過，不擋 range-up。

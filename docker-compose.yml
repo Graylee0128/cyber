@@ -167,11 +167,16 @@ services:
       - ./deploy/edge/nginx.conf:/etc/nginx/nginx.conf:ro
     ports:
       - "8088:8080"
+    # z-red／z-blue 拿掉了：兩個網路的 IPAM 子網刻意跟 OVS 的 Z-RED／Z-BLOW
+    # 撞一樣（10.167.30.0/24／10.167.60.0/24），但只是 Docker 自己起的獨立
+    # bridge，從沒接上 br-range——留著只會讓 Docker 幫這兩個子網裝的
+    # connected route 跟 scripts/range/attach-edge.sh 加的路由打架，讓
+    # ttyd 代理連線更難除錯，不是更容易。真正到紅／藍隊的路徑改由
+    # attach-edge.sh 把這個容器接上 OVS 的 Z-EDGE（VLAN50）解決
+    # （pre-UAT 2026-08-17：admission-edge 對紅／藍隊 ttyd 從未真的打通過）。
     networks:
       - z-edge
       - z-app
-      - z-red
-      - z-blue
     depends_on:
       admission:
         condition: service_healthy
@@ -507,6 +512,7 @@ services:
       UI_EVALUATION_UPSTREAM: evaluation-api:8002
       UI_EVIDENCE_UPSTREAM: evaluation-engine:8001
       UI_ADMISSION_UPSTREAM: admission:8000
+      UI_ADMISSION_EDGE_UPSTREAM: admission-edge:8080
       UI_GRAFANA_UPSTREAM: grafana:3000
       # 本機 demo 用的寬鬆值。**正式環境必須收斂到 Z-MGMT 網段** ——
       # 這一條是目前唯一擋得住「拿到網址就進得去教官控台」的東西。
