@@ -108,8 +108,17 @@ const TERMINAL_LABELS = {
 };
 
 function renderTerminal() {
-  const host = clear($("#terminal-host"));
   const terminals = new URLSearchParams(location.search).getAll("terminal");
+  // 同 player/app.js renderTerminal 的理由：`render()` 掛在 `poll(8, refresh)`
+  // 上，iframe 若跟著無條件重建，兩台 ttyd 的 WebSocket session 就每 8 秒
+  // 被砍線重連一次。用 join 比對整個清單（不是只比對長度），terminal=a&b
+  // 換成 terminal=b&a 這種同集合不同序也視為未變——但這裡的網址是玩家自己
+  // 從領位結果導轉來的固定順序，實務上不會發生，寫成集合比對只是不留洞。
+  const key = terminals.join(",");
+  if (state.renderedTerminals === key) return;
+  state.renderedTerminals = key;
+
+  const host = clear($("#terminal-host"));
   if (terminals.length === 0) {
     host.append(el("div", { class: "empty", text:
       "未指定終端機。這一頁的網址要帶 ?terminal=a&terminal=b（一段兩台，各一個 ttyd），"

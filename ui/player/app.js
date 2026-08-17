@@ -243,8 +243,16 @@ $("#flag-submit").addEventListener("click", async () => {
 /* ---------- 終端機 ---------- */
 
 function renderTerminal() {
-  const host = clear($("#terminal-host"));
   const terminal = new URLSearchParams(location.search).get("terminal");
+  // `render()` 跑在 `poll(8, refresh)` 裡——每 8 秒一次。iframe 若跟著無條件
+  // 重建，ttyd 的 WebSocket session 就跟著每 8 秒被砍線重連一次：玩家打到一半
+  // 的指令、還沒讀到的輸出全部清空重來，實質上打不了任何超過幾秒的操作
+  // （pre-UAT 2026-08-17 發現，真的接上 ttyd 之後才測得出來——這頁在此之前
+  // 從沒真的連過一個有狀態的終端機）。同一個 terminal id 只建一次。
+  if (state.renderedTerminal === terminal) return;
+  state.renderedTerminal = terminal;
+
+  const host = clear($("#terminal-host"));
   if (!terminal) {
     host.append(el("div", { class: "empty", text:
       "未指定終端機。這一頁的網址要帶 ?terminal=<座位的終端機代號>，"
