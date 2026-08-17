@@ -2,7 +2,9 @@
 
 > 活契約。本目錄是 [#153](https://github.com/Graylee0128/cyber/issues/153) Phase 1 Content Design 的交付物，且各章節在落地後回填了「實作定案」段，記錄設計與實作對不上時實際怎麼解的（例如 CH2 發現的共享 flag 限制、FINAL 的零覆蓋悖論）。
 >
-> **五章 Scenario 已全數實作完成並 merge**（2026-08-16）：CH1（既有）＋ CH2/CH3/CH4/FINAL（[#157](https://github.com/Graylee0128/cyber/pull/157)／[#158](https://github.com/Graylee0128/cyber/pull/158)／[#159](https://github.com/Graylee0128/cyber/pull/159)／FINAL PR）。`scenarios/` 下五個真 scenario、對應 Falco/Grafana 規則、`config/techniques.yaml` 新增的四個父技術都已落地，全部有真 HTTP round-trip 測試佐證（不是斷言字串存在）。**尚未開始**：Experience Layer 實作、Campaign/UI 整合、`briefing.md` HTTP 端點、dry-run 執行——見 [#153](https://github.com/Graylee0128/cyber/issues/153) 子票拆分。
+> **五章 Scenario 已全數實作完成並 merge**（2026-08-16）：CH1（既有）＋ CH2/CH3/CH4/FINAL（[#157](https://github.com/Graylee0128/cyber/pull/157)／[#158](https://github.com/Graylee0128/cyber/pull/158)／[#159](https://github.com/Graylee0128/cyber/pull/159)／[#161](https://github.com/Graylee0128/cyber/pull/161)）。`scenarios/` 下五個真 scenario、對應 Falco/Grafana 規則、`config/techniques.yaml` 新增的四個父技術都已落地，全部有真 HTTP round-trip 測試佐證（不是斷言字串存在）。
+>
+> **Experience Layer / Campaign UI 整合 / `briefing.md` HTTP 端點也已完成並 merge**（2026-08-16，[#169](https://github.com/Graylee0128/cyber/pull/169)／[#170](https://github.com/Graylee0128/cyber/pull/170)／[#171](https://github.com/Graylee0128/cyber/pull/171)／[#172](https://github.com/Graylee0128/cyber/pull/172)／[#173](https://github.com/Graylee0128/cyber/pull/173)）：`campaign.*` Core Event 三型疊上既有 SSE bus、五個 Instructor Game Master 端點、Battleboard/Blue SOC 的 cue 投影與 SFX、Instructor Console 的 GM 面板、Player Portal 顯示真簡報內容。**尚未做**：dry-run 實際執行——`scripts/range/dry-run-check.py`（[#153](https://github.com/Graylee0128/cyber/issues/153) 最後一塊）已把機械檢查自動化，但需要真 VLAN20 多主機 range（T4），只有 gray 能上機跑。
 
 ## 這份文件是什麼
 

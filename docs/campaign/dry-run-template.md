@@ -76,6 +76,13 @@ dry-run 同時驗證 Blue/Purple 半邊沒有紙上談兵：
 - [ ] Purple Console coverage 表對每條都算得出有意義結果（非空白、非 503）
 - [ ] reset 後每條可重新演練
 
+> **這五項裡有機械可查的部分，不用每次都肉眼核對。** `scripts/range/dry-run-check.py`
+> 把「intentional gap 真的不 firing」「宣稱覆蓋的 telemetry objective 真的註冊進
+> Action Registry」「Battleboard 兩種 revealed 都答得出非空結果」自動化——每章
+> exercise 實際玩過一輪後跑一次，先抓機械性回歸，人力再專心看真正需要人判斷的
+> 部分（見下方「產出」前的提醒）。腳本**不執行 dry-run 本身**：pacing／engagement／
+> meme 落地與否還是要人在現場走一輪，這份表照填。用法見腳本檔頭 docstring。
+
 ---
 
 ## 產出
