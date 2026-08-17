@@ -220,6 +220,23 @@ server {
         proxy_pass http://$admission/admission/$admission_path$is_args$args;
     }
 
+    # ---------- Admission（玩家自助領位，公開層）----------
+    #
+    # Event Control 簽的一次性連結／現場進場碼，玩家是在還沒有任何 session、
+    # 也不在 UI_PRIVILEGED_CIDR 網段的情況下點進來的——這條線本來就該落在
+    # CIDR／auth_request 兩層防線**之外**，跟教官那組是相反的信任模型：
+    # 這裡不是「先證明你是教官」，是「你手上的 token／進場碼本身就是憑證」，
+    # 驗證在 admission 服務內部做（claim 端點自己核對 token／進場碼）。
+    #
+    # 只開 join（渲染表單）與 claims（送出領位）這兩條，不是整個 /admission/
+    # 前綴——同一個前綴下還有 /admission/seats/pending、/admission/instructor/*
+    # 這些教官專用端點，開放整段會直接繞過上面那組 CIDR／auth_request 防線。
+    # pre-UAT 2026-08-17 發現：這條路徑先前完全沒被曝光，Event Control 簽出的
+    # 連結點下去是裸 404——玩家自助領位這條路實測前從未真的走通過。
+    location ~ ^/admission/(?<join_path>[^/]+/(?:join|claims))$ {
+        proxy_pass http://$admission/admission/$join_path$is_args$args;
+    }
+
     # ---------- Grafana（Blue SOC 的儀表板分頁）----------
 
     location /grafana/ {
