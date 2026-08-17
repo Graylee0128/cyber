@@ -4,6 +4,8 @@ import ipaddress
 import logging
 from typing import Any, Protocol
 
+import psycopg
+
 from admission.store.pool import PoolConfigStore
 from admission.store.seats import SeatStore
 
@@ -163,6 +165,19 @@ class AdmissionService:
         return True
 
     def authorize(self, token: str | None, terminal: str) -> str | None:
+        # 藍隊一段兩台（a/b）在玩家一打開 Portal 就幾乎同時被兩個 iframe 各自
+        # 打一次這個端點——兩個請求各自的 resolve_session（SELECT）與
+        # claim_for_access（UPDATE）互相交錯，撞出 Postgres deadlock（實測：
+        # 一個穩定 204、另一個穩定 500，不是偶發，是每次兩台同時載入都會撞）。
+        # deadlock 的正確處理方式就是官方文件寫的那個：重試——輸家的交易已經
+        # 整個回滾，資料沒有半套狀態，重跑一次跟原本沒交錯過一樣。只重試一次：
+        # 兩個請求不可能無限互卡，第二回合幾乎必過。
+        try:
+            return self._authorize_once(token, terminal)
+        except psycopg.errors.DeadlockDetected:
+            return self._authorize_once(token, terminal)
+
+    def _authorize_once(self, token: str | None, terminal: str) -> str | None:
         seat = self.resolve_session(token)
         if seat is None or seat["state"] not in ("ready", "claimed"):
             return None

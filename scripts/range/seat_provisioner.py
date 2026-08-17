@@ -396,8 +396,17 @@ def build_blue_seat_container(
         name = f"{BLUE_CONTAINER_PREFIX}{terminal}-{seat_id}"
         host_if = host_if_name(f"{seat_id}:{terminal}")
         subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False)
+        # image 的 CMD 沒帶 --base-path：a／b 是同一顆 image 的兩個實體，
+        # 誰是 a 誰是 b 只在這裡（哪個迴圈疊代）決定，燒進 Dockerfile 沒有
+        # 意義。跟 deploy/red-attacker 不同——紅隊固定只有一個 terminal id
+        # （"main"）能寫死，藍隊不行。這裡整段覆寫 CMD，補上跟
+        # `deploy/red-attacker/Dockerfile` 同一個理由的 --base-path：
+        # ui/player/blue.js 打 `/terminal/<a|b>`，proxy 原封不動轉過來，
+        # ttyd 服的 JS 得知道自己被掛在哪個子路徑下才能把 WebSocket 接對
+        # （pre-UAT 2026-08-17 發現：這裡從沒被實測過，接上真播放器才測得出來）。
         subprocess.run(
-            ["docker", "run", "-d", "--name", name, "--network", "none", image],
+            ["docker", "run", "-d", "--name", name, "--network", "none", image,
+             "ttyd", "-p", str(TTYD_PORT), "-W", "--base-path", f"/terminal/{terminal}", "bash"],
             check=True, capture_output=True,
         )
         _attach_container_to_vlan(
