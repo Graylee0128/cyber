@@ -274,10 +274,19 @@ server {
 
     # ---------- Grafana（Blue SOC 的儀表板分頁）----------
 
+    # #162：`proxy_pass` 結尾的 `/` 會把比對到的 `/grafana/` 前綴整段砍掉再轉給
+    # 上游——但 Grafana 這邊設了 GF_SERVER_SERVE_FROM_SUB_PATH=true（docker-compose.yml），
+    # 意思是它預期收到的請求路徑**保留**這個前綴才對得上自己的 root_url。兩邊
+    # 剛好互相打架：Grafana 收到被砍過的 `/`，判定跟它認知的子路徑對不上，用
+    # root_url 組一個絕對網址 302 回去——而 root_url 的 domain/port 是 Grafana
+    # 自己的 localhost:3000，不是玩家瀏覽器打的 :8090，於是重導向指去玩家
+    # 瀏覽器自己的 localhost:3000（什麼都沒有），不是指去這台主機。
+    # 不帶路徑的 proxy_pass（同 `/terminal/` 那條 location 的作法）讓原始 URI
+    # 整段原封不動轉過去，跟 SERVE_FROM_SUB_PATH 的期待對上。
     location /grafana/ {
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_pass http://$grafana/;
+        proxy_pass http://$grafana;
     }
 
     location = /healthz {

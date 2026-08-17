@@ -423,6 +423,21 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_UNIFIED_ALERTING_ENABLED: "true"
       GF_ALERTING_ENABLED: "false"
+      # #162：Grafana 掛在 `/grafana/` 子路徑下（deploy/ui/default.conf.template
+      # 的 `location /grafana/`），但 Grafana 自己完全不知道——未登入時它對任何
+      # 頁面請求都回 302 到自己認知的 `/login`（站台根相對路徑，不含
+      # `/grafana/` 前綴），落在 Product UI 的靜態根目錄，404。這不是偶發：
+      # 每一次未登入存取都會 100% 撞到，Blue SOC「遙測儀表板」分頁因此從沒真的
+      # 打開過。`/health/grafana` 不受影響——那條走固定路徑 `/api/health`，
+      # 跟這個子路徑重寫是兩件事，所以 Instructor Console 的狀態燈一直是綠的，
+      # 沒人發現這裡壞了。標準做法：這兩個變數必須成對設，只設一個等於沒設。
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:%(http_port)s/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # Blue SOC 把這個畫面嵌在 iframe 裡給玩家看，不是給教官另外開分頁登入用——
+      # iframe 裡卡一個登入牆，玩家連帳密在哪都不知道，等於這塊面板還是看不到
+      # 東西。Viewer 角色只能看、不能改告警規則或資料源設定。
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
     volumes:
       - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
     ports:
