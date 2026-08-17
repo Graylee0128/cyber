@@ -47,8 +47,13 @@ for i in $(seq 1 "$COUNT"); do
   cont_if="cr$i"
 
   docker rm -f "$name" >/dev/null 2>&1 || true
+  # 不覆蓋 CMD：讓 image 自己的 `ttyd -p 7681 -W bash` 當第 1 號行程跑——
+  # `--network none` 起時只有 loopback，ttyd bind 0.0.0.0:7681 一樣成立，
+  # 下面的 veth 晚點才接上，不影響它已經在聽。pre-UAT 2026-08-17 前這裡是
+  # `sleep infinity` + 另外起 stub_listener.py 佔住 :7681（只驗網路契約，
+  # 沒有真的 shell）——玩家 Portal 的終端機面板打進來完全是空的。
   docker run -d --name "$name" --network none --cap-add NET_ADMIN \
-    "$RED_IMAGE" sleep infinity >/dev/null
+    "$RED_IMAGE" >/dev/null
   pid="$(docker inspect -f '{{.State.Pid}}' "$name")"
   ln -sf "/proc/$pid/ns/net" "/var/run/netns/$name"
 
@@ -67,10 +72,7 @@ for i in $(seq 1 "$COUNT"); do
   ip netns exec "$name" ip link set eth0 up
   ip netns exec "$name" ip link set lo up
   ip netns exec "$name" ip route add default via "$GW" 2>/dev/null || true
-  nohup ip netns exec "$name" python3 "$DIR/stub_listener.py" --ports 7681 \
-    >"/tmp/range-red$i-listener.log" 2>&1 &
-  disown || true
-  echo "   • $name → VLAN$Z_RED_VLAN $ip（pid $pid）"
+  echo "   • $name → VLAN$Z_RED_VLAN $ip（pid $pid，ttyd :7681）"
 done
 
 # Host-side guard for the RED containers **as they are attached today**: they sit
