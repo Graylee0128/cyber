@@ -14,12 +14,33 @@
  */
 
 import { Gateway, humanize, $, el, clear, showBanner, clockTime, countdown, poll } from "../assets/api.js";
+import { mapEventToCue, createSfxLimiter } from "../assets/experience.js";
+import { playCue, getAudioPrefs, setAudioPrefs } from "../assets/audio.js";
 
 const api = new Gateway("red");
 const banner = $("#banner");
 const MAX_TIMELINE_ROWS = 40;
 
 const state = { exercise: null, timeline: [], attacks: [] };
+
+const PHASE_LABEL = {
+  briefing: "簡報中", initial: "初始入侵", escalation: "升級中",
+  critical: "危急", final: "最後衝刺", debrief: "賽後總結",
+};
+
+/* ---------- #153 Campaign 章節橫幅 ---------- */
+
+function renderCampaignBanner() {
+  const campaign = state.exercise?.campaign;
+  const bannerEl = $("#campaign-banner");
+  if (!campaign) {
+    bannerEl.classList.remove("on");
+    return;
+  }
+  bannerEl.classList.add("on");
+  $("#campaign-chapter").textContent = campaign.chapter ? `📖 ${campaign.chapter}` : "";
+  $("#campaign-phase").textContent = PHASE_LABEL[campaign.phase] ?? campaign.phase;
+}
 
 /* ---------- 攻防進度 ---------- */
 
@@ -117,6 +138,7 @@ async function refresh() {
   try {
     const exercise = await api.core("/api/exercises/current");
     state.exercise = exercise;
+    renderCampaignBanner();
     if (!exercise) {
       $("#scenario").textContent = "無進行中的演練";
       $("#timer").textContent = "—";
@@ -159,15 +181,68 @@ function tickTimer() {
   $("#timer").textContent = endsAt ? `${countdown(endsAt)} 剩餘` : "—";
 }
 
+/* ---------- #153 Experience Layer：cue toast + SFX ---------- */
+
+const sfxLimiter = createSfxLimiter();
+let cueToastTimer = null;
+
+function showCueToast(cue) {
+  const toast = $("#cue-toast");
+  toast.textContent = cue.presentation?.label ?? "";
+  toast.classList.toggle("critical", cue.kind === "critical_alert");
+  toast.classList.toggle("reduced-motion", getAudioPrefs().reducedMotion);
+  toast.classList.add("show");
+  clearTimeout(cueToastTimer);
+  cueToastTimer = setTimeout(() => toast.classList.remove("show"), 3500);
+
+  if (sfxLimiter(cue.kind, Date.now())) playCue(cue.kind);
+}
+
+function handleLiveEvent(event, seq) {
+  pushTimelineEvent(event);
+  const cue = mapEventToCue(event, seq);
+  if (cue) showCueToast(cue);
+  if (cue?.kind === "phase_transition") {
+    // The next poll (≤5s) would pick this up anyway via
+    // GET /api/exercises/current -- refreshing state.exercise.campaign
+    // immediately from the cue itself just avoids a visible lag on the
+    // room's shared screen for the one cue that changes the banner.
+    if (state.exercise) {
+      state.exercise = {
+        ...state.exercise,
+        campaign: { ...(state.exercise.campaign ?? {}), chapter: cue.chapter, phase: cue.phase },
+      };
+      renderCampaignBanner();
+    }
+  }
+}
+
+/* ---------- #153 音訊／動態效果控制（localStorage，逐瀏覽器） ---------- */
+
+function initAudioControls() {
+  const prefs = getAudioPrefs();
+  const mutedEl = $("#audio-muted");
+  const volumeEl = $("#audio-volume");
+  const reducedMotionEl = $("#audio-reduced-motion");
+  mutedEl.checked = prefs.muted;
+  volumeEl.value = String(prefs.volume);
+  reducedMotionEl.checked = prefs.reducedMotion;
+
+  mutedEl.addEventListener("change", () => setAudioPrefs({ muted: mutedEl.checked }));
+  volumeEl.addEventListener("input", () => setAudioPrefs({ volume: Number(volumeEl.value) }));
+  reducedMotionEl.addEventListener("change", () => setAudioPrefs({ reducedMotion: reducedMotionEl.checked }));
+}
+
 /* ---------- 串流 ---------- */
 
 const liveDot = $("#live");
 api.stream({
-  onEvent: pushTimelineEvent,
+  onEvent: handleLiveEvent,
   onOpen: () => { liveDot.className = "dot-live on"; },
   onDrop: () => { liveDot.className = "dot-live off"; },
 });
 
+initAudioControls();
 renderChain();
 renderDefense();
 renderTimeline();

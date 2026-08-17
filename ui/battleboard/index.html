@@ -32,14 +32,54 @@
     margin-top: 14px; padding: 10px 12px; background: #1a1530; border: 1px solid #3a2f66;
     border-radius: 6px; font-size: 12px; color: #c9b8ff;
   }
+
+  /* #153 Experience Layer -- campaign banner, cue toast, audio/motion controls */
+  .campaign-banner {
+    display: none; align-items: baseline; gap: 12px; padding: 10px 20px;
+    margin-bottom: 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--panel-board); font-weight: 700;
+  }
+  .campaign-banner.on { display: flex; }
+  .campaign-banner .chapter { font-size: 15px; color: var(--amber); letter-spacing: 0.04em; }
+  .campaign-banner .phase-label { font-size: 13px; color: var(--muted); font-weight: 600; }
+
+  .cue-toast {
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 700;
+    background: #1a1530; border: 1px solid #3a2f66; color: #e8def8;
+    opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+    z-index: 50; max-width: 80vw; text-align: center;
+  }
+  .cue-toast.show { opacity: 1; }
+  .cue-toast.critical { background: #3a1420; border-color: #6b2430; color: #ffb4c0; }
+  /* reduced-motion: no fade transition, just appear/disappear */
+  .cue-toast.reduced-motion { transition: none; }
+
+  .audio-controls {
+    display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted);
+  }
+  .audio-controls label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  .audio-controls input[type="range"] { width: 70px; }
 </style>
 </head>
 <body class="board">
+
+<div class="cue-toast" id="cue-toast"></div>
 
 <div class="header">
   <div class="vs"><span class="r">🔴 RED</span> vs <span class="b">🔵 BLUE</span></div>
   <div class="meta" id="scenario">—</div>
   <div class="meta" id="timer">—</div>
+  <div class="audio-controls">
+    <label><input type="checkbox" id="audio-muted"> 靜音</label>
+    <label>音量 <input type="range" id="audio-volume" min="0" max="1" step="0.1"></label>
+    <label><input type="checkbox" id="audio-reduced-motion"> 減少動態效果</label>
+  </div>
+</div>
+
+<div class="campaign-banner" id="campaign-banner">
+  <span class="chapter" id="campaign-chapter"></span>
+  <span class="phase-label" id="campaign-phase"></span>
 </div>
 
 <div id="banner" class="banner"></div>
