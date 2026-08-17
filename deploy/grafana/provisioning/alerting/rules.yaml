@@ -83,8 +83,22 @@ groups:
       # by (source_ip, action_id)：source_ip 供封鎖對象（#17）；action_id 從 marker
       # 的 `action:<id>` regexp 抽出（harness.attacker 埋進 payload），讓同一 source
       # 的多次註冊攻擊各自成 series → 各自一個 firing → Evaluation 能以 action_id 關聯
-      # 每次的偵測時間點（#90 Phase 4 的 latency 量測；分組不靠時間窗鄰近性）。marker
-      # 沒帶 action 時 regexp 不匹配、label 缺席 → 併成空 action_id，行為與舊式一致。
+      # 每次的偵測時間點（#90 Phase 4 的 latency 量測；分組不靠時間窗鄰近性）。
+      #
+      # 原本的假設是「marker 沒帶 action 時 regexp 不匹配、label 缺席 → 併成空
+      # action_id，行為與舊式一致」——這個假設是錯的：Loki 的 metric aggregation
+      # （`count_over_time` 這種 range vector）下，`| regexp` 沒匹配到的那一行會被整行
+      # 濾掉，不是「label 缺席但行還在」。真紅隊手動打 SQLi（沒有 harness 的
+      # marker）因此永遠 0 筆，這條規則對真攻擊從未真的 fire 過，telemetry 型的
+      # `detect-catalog-sqli` objective（scenarios/shopdb-credential-pivot/metadata.yaml）
+      # 100 分永遠拿不到（pre-UAT 2026-08-17 用真的紅藍同場演練才踩到——分隊各自
+      # 煙霧測試不會觸發這條路徑）。
+      #
+      # 修法保留 regexp（harness 仍可用 marker 覆寫 action_id，供 #90 latency 量測
+      # 分辨同一時間窗內的多次註冊攻擊），但把 regexp 包成可選（外層 `(?:...)?`，
+      # 讓沒帶 marker 的行也能通過 filter），再用 label_format 補一個預設值：
+      # 這條規則的 scope（app="range-target" 的 sqli_suspected）在這個 scenario 裡
+      # 本來就只對應唯一一個 attack_chain 節點，預設回填是準確的，不是猜測。
       - uid: sqli-injection-burst-target
         title: SQLInjectionBurstTarget
         condition: C
@@ -102,7 +116,7 @@ groups:
               datasource:
                 type: loki
                 uid: loki
-              expr: 'sum by (source_ip, action_id) (count_over_time({app="range-target"} | json | sqli_suspected=`true` | regexp `action:(?P<action_id>[A-Za-z0-9._-]+)` [1m]))'
+              expr: 'sum by (source_ip, action_id) (count_over_time({app="range-target"} | json | sqli_suspected=`true` | regexp `(?:action:(?P<action_id>[A-Za-z0-9._-]+))?` | label_format action_id="{{ if .action_id }}{{ .action_id }}{{ else }}sqli-extract-credentials{{ end }}" [1m]))'
               queryType: range
               intervalMs: 1000
               maxDataPoints: 43200

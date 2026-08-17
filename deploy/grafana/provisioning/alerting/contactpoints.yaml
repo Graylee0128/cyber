@@ -1,6 +1,16 @@
 apiVersion: 1
 
 # Grafana firing → webhook → P1 receiver。這是 D1 路徑的最後一段。
+#
+# `receiver`（無 profiles 限制，一律啟動）接的是 postgres/purple——這座
+# DB 在目前唯一實跑的部署形態（admission-e2e）裡沒有任何寫入者：唯一的
+# Range Core 是 admission-range-core（profiles: admission-e2e），寫的是
+# admission-postgres/admission；exercises 表只存在那裡。Grafana 打舊的
+# `receiver` 會在 RunningExerciseLookup 查到空表，webhook 回 500，Grafana
+# 重試耗盡後放棄——알림從未進過 core_events／alert_records，purple 側對
+# 任何演練的偵測結果永遠是空的（pre-UAT 2026-08-17 發現：紅藍同場一次
+# 真實演練，才會讓 webhook 真的打一發，此前的分隊煙霧測試都不會觸發）。
+# admission-receiver 才是接 admission-postgres 的那一個，改指過去。
 contactPoints:
   - orgId: 1
     name: purple-receiver
@@ -8,5 +18,5 @@ contactPoints:
       - uid: purple-webhook
         type: webhook
         settings:
-          url: http://receiver:8000/webhook
+          url: http://admission-receiver:8000/webhook
           httpMethod: POST
