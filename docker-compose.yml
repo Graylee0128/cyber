@@ -112,6 +112,14 @@ services:
       RANGE_CORE_TOKEN_PURPLE: e2e-purple-token
     ports:
       - "8003:8000"
+    volumes:
+      # `scripts/range/build-vm-target.sh` 的 FLAG_SHARE_FILE 寫在**主機**這個
+      # 路徑（range-up 每次重烤/重起靶機都重寫）；`src/range_core/flags.py` 的
+      # `SharedFileFlagSource` 用同一個絕對路徑在**容器內**讀——兩邊路徑字面
+      # 相同不代表看得到同一個檔，這裡原本沒有這個 mount，玩家提交 flag
+      # 100% 撞 `FlagUnavailable`（pre-UAT 2026-08-17 發現：submission 型
+      # objective 在真 scenario 上從未真的驗過）。唯讀：容器只比對，不寫入。
+      - /var/lib/purplescope:/var/lib/purplescope:ro
     networks:
       - z-app
       - z-mgmt
