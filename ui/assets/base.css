@@ -66,7 +66,18 @@ h1 { font-size: 20px; margin: 0 0 4px; }
   border-radius: 8px;
   padding: 20px;
 }
-.panel + .panel { margin-top: 16px; }
+/* 面板垂直堆疊間距——`.grid` 也算一個「區塊」，跟獨立 `.panel` 互相接在一起時
+   一樣要有間距，不然兩者用不同 class、選擇器比對不到，會直接黏在一起。 */
+.panel + .panel,
+.grid + .panel,
+.panel + .grid,
+.grid + .grid {
+  margin-top: 16px;
+}
+/* 上面那組規則用的相鄰兄弟選擇器，在 `.grid` 內部「左右並排」的面板之間也會
+   命中（DOM 上一樣是相鄰兄弟）——但並排的間距已經由 `.grid` 的 `gap` 負責，
+   多出來的 margin-top 只會讓面板變矮、跟同排的不等高。這裡蓋掉它。 */
+.grid > .panel + .panel { margin-top: 0; }
 .panel-title {
   font-size: 12px; color: var(--muted); text-transform: uppercase;
   letter-spacing: 0.08em; margin-bottom: 14px; font-weight: 700;
@@ -76,8 +87,12 @@ h1 { font-size: 20px; margin: 0 0 4px; }
 .grid.c2 { grid-template-columns: 1fr 1fr; }
 .grid.c3 { grid-template-columns: 1fr 2fr 1fr; }
 .grid.sidebar { grid-template-columns: 2fr 1fr; }
+/* 給等寬卡片牆用（ui/index.html 入口頁）——`.c3` 是 1fr 2fr 1fr，特地給
+   battleboard 那種「窄—寬—窄」三面板版面用的，塞等寬卡片會擠成一邊大一邊
+   小的怪比例，所以另開一個 class，不動 `.c3` 本體。 */
+.grid.cards3 { grid-template-columns: repeat(3, 1fr); }
 @media (max-width: 900px) {
-  .grid.c2, .grid.c3, .grid.sidebar { grid-template-columns: 1fr; }
+  .grid.c2, .grid.c3, .grid.cards3, .grid.sidebar { grid-template-columns: 1fr; }
 }
 
 /* ---- 表格 ---- */

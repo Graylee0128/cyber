@@ -302,16 +302,20 @@ async function loadPreparationStatus() {
       `已有預備中的演練：${prepared.exercise_id}（scenario ${prepared.scenario_id}）——`
       + "上方「開始演練」（手打 IP）跟這筆預備互斥，已停用。玩家經 Admission 領位後，"
       + "按下面「開始已預備的演練」即可，不用再輸入任何 IP。" }));
-    host.append(el("button", {
-      class: "primary",
-      text: "開始已預備的演練",
-      onclick: () => startPrepared(prepared.exercise_id, prepared.scenario_id),
-    }));
-    host.append(el("button", {
-      class: "danger",
-      text: "取消預備",
-      onclick: () => cancelPreparation(prepared.exercise_id),
-    }));
+    // `.row` 給 `gap: 8px`（見 base.css）——兩顆按鈕直接 append 到 `#lifecycle`
+    // 沒有這層會黏在一起，跟上方工具列（也是 `.row`）的間距對不起來。
+    host.append(el("div", { class: "row" }, [
+      el("button", {
+        class: "primary",
+        text: "開始已預備的演練",
+        onclick: () => startPrepared(prepared.exercise_id, prepared.scenario_id),
+      }),
+      el("button", {
+        class: "danger",
+        text: "取消預備",
+        onclick: () => cancelPreparation(prepared.exercise_id),
+      }),
+    ]));
   } catch (error) {
     // 404 = 目前沒有 prepared，這是正常狀態，不用顯示任何東西。
     if (error.status !== 404) {
