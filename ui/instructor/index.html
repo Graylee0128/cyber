@@ -16,6 +16,10 @@
     font-size: 13px; padding: 4px 10px; border-radius: 999px;
     border: 1px solid var(--border); margin: 0 6px 6px 0;
   }
+  /* #153 Experience Layer -- Game Master panel */
+  .gm-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  .gm-row input[type="text"], .gm-row select { flex: 1; min-width: 120px; }
+  .gm-row input[type="text"].wide { min-width: 220px; }
 </style>
 </head>
 <body>
@@ -73,6 +77,56 @@
       只把上面的 Admission 告警唸成一段話，不新增判斷、不影響任何計分／證據欄位。
       AI 服務沒起或逾時時這裡會是空的，不影響其餘功能。
     </div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-title">Campaign / Experience Layer（Game Master）</div>
+  <div class="note">
+    這裡的每個動作都會投影成 Battleboard／Blue SOC 看到的 cue（見
+    docs/campaign/experience-contract.md）。刻意沒有「覆寫分數」「插入任意事件」——
+    Experience Layer 不得成為 gameplay 的第二個真相來源。
+  </div>
+  <div class="section-label">目前狀態</div>
+  <div id="campaign-state"></div>
+
+  <div class="section-label">推進 Chapter / Phase</div>
+  <div class="gm-row">
+    <select id="campaign-phase-select">
+      <option value="briefing">briefing（簡報）</option>
+      <option value="initial">initial（初始入侵）</option>
+      <option value="escalation">escalation（升級）</option>
+      <option value="critical">critical（危急）</option>
+      <option value="final">final（最後衝刺）</option>
+      <option value="debrief">debrief（賽後總結）</option>
+    </select>
+    <input type="text" id="campaign-chapter-input" placeholder="Chapter（如 CH2，留空維持原值）">
+    <input type="text" id="campaign-label-input" class="wide" placeholder="Battleboard 公開文案（必填，不含攻擊路徑）">
+    <button class="primary" id="btn-campaign-advance">推進</button>
+  </div>
+
+  <div class="section-label">Announcement（公告，全場可見）</div>
+  <div class="gm-row">
+    <input type="text" id="campaign-announcement-input" class="wide" placeholder="公告文字（最多 280 字）">
+    <select id="campaign-announcement-severity">
+      <option value="info">info</option>
+      <option value="warning">warning</option>
+      <option value="critical">critical</option>
+    </select>
+    <button id="btn-campaign-announce">發送</button>
+  </div>
+
+  <div class="section-label">BGM Phase（手動切換，不隨事件自動反應）</div>
+  <div class="gm-row">
+    <input type="text" id="campaign-bgm-input" placeholder="如 critical / final">
+    <button id="btn-campaign-bgm">設定</button>
+  </div>
+
+  <div class="section-label">暫停 / 恢復</div>
+  <div class="gm-row">
+    <button id="btn-campaign-pause">暫停</button>
+    <button id="btn-campaign-resume">恢復</button>
+    <span class="note" style="margin:0">恢復時會把暫停經過的時間加回倒數，暫停不吃掉玩家的實際遊玩時間。</span>
   </div>
 </div>
 

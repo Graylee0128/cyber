@@ -16,10 +16,13 @@
 import {
   Gateway, humanize, $, $$, el, clear, renderEmpty, showBanner, clockTime, poll,
 } from "../assets/api.js";
+import { mapEventToCue, createSfxLimiter } from "../assets/experience.js";
+import { playCue } from "../assets/audio.js";
 
 const api = new Gateway("blue");
 const banner = $("#banner");
 const MAX_ALERTS = 100;
+const sfxLimiter = createSfxLimiter();
 
 const state = {
   exercise: null,
@@ -74,6 +77,44 @@ function renderAlerts() {
         + (alert.rule ? `　·　${alert.rule}` : "") }),
     ]);
     host.append(node);
+  }
+}
+
+/* ---------- #153 Experience Layer：critical-alert pulse + 輕量 cue banner ---------- */
+
+let cueBannerTimer = null;
+
+function showCueBanner(text) {
+  const target = $("#cue-banner");
+  target.textContent = text;
+  target.classList.add("show");
+  clearTimeout(cueBannerTimer);
+  cueBannerTimer = setTimeout(() => target.classList.remove("show"), 4000);
+}
+
+function pulseAlertsHeader() {
+  const title = $("#alerts-panel-title");
+  title.classList.remove("pulse");
+  // Force reflow so re-adding the class restarts the animation even if a
+  // second critical_alert cue arrives before the first pulse finished.
+  void title.offsetWidth;
+  title.classList.add("pulse");
+}
+
+function handleLiveEvent(event, seq) {
+  pushAlert(event);
+  const cue = mapEventToCue(event, seq);
+  if (!cue) return;
+  if (cue.kind === "critical_alert") {
+    // MVP boundary (experience-contract.md): Blue SOC gets critical-alert
+    // visual + short SFX only -- objective_complete/major_event get the
+    // lighter banner below, no pulse, no sound (Battleboard already plays
+    // objective-complete SFX; two surfaces sounding the same room-shared
+    // moment would just be noise, not signal).
+    pulseAlertsHeader();
+    if (sfxLimiter(cue.kind, Date.now())) playCue(cue.kind);
+  } else if (cue.kind === "objective_complete" || cue.kind === "major_event") {
+    showCueBanner(cue.presentation?.label ?? "");
   }
 }
 
@@ -255,7 +296,7 @@ async function refresh() {
 
 const liveDot = $("#live");
 api.stream({
-  onEvent: pushAlert,
+  onEvent: handleLiveEvent,
   onOpen: () => { liveDot.className = "dot-live on"; },
   onDrop: () => { liveDot.className = "dot-live off"; },
 });
