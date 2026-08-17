@@ -309,7 +309,11 @@ for (const tab of $$(".tab")) {
     }
     if (tab.dataset.screen === "grafana") {
       const frame = $("#grafana-frame");
-      if (!frame.src) frame.src = "/grafana/";
+      // 指向 PurpleScope SOC dashboard 本身，不是 Grafana 首頁——首頁對玩家沒有
+      // 任何意義（Welcome 畫面），這個分頁的存在理由是看這場演練的遙測。
+      // kiosk 模式收掉 Grafana 自己的側欄／頂欄：iframe 裡的玩家是 Viewer，
+      // 那些導覽對他不但無用，還會讓他以為自己能操作 Grafana。
+      if (!frame.src) frame.src = "/grafana/d/purplescope-soc/purplescope-soc?kiosk";
     }
   });
 }

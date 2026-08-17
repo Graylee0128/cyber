@@ -1,0 +1,21 @@
+apiVersion: 1
+
+# Blue SOC「遙測儀表板」分頁（ui/blue-soc）嵌的就是這個 provider 佈的
+# dashboard。在這之前 provisioning/ 底下只有 alerting/ 與 datasources/，
+# 完全沒有 dashboards/——iframe 因此只能嵌 Grafana 首頁（Welcome 畫面），
+# 那個分頁「打得開但沒有這場演練的遙測」（pre-UAT 2026-08-17 發現）。
+providers:
+  - name: PurpleScope
+    orgId: 1
+    folder: PurpleScope
+    type: file
+    disableDeletion: false
+    # provisioned dashboard 一律唯讀：真相在這個 repo 的 JSON 檔，不在
+    # Grafana 的資料庫裡，允許 UI 編輯只會讓兩邊悄悄漂掉。
+    editable: false
+    allowUiUpdates: false
+    options:
+      # 跟 provider yaml 同一個資料夾。Grafana 只把 *.json 當 dashboard 解析，
+      # 這個 yaml 本身不會被誤讀。
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false
