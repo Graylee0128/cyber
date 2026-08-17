@@ -438,6 +438,13 @@ services:
       # 東西。Viewer 角色只能看、不能改告警規則或資料源設定。
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      # Grafana 預設拒絕被嵌進任何 iframe（送 `X-Frame-Options: deny`，防點擊
+      # 劫持的預設立場）——但 Blue SOC「遙測儀表板」那個分頁的存在理由就是把
+      # 它嵌進 iframe（見 ui/blue-soc/index.html 那句「不重做一套 incident
+      # 佇列 UI：底層儀表板直接嵌入」）。沒開這個，前面兩項路徑／匿名存取修完
+      # 之後，iframe 頂層文件請求還是會被瀏覽器擋（net::ERR_BLOCKED_BY_RESPONSE），
+      # 資產／API 請求 200 但畫面仍是空的。
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
     volumes:
       - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
     ports:
