@@ -33,6 +33,7 @@ async function refresh() {
     const exercise = await api.core("/api/exercises/current");
     state.exercise = exercise;
     renderLifecycle();
+    renderCampaignState();
 
     if (!exercise) {
       $("#subtitle").textContent = "目前沒有進行中的演練";
@@ -94,6 +95,106 @@ function renderLifecycle() {
     ]));
   }
 }
+
+/* ---------- #153 Campaign / Experience Layer（Game Master）----------
+ * 每個動作都疊在既有 Core Event SSE bus 上（見 campaign_events.py），這裡
+ * 只是打五個 instructor-only 端點；campaign 狀態本身搭現有的
+ * GET /api/exercises/current 輪詢顯示，不另開輪詢。 */
+
+const PHASE_LABEL = {
+  briefing: "briefing（簡報）", initial: "initial（初始入侵）",
+  escalation: "escalation（升級）", critical: "critical（危急）",
+  final: "final（最後衝刺）", debrief: "debrief（賽後總結）",
+};
+
+function renderCampaignState() {
+  const host = clear($("#campaign-state"));
+  const campaign = state.exercise?.campaign;
+  if (!campaign) {
+    renderEmpty(host, state.exercise ? "此演練沒有 campaign 狀態（#153 之前開始的舊演練）。" : "沒有進行中的演練。");
+    return;
+  }
+  for (const [key, value] of [
+    ["Chapter", campaign.chapter ?? "（尚未設定）"],
+    ["Phase", PHASE_LABEL[campaign.phase] ?? campaign.phase],
+    ["BGM Phase", campaign.bgm_phase ?? "（尚未設定）"],
+    ["暫停中", campaign.paused ? `是（自 ${clockTime(campaign.paused_at)}）` : "否"],
+  ]) {
+    host.append(el("div", { class: "kv-row" }, [
+      el("span", { class: "k", text: key }),
+      el("span", { text: String(value) }),
+    ]));
+  }
+}
+
+$("#btn-campaign-advance").addEventListener("click", async () => {
+  const phase = $("#campaign-phase-select").value;
+  const chapter = $("#campaign-chapter-input").value.trim() || null;
+  const label = $("#campaign-label-input").value.trim();
+  if (!label) {
+    showBanner(banner, "推進 phase 需要填公開文案（Battleboard 會直接顯示）。", "info");
+    return;
+  }
+  try {
+    await api.core("/api/campaign/phase", { method: "POST", body: { phase, chapter, label } });
+    $("#campaign-label-input").value = "";
+    showBanner(banner, "已推進 campaign phase。", "info");
+    refresh();
+  } catch (error) {
+    showBanner(banner, humanize(error));
+  }
+});
+
+$("#btn-campaign-announce").addEventListener("click", async () => {
+  const text = $("#campaign-announcement-input").value.trim();
+  const severity = $("#campaign-announcement-severity").value;
+  if (!text) {
+    showBanner(banner, "公告文字不能是空的。", "info");
+    return;
+  }
+  try {
+    await api.core("/api/campaign/announcement", { method: "POST", body: { text, severity } });
+    $("#campaign-announcement-input").value = "";
+    showBanner(banner, "已發送公告。", "info");
+  } catch (error) {
+    showBanner(banner, humanize(error));
+  }
+});
+
+$("#btn-campaign-bgm").addEventListener("click", async () => {
+  const bgmPhase = $("#campaign-bgm-input").value.trim();
+  if (!bgmPhase) {
+    showBanner(banner, "BGM phase 不能是空的。", "info");
+    return;
+  }
+  try {
+    await api.core("/api/campaign/bgm", { method: "POST", body: { bgm_phase: bgmPhase } });
+    showBanner(banner, "已切換 BGM phase。", "info");
+    refresh();
+  } catch (error) {
+    showBanner(banner, humanize(error));
+  }
+});
+
+$("#btn-campaign-pause").addEventListener("click", async () => {
+  try {
+    await api.core("/api/campaign/pause", { method: "POST" });
+    showBanner(banner, "已暫停。", "info");
+    refresh();
+  } catch (error) {
+    showBanner(banner, humanize(error));
+  }
+});
+
+$("#btn-campaign-resume").addEventListener("click", async () => {
+  try {
+    await api.core("/api/campaign/resume", { method: "POST" });
+    showBanner(banner, "已恢復。", "info");
+    refresh();
+  } catch (error) {
+    showBanner(banner, humanize(error));
+  }
+});
 
 $("#btn-start").addEventListener("click", async () => {
   const scenarioId = $("#scenario-select").value;

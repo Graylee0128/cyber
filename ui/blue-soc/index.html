@@ -24,6 +24,16 @@
     word-break: break-all;
   }
   .grafana { width: 100%; height: 520px; border: 1px solid var(--border); border-radius: 6px; }
+
+  /* #153 Experience Layer -- critical_alert pulse + lightweight cue banner */
+  .panel-title.pulse { animation: alert-pulse 0.6s ease-in-out 2; color: var(--red); }
+  @keyframes alert-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .cue-banner {
+    display: none; padding: 8px 14px; margin-bottom: 10px; border-radius: 6px;
+    font-size: 13px; font-weight: 600; background: #131a2a; border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .cue-banner.show { display: block; }
 </style>
 </head>
 <body>
@@ -37,6 +47,7 @@
 </div>
 
 <div id="banner" class="banner"></div>
+<div class="cue-banner" id="cue-banner"></div>
 
 <div class="tabs">
   <div class="tab active" data-screen="ops">事件處置</div>
@@ -48,7 +59,7 @@
   <div class="grid sidebar">
     <div>
       <div class="panel">
-        <div class="panel-title">告警佇列（即時）</div>
+        <div class="panel-title" id="alerts-panel-title">告警佇列（即時）</div>
         <div id="alerts"></div>
       </div>
     </div>
